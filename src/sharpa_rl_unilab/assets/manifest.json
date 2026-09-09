@@ -1,0 +1,70 @@
+{
+  "sources": {
+    "unilabsim/unilab-robots": {
+      "revision": "89d1df833d9068c8d48a54cc29a2e2617e508f59",
+      "files": "robots/sharpa_wave/meshes/** (40 STL meshes)"
+    },
+    "unilabsim/unilab-caches": {
+      "revision": "f59630ae6799814d7b37343e435b109a0b99b431",
+      "files": "caches/sharpa_grasp_linspace_{0.8..1.6}.npy (9 grasp cache files)"
+    }
+  },
+  "notes": [
+    "scene.xml and right_sharpa_wave.xml are git-native (copied from UniLab src/unilab/assets/robots/sharpa_wave/, byte-identical to UniLab git HEAD); the HF unilab-robots dataset does not host sharpa_wave XML files.",
+    "caches/sharpa_grasp_linspace is a filename prefix, not a directory: the runtime resolves '<grasp_cache_path>_<scale:g>.npy' (see UniLab sharpa_inhand resolve_grasp_cache_file), so cache files stay flat under caches/.",
+    "right_sharpa_wave.usda was requested but does not exist in any unilabsim HF dataset (unilab-robots, unilab-caches, unilab-motions, unilab-scenes, unilab-checkpoints all checked)."
+  ],
+  "sha256": {
+    "caches/sharpa_grasp_linspace_0.8.npy": "1e3e806989a49192815636ecf97f84504a84b5b87cbef08f9fdbc8e3e5212e5f",
+    "caches/sharpa_grasp_linspace_0.9.npy": "1e96703b1080615c3a4882e238297a4cc7616a3df7aef70a9f3087bf9594aecd",
+    "caches/sharpa_grasp_linspace_1.1.npy": "1a335ee124b264b9b3a10dc2664ed87a9f75c05ee340fe207143a11839d74539",
+    "caches/sharpa_grasp_linspace_1.2.npy": "6324dd9df0b7bad978f7e57bf4cc502f43f786a338ddebca65aa077b0bb5f825",
+    "caches/sharpa_grasp_linspace_1.3.npy": "1d87fdab132cfd0b7bd3551cee4068d7dfe01cc39ca0b3f2b52049bae338f36e",
+    "caches/sharpa_grasp_linspace_1.4.npy": "24e6da601a40141fe58d9c866190109fb3e4f96c72f97e5be84fbd9433cb1b9e",
+    "caches/sharpa_grasp_linspace_1.5.npy": "04cd28a07b684272014535b9b1694c199dfef18cfd90114e7a101d5b852aec5e",
+    "caches/sharpa_grasp_linspace_1.6.npy": "90522a211c4ac3b92462bba85ddf10b6c07fcf34b14141f01dc0d78a515adccc",
+    "caches/sharpa_grasp_linspace_1.npy": "22a2dac7f6ecdf73764d06c74f3810b21ec9af43c609d283d61b788b8383c842",
+    "robots/sharpa_wave/meshes/DP_HB1_4F.STL": "b28a529aadb4a084912f3697b117ba43fd13c6f3136e48166b5dd1616d9f3eef",
+    "robots/sharpa_wave/meshes/DP_HB1_TH.STL": "df2dcfc770ecf81e893a65d28994ff608556156f4e9a0b447086ab6de485cd75",
+    "robots/sharpa_wave/meshes/DP_Visual_HB1_TH.STL": "db4e895306f51b7cc369b01b705d276b6d69c773033d7e01c8bafbf2d1ecd7e8",
+    "robots/sharpa_wave/meshes/DP_elastomer.STL": "4d9ed21e6c4e1e94a43bce9b9ef210cc84bbbe461b4cf637529ec7007b9319bf",
+    "robots/sharpa_wave/meshes/DP_elastomer_HB1_4F.STL": "0781b19feca3209c74ff63d72188350ebc19624112be1259fdf007007c9795f5",
+    "robots/sharpa_wave/meshes/DP_elastomer_HB1_TH.STL": "62935bc489a5234d0e373bab1d52b09613ec50ab66a7be3f010e19988ee46090",
+    "robots/sharpa_wave/meshes/DP_visual_HB1_4F.STL": "5123fd1776cfc82895f9f0b6ba4098522baaad9ebaaa3110ff1246775cfbd737",
+    "robots/sharpa_wave/meshes/MCP_VL.STL": "350f66d656fef760a7f4f0c4a026951e9d831ca65a9c5e4e34825b694ed6b11a",
+    "robots/sharpa_wave/meshes/elastomer.STL": "1611f42070a8fb34226508417bb930af53bbe9e3b619113136b60cb0595ca4ed",
+    "robots/sharpa_wave/meshes/elastomer_HB1_4F.STL": "88b214c5c614b4b5f0c7cf195a90825b41e20745b1b65442854b371ff065e858",
+    "robots/sharpa_wave/meshes/elastomer_HB1_TH.STL": "437f363ca7a40b6e9b9152ebb81db249c51de71565cdb44b7df6e2cdf0da3312",
+    "robots/sharpa_wave/meshes/elastomer_surface.STL": "7f88a20e862895e3bf97d35c600b9eb5c2f2e49f8918ef9fe07bd82e6572fae8",
+    "robots/sharpa_wave/meshes/flange_A.STL": "cdd3bd8e3668f24cea2f500f10519859bb2fe082ebb777ffa459df324bf05d3a",
+    "robots/sharpa_wave/meshes/flange_B.STL": "c5051bf5e1ee87cdecc061326d4413b9e6232fe07777e5b3437f4a459a9280bc",
+    "robots/sharpa_wave/meshes/right_DP.STL": "09ae5e485d42c651c70d025ef6bcd000f727dd1535836d7d8fa9de0686db4583",
+    "robots/sharpa_wave/meshes/right_DP_visual.STL": "f21c6a8d12a21b29ff05127ec1987135cc966a283707165d93a30f9e74d4a0ed",
+    "robots/sharpa_wave/meshes/right_MCP_VL_visual.STL": "ec48548aaafa6589112e9b609ed58f1b5e7ec0157ca15e0e4e8c93bff706a9d0",
+    "robots/sharpa_wave/meshes/right_MP.STL": "98ad7e6e990f61857d6ad28860bba7e0dcba78761a513d60fdc527e9d56bbe8e",
+    "robots/sharpa_wave/meshes/right_MP_visual.STL": "af867d754ae0f3d5c38610f72cf4699789c82bb0391c2a406e6924f76e850ec6",
+    "robots/sharpa_wave/meshes/right_PP.STL": "ed975b59e2569759ff28a397dab71d84667161d3b90b41d625bc5e1f5ac6536c",
+    "robots/sharpa_wave/meshes/right_PP_visual.STL": "aa8b0ac6b6a7769033daa149416035712b23b79af0a7ddeb83d62142f8ff8a14",
+    "robots/sharpa_wave/meshes/right_hand_C_MC.STL": "8c52941db271e9331f0b32ec581c078af7f8cb372fb97f021d5b1dec2d2426ae",
+    "robots/sharpa_wave/meshes/right_hand_C_MC_visual.STL": "9234e513974246de38de76ce5f2a48078ebb014e890083219e2bd93caef55b60",
+    "robots/sharpa_wave/meshes/right_hand_C_MC_visual_.STL": "9234e513974246de38de76ce5f2a48078ebb014e890083219e2bd93caef55b60",
+    "robots/sharpa_wave/meshes/right_pinky_MC.STL": "1f8207aff0f2f6ca2f1de1a8bbbbcd4183300bc3778d55821c2aae9b490b7dd3",
+    "robots/sharpa_wave/meshes/right_pinky_MC_visual.STL": "5ae38bab4f573bd147e5a5e231eb399e2396575884cd36e574235258a048e53b",
+    "robots/sharpa_wave/meshes/right_thumb_CMC_VL_visual.STL": "ebaf499965a51e4b539b7ec5481efbddaf2003b69d0e5e72425a430cecd187b0",
+    "robots/sharpa_wave/meshes/right_thumb_DP.STL": "7bd0a9187d9cca7c3136d471784db39a3593b5264e16586002f73db42292dc6e",
+    "robots/sharpa_wave/meshes/right_thumb_DP_visual.STL": "7bac46dd5699d6b2fed60fdb384199cdab7407343d61db3fc8737866096fa440",
+    "robots/sharpa_wave/meshes/right_thumb_MC.STL": "deb6d97eb2d7223d72c23ebb32f874644dcf78848389f14dcabe3016aae5dd6c",
+    "robots/sharpa_wave/meshes/right_thumb_MCP_VL_visual.STL": "30d656738130093b7023100c73fac065a173aaba2e4314034c050c984005d634",
+    "robots/sharpa_wave/meshes/right_thumb_MC_visual.STL": "81f4bf8c39117b7bf7a4f0fdeb577948056139a84927adc55e9b049434a41a3b",
+    "robots/sharpa_wave/meshes/right_thumb_PP.STL": "795b35f943c4272314d5e72497aaea2ef998458b0259a6609577d3694aeff869",
+    "robots/sharpa_wave/meshes/right_thumb_PP_visual.STL": "1024905f9af3ad14160ce55d2e1d98fb7028274f7b267bee8b057754eb165faa",
+    "robots/sharpa_wave/meshes/thumb_DP_elastomer.STL": "fb80bbef551c88dcb555a472acc32a9f57467d123fa8a2b3e8f21f1541e5d271",
+    "robots/sharpa_wave/meshes/thumb_elastomer.STL": "8fb5b2036eda97fe4c2ce50ad8e021775185961c478c0d6f25f5a776588d9b14",
+    "robots/sharpa_wave/meshes/thumb_elastomer_surface.STL": "1b25efc390f9db9eca87ed167e7baa2e3220a417bbd49924beb077da458c6241",
+    "robots/sharpa_wave/meshes/wrist_A.STL": "5c4c9fc0dd538c4e11d64ae4994269090334f0f5fe25bbea022a501948d2e529",
+    "robots/sharpa_wave/meshes/wrist_B.STL": "ce978dda8bbfb8ad59cb2f5decf647882d1be67fd758329d40c7c4cefacbf771",
+    "robots/sharpa_wave/meshes/wrist_collision.STL": "147da80c56a334d83b1ac882f3110b29401d5806c94b993e77e9d763bdca2b54",
+    "robots/sharpa_wave/right_sharpa_wave.xml": "7d8b92cb1efd0985bd2389d719c7fad06c4dcf45b7c479396ff5190bb24b8876",
+    "robots/sharpa_wave/scene.xml": "41dfe0c43f09187ee3c902b7279f218062650de82f9a5cfad10fc824e9ba479b"
+  }
+}
