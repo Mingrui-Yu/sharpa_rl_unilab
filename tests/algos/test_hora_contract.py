@@ -600,3 +600,26 @@ def test_hora_appo_update_uses_joint_shared_optimizer() -> None:
         not torch.allclose(before, after)
         for before, after in zip(trunk_before, trunk_after, strict=True)
     )
+
+
+def test_hora_distill_play_camera_kwargs_returns_typed_camera_cfg() -> None:
+    from types import SimpleNamespace
+
+    from unisim.backend.base import CameraCfg
+
+    from sharpa_rl_unilab.training.train_hora_distill import _play_camera_kwargs
+
+    cfg = SimpleNamespace(
+        training=SimpleNamespace(
+            cam_distance=3.5,
+            cam_elevation=-20.0,
+            cam_azimuth=90.0,
+            cam_lookat=None,
+        )
+    )
+
+    camera = _play_camera_kwargs(cast(Any, cfg))
+
+    assert isinstance(camera, CameraCfg)
+    assert camera.cam_distance == pytest.approx(3.5)
+    assert camera.cam_elevation == pytest.approx(-20.0)
