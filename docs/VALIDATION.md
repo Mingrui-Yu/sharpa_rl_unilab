@@ -30,7 +30,7 @@ base commit) is recorded in [MIGRATION_MANIFEST.json](../MIGRATION_MANIFEST.json
 | UniLab `rg -i 'sharpa\|hora'` full-tree audit (commit `e8b61d24`) | zero hits (excluding `.git`/`.venv`/lock/log files) |
 | sharpa_rl_unilab `uv sync --extra mujoco` | success (development-time local path sources) |
 | sharpa_rl_unilab `make check` | green (ruff, format, mypy, pyright: 0 errors) |
-| sharpa_rl_unilab `uv run pytest tests/ -q` (full suite incl. slow MuJoCo physics) | 70 passed, 4 skipped (motrix extra not installed) |
+| sharpa_rl_unilab `uv run pytest tests/ -q` (full suite incl. slow MuJoCo physics) | 66 passed, 4 skipped (motrix extra not installed), 4 failed — the typed-camera tests from PR #1, blocked on `unisim-core>=1.1.5` + Motphys/UniLab#1548 per PR #1's documented merge order |
 | sharpa_rl_unilab `uv build` | success; wheel contains `conf/` and `assets/` (manifest, caches, meshes, XML) |
 
 ## Entrypoint smoke checks
@@ -88,7 +88,7 @@ is unilab_rl's CHANGELOG history entry._
   the crash was gone: `test_sharpa_mujoco_interval_force_plan_matches_decay_and_mass_scaled_resample`
   asserted legacy `IntervalRandomizationPlan` fields while the provider
   (unchanged from UniLab HEAD) builds ops-based plans; the stale test was
-  updated to the ops contract and the full suite passes (70 passed).
+  updated to the ops contract and those physics tests now pass. (The 4 typed-camera tests from PR #1 remain red until unisim-core 1.1.5 and Motphys/UniLab#1548 land — that is PR #1's documented merge order, not a migration defect.)
 - **Behavior-equivalence replay and end-to-end training smoke are still
   pending**; run them on a healthy machine using the approach described above.
 - **pyproject dependency pinning is development-time only.** Dependencies
