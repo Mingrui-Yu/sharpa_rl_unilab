@@ -30,7 +30,7 @@ base commit) is recorded in [MIGRATION_MANIFEST.json](../MIGRATION_MANIFEST.json
 | UniLab `rg -i 'sharpa\|hora'` full-tree audit (commit `e8b61d24`) | zero hits (excluding `.git`/`.venv`/lock/log files) |
 | sharpa_rl_unilab `uv sync --extra mujoco` | success (development-time local path sources) |
 | sharpa_rl_unilab `make check` | green (ruff, format, mypy, pyright: 0 errors) |
-| sharpa_rl_unilab `uv run pytest tests/ -m "not slow"` | 64 passed, 4 skipped (motrix extra not installed) |
+| sharpa_rl_unilab `uv run pytest tests/ -q` (full suite incl. slow MuJoCo physics) | 70 passed, 4 skipped (motrix extra not installed) |
 | sharpa_rl_unilab `uv build` | success; wheel contains `conf/` and `assets/` (manifest, caches, meshes, XML) |
 
 ## Entrypoint smoke checks
@@ -76,14 +76,21 @@ is unilab_rl's CHANGELOG history entry._
 
 ## Known limitations / follow-ups
 
-- **5 slow MuJoCo physics tests segfault on this machine.** The same crash
-  reproduces with the original UniLab HEAD code run inside UniLab's own venv
-  (exit 139, inside `mujoco_uni` `BatchEnvPool.reset`), so it is a local
-  environment issue, not introduced by the migration. These tests must be
-  re-run on a normal machine or in CI.
+- **Slow MuJoCo physics tests: root cause found and fixed.** The segfault
+  (exit 139 in `mujoco_uni` `BatchEnvPool.reset`) was caused by the `object`
+  body in `scene.xml` being compiled with MuJoCo's `simple`/`sameframe`
+  optimization: reset-time com/mass domain randomization then trips
+  `mj_setConst` ("body 24 is compiled as simple but sameframe no longer
+  holds") and the native batch runtime corrupts the heap on that error path.
+  Fixed by `simple="false"` on the `object` body (see
+  `src/sharpa_rl_unilab/assets/manifest.json` notes). The same defect exists
+  in the pre-migration UniLab XML. A second pre-existing failure surfaced once
+  the crash was gone: `test_sharpa_mujoco_interval_force_plan_matches_decay_and_mass_scaled_resample`
+  asserted legacy `IntervalRandomizationPlan` fields while the provider
+  (unchanged from UniLab HEAD) builds ops-based plans; the stale test was
+  updated to the ops contract and the full suite passes (70 passed).
 - **Behavior-equivalence replay and end-to-end training smoke are still
-  pending** for the same reason; run them on a healthy machine using the
-  approach described above.
+  pending**; run them on a healthy machine using the approach described above.
 - **pyproject dependency pinning is development-time only.** Dependencies
   currently resolve through local path sources plus `override-dependencies`.
   After the source-repo PRs merge, switch to git pins (aligned with the

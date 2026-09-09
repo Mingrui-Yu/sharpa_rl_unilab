@@ -27,7 +27,7 @@
     <light pos="0 0 1.5" dir="0 0 -1" directional="true" diffuse="0.8 0.8 0.8"/>
     <geom name="floor" pos="0 0 0" size="0 0 0.05" type="plane" material="groundplane"/>
 
-    <body name="object" pos="-0.09559 -0.00517 0.61906" gravcomp="0">
+    <body name="object" pos="-0.09559 -0.00517 0.61906" gravcomp="0" simple="false">
       <freejoint name="object_joint"/>
       <geom
         name="object"

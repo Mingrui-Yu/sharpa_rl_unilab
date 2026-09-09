@@ -980,10 +980,13 @@ def test_sharpa_mujoco_interval_force_plan_matches_decay_and_mass_scaled_resampl
             )
 
             assert plan is not None
-            assert plan.body_ids is not None
-            assert plan.body_force is not None
+            ops = plan.iter_ops()
+            assert len(ops) == 1
+            op = ops[0]
+            assert op.term == "body_force"
+            assert op.body_ids is not None
             np.testing.assert_array_equal(
-                plan.body_ids,
+                op.body_ids,
                 np.asarray([env_obj._object_body_id], dtype=np.int32),
             )
 
@@ -996,7 +999,7 @@ def test_sharpa_mujoco_interval_force_plan_matches_decay_and_mass_scaled_resampl
                 * float(env_obj.cfg.domain_rand.force_scale)
             )
             np.testing.assert_allclose(env_obj._random_object_force, expected_force)
-            np.testing.assert_allclose(plan.body_force, expected_force[:, None, :])
+            np.testing.assert_allclose(op.payload, expected_force[:, None, :])
             assert plan.body_linear_velocity_delta is None
         finally:
             pool = getattr(getattr(env_obj, "_backend", None), "_pool", None)

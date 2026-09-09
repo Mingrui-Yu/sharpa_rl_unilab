@@ -22,7 +22,7 @@ from unilab.training import (
     should_run_playback,
 )
 from unilab.training.experiment import get_device_info_dict, write_run_config_snapshot
-from unisim.backend.base import CameraCfg, log_playback_plan
+from unisim.backend.base import log_playback_plan
 from unisim.backend.mujoco.xml import materialize_scene_visual_override
 
 from sharpa_rl_unilab.algos.hora import HoraDistillationTrainer
@@ -106,7 +106,7 @@ def _build_play_env_cfg_override(cfg: DictConfig) -> dict[str, Any]:
     return cast(dict[str, Any], adapter.build_play_env_cfg_override())
 
 
-def _play_camera_kwargs(cfg: DictConfig) -> CameraCfg:
+def _play_camera_kwargs(cfg: DictConfig) -> dict[str, Any]:
     camera_kwargs = {
         "cam_tracking": getattr(cfg.training, "cam_tracking", False),
         "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
@@ -116,7 +116,7 @@ def _play_camera_kwargs(cfg: DictConfig) -> CameraCfg:
         value = getattr(cfg.training, key, None)
         if value is not None:
             camera_kwargs[key] = value
-    return CameraCfg.from_kwargs(camera_kwargs)
+    return camera_kwargs
 
 
 def play_hora_distill(cfg: DictConfig, device: str) -> str | None:
