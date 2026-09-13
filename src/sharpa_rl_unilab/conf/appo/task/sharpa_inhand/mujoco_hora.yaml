@@ -1,17 +1,16 @@
 # @package _global_
-# HORA Sharpa APPO variant. Inherit the shared MuJoCo owner so backend support
-# and shared hyperparameters stay aligned with the non-HORA Sharpa APPO config.
 defaults:
-  - /task/sharpa_inhand/mujoco
-  - _self_
-
+- /task/sharpa_inhand/mujoco
+- _self_
 training:
   replay_queue_size: 8
   cam_distance: 0.75
-  cam_lookat: [0.0, 0.0, 0.62]
+  cam_lookat:
+  - 0.0
+  - 0.0
+  - 0.62
   cam_elevation: -25.0
   cam_azimuth: 45.0
-
 interactive:
   action_mode: policy
   policy_obs_mode: actor
@@ -19,7 +18,6 @@ interactive:
   camera_elevation: -25.0
   camera_azimuth: 45.0
   use_env_visual_model: true
-
 algo:
   algo_log_name: hora_appo
   runtime_impl: hora_appo
@@ -28,37 +26,85 @@ algo:
   steps_per_env: 8
   max_iterations: 305
   save_interval: 51
-  obs_groups:
-    # Keep grouped keys explicit in the owner YAML; runtime support for these
-    # grouped observations lands in the next implementation step.
-    actor:
-      actor: 0
-      priv_info: 0
-    critic:
-      actor: 0
-      priv_info: 0
   actor:
     class_name: sharpa_rl_unilab.algos.hora:HoraActorModel
     priv_info_embed_dim: 9
-    priv_mlp_hidden_dims: [256, 128, 9]
+    priv_mlp_hidden_dims:
+    - 256
+    - 128
+    - 9
   critic:
     class_name: sharpa_rl_unilab.algos.hora:HoraCriticModel
     priv_info_embed_dim: 9
-    priv_mlp_hidden_dims: [256, 128, 9]
+    priv_mlp_hidden_dims:
+    - 256
+    - 128
+    - 9
   algorithm:
     learning_rate: 0.001
     desired_kl: 0.04
     adaptive_kl_factor: 1.2
     adaptive_lr_factor: 1.1
-
 env:
-  use_default_object_pose_for_object_pos_anchor: true
-  obs:
-    observation_mode: separated
-  domain_rand:
-    randomize_friction: true
-    randomize_friction_scale_lower: 0.75
-    randomize_friction_scale_upper: 1.25
-    elastomer_base_friction: 2.0
-    metal_base_friction: 1.0
-    object_base_friction: 2.0
+  observations:
+    flat: null
+    actor:
+      history_length: 3
+      flatten_history_dim: true
+      terms:
+        frame:
+          func: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.SharpaRotationObservation
+          params:
+            entity_name: robot
+            action_name: hand
+            event_state_name: reset
+            domain_randomization_name: domain_randomization
+            sensor_names: &id001
+            - contact_right_thumb_elastomer_force
+            - contact_right_index_elastomer_force
+            - contact_right_middle_elastomer_force
+            - contact_right_ring_elastomer_force
+            - contact_right_pinky_elastomer_force
+            enable_tactile: true
+            joint_noise: 0.02
+            contact_smoothing: 0.5
+            contact_latency: 0.005
+            contact_sensor_noise: 0.01
+            binary_contact: false
+            contact_threshold: 0.05
+            tactile_force_clip_max: 4.0
+            disable_tactile_ids: &id002 []
+            clip_obs: 5.0
+    critic:
+      history_length: 3
+      flatten_history_dim: true
+      terms:
+        privileged:
+          func: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.SharpaCriticObservation
+          params:
+            entity_name: robot
+            action_name: hand
+            event_state_name: reset
+            domain_randomization_name: domain_randomization
+            sensor_names: *id001
+            enable_tactile: true
+            joint_noise: 0.02
+            contact_smoothing: 0.5
+            contact_latency: 0.005
+            contact_sensor_noise: 0.01
+            binary_contact: false
+            contact_threshold: 0.05
+            tactile_force_clip_max: 4.0
+            disable_tactile_ids: *id002
+            clip_obs: 5.0
+  policy_observation_group: actor
+  critic_observation_group: critic
+  terminations:
+    dropped:
+      func: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.SharpaDropTermination
+      params:
+        observation_group: actor
+        observation_term: frame
+    time_out:
+      func: unilab.envs.mdp.time_out
+      time_out: true

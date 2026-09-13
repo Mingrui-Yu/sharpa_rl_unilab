@@ -1,79 +1,46 @@
 # UniLab Sharpa 手内操作与 HORA
 
-Sharpa Wave 灵巧手内旋转任务，提供 PPO、APPO、SAC teacher 以及 HORA student
-蒸馏。本仓库是从 UniLab 与 unilab_rl 拆出的任务、配置、机器人资源、抓取缓存
-和 HORA 实现的唯一维护位置。
+Sharpa Wave 手内旋转任务已迁移到 UniLab 当前 **Manager-Based API**。任务只
+拥有 action / observation / reset / event / termination / reward terms；
+UniLab 保持外部依赖，负责 manager 生命周期与仿真后端。此前任务自有的
+legacy/direct `NpEnv` 实现和 compatibility factory 已移除。
 
-[English](README.md) · [拆分 roadmap：UniLab #1547](https://github.com/unilabsim/UniLab/issues/1547)
+支持 PPO、HORA APPO、FlashSAC teacher，以及基于 APPO teacher 的 HORA student
+蒸馏。
 
-## 安装
+## 安装与校验
 
 ```bash
 git clone https://github.com/unilabsim/sharpa_rl_unilab.git
 cd sharpa_rl_unilab
 uv sync --extra mujoco
+uv run pytest
+uv run pyright
 ```
 
-Motrix 使用 `uv sync --extra motrix`；需要两个后端时同时选择两个 extra。
-开发期间 UniLab 与 unilab-rl 通过 [pyproject.toml](pyproject.toml) 中的本地
-editable path 来源解析（`../UniLab`、`../unilab_rl`）。
-
-约 40 MB 的机器人 XML、网格和抓取缓存随 Git 仓库与 Python 包提供。
-加载机器人资源无需访问 Hugging Face，也无需运行时联网。
-`uv run sharpa-assets` 准备可写本地缓存；
-可通过 `SHARPA_RL_UNILAB_ASSET_CACHE` 指定缓存目录。
+开发环境通过兄弟目录 `../UniLab` 作为 `unilab` source；包依赖仍是外部的
+`unilab>=1.2.0,<1.3`，`unilab-rl>=1.2.0,<1.3` 来自发布包。
 
 ## 训练与回放
 
-| 算法 | 已提供的 owner 配置 |
-| --- | --- |
-| PPO | MuJoCo、Motrix、MuJoCo HORA |
-| APPO | MuJoCo、Motrix、MuJoCo HORA |
-| SAC（HORA teacher） | MuJoCo |
-| HORA 蒸馏 | MuJoCo |
-
-该表列出配置范围，不代表训练效果基准。
-
 ```bash
-uv run sharpa-train --algo ppo --sim mujoco training.log_root=./logs/ppo-mujoco training.no_play=true
-uv run sharpa-train --algo ppo --sim motrix training.log_root=./logs/ppo-motrix training.no_play=true
 uv run sharpa-train --algo appo --sim mujoco --profile hora training.no_play=true
-uv run sharpa-train --algo sac --sim mujoco training.no_play=true
+uv run sharpa-train --algo flashsac --sim mujoco training.no_play=true
+uv run sharpa-train --algo ppo --sim mujoco training.no_play=true
 ```
 
-任务默认为 `sharpa_inhand`；抓取缓存采集使用 `--task sharpa_inhand_grasp`，
-HORA teacher 变体使用 `--profile hora`。调参时追加 Hydra override；
-`--cfg` 打印组合后的配置；通过 `--sim` 选择后端。
+`--cfg` 可打印合成后的 Manager-Based 配置。评估时将 `algo.load_run` 指向运行
+目录，并用 `algo.checkpoint=-1` 选择最新 checkpoint。
 
-评估时将 `algo.load_run` 指向包含 checkpoint 的 run 目录；
-`algo.checkpoint=-1` 选择其最新 checkpoint。
+## 正确性说明
 
-```bash
-uv run sharpa-eval --algo ppo --sim mujoco training.log_root=./logs/eval-ppo algo.load_run=/absolute/path/to/ppo/run algo.checkpoint=-1
-uv run sharpa-eval --algo appo --sim mujoco --profile hora algo.load_run=/absolute/path/to/hora-appo/run algo.checkpoint=-1
-```
+- 物体尺寸随机化使用 UniLab fixed model variants
+  （`scene_scale_0.8.xml` … `scene_scale_1.5.xml`），不再运行时改 geom size。
+- fixed variant 中所有 body geom 均唯一命名，满足 `mjbatch.VariantPack`。
+- 所有 variant 的自由物体保留 `simple="false"`，避免 reset 时 mass/CoM DR 触发
+  `mj_setConst` sameframe 崩溃。
+- 触觉平滑/延迟、特权信息、位置目标、执行器增益、物体质量/质心/摩擦/重力与
+  衰减外力均为显式 manager terms，仅通过 Entity facade 访问状态。
 
-Student 蒸馏通过专用入口运行：
-
-```bash
-uv run sharpa-distill task=sharpa_inhand/mujoco algo.load_run=/absolute/path/to/teacher/run
-```
-
-teacher/student 流程见 [HORA](docs/zh_CN/7-hora.md)；抓取缓存采集与逐 scale
-override 见[灵巧手内操作](docs/zh_CN/1-dexterous_inhand.md)。
-
-## 工具与文档
-
-```bash
-bash src/sharpa_rl_unilab/tools/sharpa_collect_grasps.sh 0.8 1.0 1.2
-uv run python -m sharpa_rl_unilab.tools.benchmark_sharpa_init_dr_construct
-```
-
-采集脚本对每个 scale 依次驱动 `sharpa-train` 的 grasp owner；benchmark 测量
-init-DR 构造成本与 variant 数量的关系。
-
-- [任务 owner 与命令](docs/zh_CN/1-dexterous_inhand.md)
-- [HORA teacher/student](docs/zh_CN/7-hora.md)
-- [架构与拆分记录](docs/ARCHITECTURE.md)
-- [已执行的迁移检查](docs/VALIDATION.md)
-- [来源清单](MIGRATION_MANIFEST.json) 与 [许可说明](NOTICE.md)
+详见 [架构](docs/ARCHITECTURE.md)、[验证](docs/VALIDATION.md) 与
+[HORA](docs/zh_CN/7-hora.md)。

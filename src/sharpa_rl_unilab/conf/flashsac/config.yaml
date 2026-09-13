@@ -1,38 +1,48 @@
 defaults:
   - _self_
-  - task: sharpa_inhand/mujoco_hora
+  - task: sharpa_inhand/mujoco
 
 algo:
-  algo: sac
-  algo_log_name: fast_sac
-  runtime_impl: null
-  runtime_resolver: null
+  algo: flashsac
+  algo_log_name: flash_sac
   load_run: "-1"
   seed: 1
-  num_envs: 4096
-  # Learner batch size for one SAC update.
-  batch_size: 8192
+  num_envs: 1024
+  batch_size: 2048
   replay_buffer_n: 512
-  updates_per_step: 4
-  learning_starts: 1
-  policy_frequency: 4
-  max_iterations: 500
-  save_interval: 500
+  updates_per_step: 2
+  learning_starts: 98
+  policy_frequency: 2
+  max_iterations: 5000
+  save_interval: 1000
   gamma: 0.97
-  tau: 0.125
+  tau: 0.01
   actor_lr: 3.0e-4
   critic_lr: 3.0e-4
-  actor_hidden_dim: 512
-  critic_hidden_dim: 768
+  actor_hidden_dim: 128
+  critic_hidden_dim: 256
   num_atoms: 101
   obs_normalization: false
-  use_layer_norm: true
-  actor: {}
+  use_layer_norm: false
   algo_params:
-    alpha_lr: 3.0e-4
-    alpha_init: 0.01
-    target_entropy_ratio: 0.0
-    max_grad_norm: 0.0
+    normalize_reward: true
+    normalized_g_max: 5.0
+    actor_num_blocks: 2
+    critic_num_blocks: 2
+    actor_bc_alpha: 0.0
+    actor_noise_zeta_mu: 2.0
+    actor_noise_zeta_max: 16
+    critic_min_v: -5.0
+    critic_max_v: 5.0
+    temp_initial_value: 0.01
+    temp_target_sigma: 0.15
+    temp_target_entropy: null
+    learning_rate_init: 3.0e-4
+    learning_rate_peak: 3.0e-4
+    learning_rate_end: 1.5e-4
+    learning_rate_warmup_steps: 0
+    learning_rate_decay_steps: 500000
+    n_step: 1
     amp_dtype: auto
     use_compile: true
     use_cuda_graph_critic: false
@@ -78,10 +88,6 @@ training:
   log_root: null
   log_dir: null
   env_steps_per_sync: 1
-  # Seconds the learner waits for each collector inference tick before
-  # failing. Tick 0 includes collector env construction, whose cost is
-  # backend-owned; slow-start backends raise this in their task owner YAML.
-  inference_request_timeout_sec: 30.0
   trace_enabled: false
   trace_output_dir: null
   trace_thread_time: false
@@ -127,13 +133,6 @@ interactive:
   keyboard: false
   keyboard_step_lin: 0.1
   keyboard_step_ang: 0.2
-
-env:
-  post_step_forward_sensor: false
-  # adaptive_chunk_size: auto-tune the MuJoCo BatchEnvPool chunk_size at materialize
-  # (cache-backed). chunk_size (int) manually overrides and wins; null => use default.
-  adaptive_chunk_size: true
-  chunk_size: null
 
 hydra:
   run:

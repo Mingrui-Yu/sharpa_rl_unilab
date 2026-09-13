@@ -34,11 +34,6 @@ def compose_config(
     profile: str | None = None,
 ) -> DictConfig:
     owner = _owner_name(task, sim, profile)
-    if profile is None and not (CONF_ROOT / algo / "task" / f"{owner}.yaml").is_file():
-        # SAC ships only the HORA teacher owner; fall back to the hora variant.
-        hora_owner = _owner_name(task, sim, "hora")
-        if (CONF_ROOT / algo / "task" / f"{hora_owner}.yaml").is_file():
-            owner = hora_owner
     if not (CONF_ROOT / algo / "task" / f"{owner}.yaml").is_file():
         raise ValueError(f"No owner for algo={algo}, task={task}, sim={sim}, profile={profile}")
     reserved = {"task", "training.task_name", "training.sim_backend", "training.play_only"}
@@ -54,8 +49,8 @@ def compose_config(
 
 def _main(*, play: bool, argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Sharpa Wave in-hand manipulation")
-    parser.add_argument("--algo", choices=["ppo", "appo", "sac"], default="ppo")
-    parser.add_argument("--sim", choices=["mujoco", "motrix"], default="mujoco")
+    parser.add_argument("--algo", choices=["ppo", "appo", "flashsac"], default="ppo")
+    parser.add_argument("--sim", choices=["mujoco"], default="mujoco")
     parser.add_argument("--task", choices=sorted(TASK_NAMES), default="sharpa_inhand")
     parser.add_argument("--profile", choices=["hora"], default=None)
     parser.add_argument(
@@ -77,7 +72,7 @@ def _main(*, play: bool, argv: list[str] | None = None) -> None:
         from unilab.scripts import train_appo
 
         train_appo.main(cfg)
-    elif args.algo == "sac":
+    elif args.algo == "flashsac":
         from unilab.scripts import train_offpolicy
 
         train_offpolicy.main(cfg)

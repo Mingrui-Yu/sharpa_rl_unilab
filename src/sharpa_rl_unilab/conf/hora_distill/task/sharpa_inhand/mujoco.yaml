@@ -1,6 +1,6 @@
 # @package _global_
 teacher:
-  algo_family: ppo
+  algo_family: appo
   task: sharpa_inhand/mujoco_hora
 
 training:
@@ -20,8 +20,6 @@ interactive:
   camera_azimuth: 90.0
   use_env_visual_model: true
 
-env:
-  post_step_forward_sensor: true
 
 algo:
   algo_log_name: hora_distill

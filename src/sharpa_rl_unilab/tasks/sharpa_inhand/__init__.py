@@ -1,21 +1,19 @@
-from . import (
-    grasp_gen as grasp_gen,  # registers SharpaInhandRotationGrasp via @registry decorators
-)
-from . import (
-    rotation as rotation,  # registers SharpaInhandRotation via @registry decorators
-)
-from .grasp_gen import (
+"""Sharpa Wave Manager-Based task-family registrations."""
+
+from . import config as config
+from . import grasp_gen as grasp_gen
+from . import rotation as rotation
+from .config import (
     SharpaInhandGraspEnvCfg,
+    SharpaInhandRotationCfg,
     SharpaInhandRotationGraspCfg,
-    SharpaInhandRotationGraspEnv,
 )
-from .rotation import RewardConfig, SharpaInhandRotationCfg, SharpaInhandRotationEnv
 
 __all__ = [
-    "RewardConfig",
-    "SharpaInhandRotationCfg",
-    "SharpaInhandRotationEnv",
-    "SharpaInhandRotationGraspCfg",
     "SharpaInhandGraspEnvCfg",
-    "SharpaInhandRotationGraspEnv",
+    "SharpaInhandRotationCfg",
+    "SharpaInhandRotationGraspCfg",
+    "config",
+    "grasp_gen",
+    "rotation",
 ]

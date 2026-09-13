@@ -13,7 +13,8 @@
     "scene.xml and right_sharpa_wave.xml are git-native (copied from UniLab src/unilab/assets/robots/sharpa_wave/, right_sharpa_wave.xml is byte-identical to UniLab git HEAD; scene.xml differs by the post-migration simple=\"false\" fix noted below); the HF unilab-robots dataset does not host sharpa_wave XML files.",
     "caches/sharpa_grasp_linspace is a filename prefix, not a directory: the runtime resolves '<grasp_cache_path>_<scale:g>.npy' (see UniLab sharpa_inhand resolve_grasp_cache_file), so cache files stay flat under caches/.",
     "right_sharpa_wave.usda was requested but does not exist in any unilabsim HF dataset (unilab-robots, unilab-caches, unilab-motions, unilab-scenes, unilab-checkpoints all checked).",
-    "scene.xml: object body sets simple=\"false\" (post-migration fix); with the default simple/sameframe compilation, reset-time com/mass domain randomization trips mj_setConst \"sameframe no longer holds\" and crashes the mujoco_uni batch runtime."
+    "scene.xml: object body sets simple=\"false\" (post-migration fix); with the default simple/sameframe compilation, reset-time com/mass domain randomization trips mj_setConst \"sameframe no longer holds\" and crashes the mujoco_uni batch runtime.",
+    "Manager-Based fixed variants add scene_scale_{0.8..1.5}.xml and right_sharpa_wave_manager.xml. The manager XML uniquely names every body geom and uses repo-relative mesh paths for mjbatch fixed-variant compilation; all variant XMLs retain object body simple=\"false\"."
   ],
   "sha256": {
     "caches/sharpa_grasp_linspace_0.8.npy": "1e3e806989a49192815636ecf97f84504a84b5b87cbef08f9fdbc8e3e5212e5f",
@@ -66,6 +67,15 @@
     "robots/sharpa_wave/meshes/wrist_B.STL": "ce978dda8bbfb8ad59cb2f5decf647882d1be67fd758329d40c7c4cefacbf771",
     "robots/sharpa_wave/meshes/wrist_collision.STL": "147da80c56a334d83b1ac882f3110b29401d5806c94b993e77e9d763bdca2b54",
     "robots/sharpa_wave/right_sharpa_wave.xml": "7d8b92cb1efd0985bd2389d719c7fad06c4dcf45b7c479396ff5190bb24b8876",
-    "robots/sharpa_wave/scene.xml": "fa4c0bd90ef967329e959937e3f77e1a07d2c8a831776433780e9c40d8f02482"
+    "robots/sharpa_wave/scene.xml": "fa4c0bd90ef967329e959937e3f77e1a07d2c8a831776433780e9c40d8f02482",
+    "robots/sharpa_wave/scene_scale_0.8.xml": "ccd1f4f98a18deb32d15627b53928ea7baf554fa00dc4d70208ff889ddf2d988",
+    "robots/sharpa_wave/scene_scale_0.9.xml": "3a98398c70f8c39bcbd6b2bfed5528b2171c6d1b522b22ef961d2a6c7265cb2e",
+    "robots/sharpa_wave/scene_scale_1.1.xml": "90975125cdd6629462255c50024b29d184282b6741617ef0cbb388ef086eca7b",
+    "robots/sharpa_wave/scene_scale_1.2.xml": "01da4d9f28a1752c459fe38e6f03d02f9e2182bc0f11df0658ad190d763a22c5",
+    "robots/sharpa_wave/scene_scale_1.3.xml": "a1c668ae0d886670b8cb43140c047426f5746d92f4fc124593592f20c7643ba4",
+    "robots/sharpa_wave/scene_scale_1.4.xml": "2761265eb586227e3f99ff4eecfd68ad34b1750015a4fdc3646f4d0324d7be83",
+    "robots/sharpa_wave/scene_scale_1.5.xml": "cc47d7fdd093a4625a85f6cf33645ab8e6ba6f8c675541d6824535930d20f139",
+    "robots/sharpa_wave/scene_scale_1.xml": "70bb702f6dc4b2594d0ecb0a8d7998f29c14300f873a60f96902a935f56f6641",
+    "robots/sharpa_wave/right_sharpa_wave_manager.xml": "a8ed30d0a7170023ac02a1c741fb6fdf37c4b3f129eb9b0114efc63639396b1b"
   }
 }

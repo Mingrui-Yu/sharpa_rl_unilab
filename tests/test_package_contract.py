@@ -15,12 +15,10 @@ from sharpa_rl_unilab.cli import compose_config
     "algo,sim,task,profile",
     [
         ("ppo", "mujoco", "sharpa_inhand", None),
-        ("ppo", "motrix", "sharpa_inhand", None),
-        ("ppo", "mujoco", "sharpa_inhand", "hora"),
         ("ppo", "mujoco", "sharpa_inhand_grasp", None),
         ("appo", "mujoco", "sharpa_inhand", None),
         ("appo", "mujoco", "sharpa_inhand", "hora"),
-        ("sac", "mujoco", "sharpa_inhand", None),
+        ("flashsac", "mujoco", "sharpa_inhand", None),
     ],
 )
 def test_owner_composition_and_identity(algo, sim, task, profile):
@@ -36,20 +34,9 @@ def test_owner_composition_and_identity(algo, sim, task, profile):
 
 
 def test_hora_owners_point_into_the_package():
-    ppo_hora = compose_config("ppo", "mujoco", [], profile="hora")
-    assert ppo_hora.algo.actor.class_name == "sharpa_rl_unilab.algos.hora:HoraActorModel"
-    assert ppo_hora.algo.critic.class_name == "sharpa_rl_unilab.algos.hora:HoraCriticModel"
-    assert ppo_hora.algo.algorithm.class_name == "sharpa_rl_unilab.algos.hora:HoraPPO"
-    assert ppo_hora.algo.runtime_resolver == (
-        "sharpa_rl_unilab.algos.hora.rsl_rl:resolve_hora_ppo_runtime"
-    )
     appo_hora = compose_config("appo", "mujoco", [], profile="hora")
     assert appo_hora.algo.runtime_resolver == (
         "sharpa_rl_unilab.training.play_hora_appo:resolve_hora_appo_runtime"
-    )
-    sac_hora = compose_config("sac", "mujoco", [])
-    assert sac_hora.algo.runtime_resolver == (
-        "sharpa_rl_unilab.algos.hora.sac:resolve_hora_sac_runtime"
     )
 
 
