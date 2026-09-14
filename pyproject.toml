@@ -69,10 +69,9 @@ module-name = "sharpa_rl_unilab"
 
 [tool.uv]
 constraint-dependencies = ["torch==2.8.0; sys_platform != 'linux' or platform_machine != 'aarch64'"]
-# UniLab remains an external dependency. The local checkout is a development
-# source only; CI/users can consume the same API from the registered package.
+# UniLab is consumed exclusively from its registered PyPI release; there is no
+# local checkout source override.
 [tool.uv.sources]
-unilab = { path = "../UniLab", editable = true }
 torch = [
     { index = "r2-cu130", marker = "sys_platform=='linux' and platform_machine=='aarch64'" },
     { index = "pytorch-cu128", marker = "sys_platform=='linux' and platform_machine=='x86_64'" },
