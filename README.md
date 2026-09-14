@@ -7,8 +7,8 @@ owns the manager lifecycle and simulation backends. The former task-owned
 legacy/direct `NpEnv` implementation and its compatibility factory have been
 removed.
 
-Supported teacher entrypoints are PPO, HORA APPO and FlashSAC. HORA student
-distillation remains available for an APPO teacher.
+PPO, APPO and FlashSAC share the default HORA teacher setup and support the same
+student distillation pipeline. Independent critics retain their V/Q structure.
 
 ## Install and validation
 
@@ -33,26 +33,32 @@ Python package. `uv run sharpa-assets` prepares a writable local cache;
 | Algorithm | Owner |
 | --- | --- |
 | PPO | `ppo/task/sharpa_inhand/mujoco.yaml` |
-| HORA APPO | `appo/task/sharpa_inhand/mujoco_hora.yaml` |
+| APPO | `appo/task/sharpa_inhand/mujoco.yaml` |
 | FlashSAC | `flashsac/task/sharpa_inhand/mujoco.yaml` |
 | Grasp generation | `ppo/task/sharpa_inhand_grasp/mujoco.yaml` |
 
 ```bash
-uv run sharpa-train --algo appo --sim mujoco --profile hora training.no_play=true
-uv run sharpa-train --algo flashsac --sim mujoco training.no_play=true
-uv run sharpa-train --algo ppo --sim mujoco training.no_play=true
+uv run sharpa-train --algo appo
+uv run sharpa-train --algo flashsac
+uv run sharpa-train --algo ppo
 ```
 
 Append Hydra overrides for tuning; `--cfg` prints the composed Manager-Based
-configuration. For evaluation, point `algo.load_run` at a run directory and use
-`algo.checkpoint=-1` for its newest checkpoint.
+configuration. All algorithms share physical settings, observation preprocessing,
+global transition budgets and fixed-scene quantitative evaluation. `--nodr` uses
+one common override; `+preset=throughput` selects a separate throughput experiment.
 
 ```bash
-uv run sharpa-eval --algo appo --sim mujoco --profile hora \
-  algo.load_run=/absolute/path/to/hora-appo/run algo.checkpoint=-1
-uv run sharpa-eval --algo flashsac --sim mujoco \
-  algo.load_run=/absolute/path/to/flashsac/run algo.checkpoint=-1
+uv run sharpa-eval --checkpoint /absolute/path/to/teacher_final.pt
+uv run sharpa-distill --checkpoint /absolute/path/to/teacher_final.pt
+uv run sharpa-eval --checkpoint /absolute/path/to/student_final.pt
+uv run sharpa-compare --output logs/comparison --seeds 1 2 3
 ```
+
+Use `uv sync --extra mujoco --extra evaluation` for comparison figures. Add
+`--smoke` to `sharpa-compare` for a short pipeline check. Old checkpoints require
+retraining. The v2 runner supports one learner device and fresh training runs;
+see the [protocol, migration and validation limits](docs/migrations/issue-2.md).
 
 ## Manager-Based correctness notes
 

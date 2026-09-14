@@ -7,17 +7,17 @@ from sharpa_rl_unilab.cli import compose_config
 from sharpa_rl_unilab.tasks import sharpa_inhand
 
 
-def _materialize(algo: str, *, profile: str | None = None):
+def _materialize(algo: str):
     registry.ensure_registries()
-    cfg = compose_config(algo, "mujoco", [], profile=profile)
+    cfg = compose_config(algo, "mujoco", [])
     overrides = BackendAdapter(cfg, root_dir=".", algo_name=algo).build_task_env_cfg_override()
     return cfg, registry.materialize_env_config(str(cfg.training.task_name)), overrides
 
 
 def test_manager_config_materializes_typed_terms() -> None:
     expected_groups = {
-        "appo": {"flat"},
-        "flashsac": {"actor", "critic"},
+        algo: {"actor", "critic", "priv_info", "proprio_hist"}
+        for algo in ("ppo", "appo", "flashsac")
     }
     for algo, groups in expected_groups.items():
         _, env_cfg, overrides = _materialize(algo)

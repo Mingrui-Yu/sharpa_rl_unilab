@@ -1,0 +1,272 @@
+{
+  "scope": "Reconstructed initial optimizers from frozen default YAML and unchanged 790ae32 Sharpa / installed dependencies. No historical training optimizer state. CPU construction disables compile/AMP only; HORA old 174-147 privilege probe = 27.",
+  "algorithms": {
+    "ppo": {
+      "optimizers": {
+        "optimizer": {
+          "class": "Adam",
+          "groups": [
+            {
+              "lr": 0.001,
+              "betas": [
+                0.9,
+                0.999
+              ],
+              "eps": 1e-08,
+              "weight_decay": 0,
+              "amsgrad": false,
+              "maximize": false,
+              "foreach": null,
+              "capturable": false,
+              "differentiable": false,
+              "fused": null,
+              "decoupled_weight_decay": false
+            }
+          ]
+        }
+      },
+      "schedulers": {},
+      "settings": {
+        "gamma": 0.99,
+        "learning_rate": 0.001,
+        "schedule": "adaptive",
+        "desired_kl": 0.02,
+        "num_learning_epochs": 5,
+        "num_mini_batches": 4,
+        "clip_param": 0.2,
+        "lam": 0.95,
+        "value_loss_coef": 4.0,
+        "entropy_coef": 0.01,
+        "max_grad_norm": 1.0
+      }
+    },
+    "appo": {
+      "optimizers": {
+        "optimizer": {
+          "class": "Adam",
+          "groups": [
+            {
+              "lr": 0.001,
+              "betas": [
+                0.9,
+                0.999
+              ],
+              "eps": 1e-08,
+              "weight_decay": 0,
+              "amsgrad": false,
+              "maximize": false,
+              "foreach": null,
+              "capturable": false,
+              "differentiable": false,
+              "fused": null,
+              "decoupled_weight_decay": false
+            }
+          ]
+        }
+      },
+      "schedulers": {},
+      "settings": {
+        "gamma": 0.99,
+        "tau": 1.0,
+        "learning_rate": 0.001,
+        "schedule": "adaptive",
+        "desired_kl": 0.02,
+        "adaptive_kl_factor": 1.2,
+        "adaptive_lr_factor": 1.1,
+        "num_learning_epochs": 5,
+        "num_mini_batches": 4,
+        "clip_param": 0.2,
+        "lam": 0.95,
+        "value_loss_coef": 4.0,
+        "entropy_coef": 0.01,
+        "max_grad_norm": 1.0
+      }
+    },
+    "appo_hora": {
+      "optimizers": {
+        "optimizer": {
+          "class": "Adam",
+          "groups": [
+            {
+              "lr": 0.001,
+              "betas": [
+                0.9,
+                0.999
+              ],
+              "eps": 1e-08,
+              "weight_decay": 0,
+              "amsgrad": false,
+              "maximize": false,
+              "foreach": null,
+              "capturable": false,
+              "differentiable": false,
+              "fused": null,
+              "decoupled_weight_decay": false
+            }
+          ]
+        }
+      },
+      "schedulers": {},
+      "settings": {
+        "gamma": 0.99,
+        "tau": 1.0,
+        "learning_rate": 0.001,
+        "schedule": "adaptive",
+        "desired_kl": 0.04,
+        "adaptive_kl_factor": 1.2,
+        "adaptive_lr_factor": 1.1,
+        "num_learning_epochs": 5,
+        "num_mini_batches": 4,
+        "clip_param": 0.2,
+        "lam": 0.95,
+        "value_loss_coef": 4.0,
+        "entropy_coef": 0.01,
+        "max_grad_norm": 1.0
+      }
+    },
+    "flashsac": {
+      "optimizers": {
+        "actor_optimizer": {
+          "class": "Adam",
+          "groups": [
+            {
+              "lr": 0.0003,
+              "betas": [
+                0.9,
+                0.999
+              ],
+              "eps": 1e-08,
+              "weight_decay": 0,
+              "amsgrad": false,
+              "maximize": false,
+              "foreach": null,
+              "capturable": false,
+              "differentiable": false,
+              "fused": false,
+              "decoupled_weight_decay": false,
+              "initial_lr": 0.0003
+            }
+          ]
+        },
+        "critic_optimizer": {
+          "class": "Adam",
+          "groups": [
+            {
+              "lr": 0.0003,
+              "betas": [
+                0.9,
+                0.999
+              ],
+              "eps": 1e-08,
+              "weight_decay": 0,
+              "amsgrad": false,
+              "maximize": false,
+              "foreach": null,
+              "capturable": false,
+              "differentiable": false,
+              "fused": false,
+              "decoupled_weight_decay": false,
+              "initial_lr": 0.0003
+            }
+          ]
+        },
+        "temperature_optimizer": {
+          "class": "Adam",
+          "groups": [
+            {
+              "lr": 0.0003,
+              "betas": [
+                0.9,
+                0.999
+              ],
+              "eps": 1e-08,
+              "weight_decay": 0,
+              "amsgrad": false,
+              "maximize": false,
+              "foreach": null,
+              "capturable": false,
+              "differentiable": false,
+              "fused": false,
+              "decoupled_weight_decay": false,
+              "initial_lr": 0.0003
+            }
+          ]
+        }
+      },
+      "schedulers": {
+        "actor_scheduler": {
+          "state": {
+            "base_lrs": [
+              0.0003
+            ],
+            "last_epoch": 0,
+            "_step_count": 1,
+            "_is_initial": false,
+            "_get_lr_called_within_step": false,
+            "_last_lr": [
+              0.0003
+            ],
+            "lr_lambdas": [
+              null
+            ]
+          },
+          "lr_at_update": {
+            "0": 0.0003,
+            "250000": 0.000225,
+            "500000": 0.00015
+          }
+        },
+        "critic_scheduler": {
+          "state": {
+            "base_lrs": [
+              0.0003
+            ],
+            "last_epoch": 0,
+            "_step_count": 1,
+            "_is_initial": false,
+            "_get_lr_called_within_step": false,
+            "_last_lr": [
+              0.0003
+            ],
+            "lr_lambdas": [
+              null
+            ]
+          },
+          "lr_at_update": {
+            "0": 0.0003,
+            "250000": 0.000225,
+            "500000": 0.00015
+          }
+        },
+        "temperature_scheduler": {
+          "state": {
+            "base_lrs": [
+              0.0003
+            ],
+            "last_epoch": 0,
+            "_step_count": 1,
+            "_is_initial": false,
+            "_get_lr_called_within_step": false,
+            "_last_lr": [
+              0.0003
+            ],
+            "lr_lambdas": [
+              null
+            ]
+          },
+          "lr_at_update": {
+            "0": 0.0003,
+            "250000": 0.000225,
+            "500000": 0.00015
+          }
+        }
+      },
+      "settings": {
+        "gamma": 0.97,
+        "tau": 0.01,
+        "n_step": 1,
+        "target_entropy": -10.51999193698659
+      }
+    }
+  }
+}

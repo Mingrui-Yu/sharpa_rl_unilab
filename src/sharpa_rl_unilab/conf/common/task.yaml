@@ -84,6 +84,22 @@ env:
         - right_pinky_PIP_ctrl
         - right_pinky_DIP_ctrl
   observations:
+    priv_info:
+      terms:
+        current:
+          func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation.SharpaPrivilegedObservation
+          params:
+            observation_group: actor
+            observation_term: frame
+    proprio_hist:
+      history_length: 30
+      flatten_history_dim: false
+      terms:
+        frame:
+          func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation.SharpaProprioObservation
+          params:
+            observation_group: actor
+            observation_term: frame
     actor:
       history_length: 3
       flatten_history_dim: true

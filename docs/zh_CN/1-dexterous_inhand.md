@@ -7,7 +7,7 @@ groups、增量手部 action、reset/event terms、termination 与 reward；Pyth
 ## Owner
 
 - `conf/ppo/task/sharpa_inhand/mujoco.yaml`
-- `conf/appo/task/sharpa_inhand/mujoco_hora.yaml`
+- `conf/appo/task/sharpa_inhand/mujoco.yaml`
 - `conf/flashsac/task/sharpa_inhand/mujoco.yaml`
 - `conf/ppo/task/sharpa_inhand_grasp/mujoco.yaml`
 
@@ -15,9 +15,9 @@ groups、增量手部 action、reset/event terms、termination 与 reward；Pyth
 抓取策略或模型变更时需要重建。
 
 ```bash
-uv run sharpa-train --algo ppo --sim mujoco training.no_play=true
-uv run sharpa-train --algo appo --sim mujoco --profile hora training.no_play=true
-uv run sharpa-train --algo flashsac --sim mujoco training.no_play=true
+uv run sharpa-train --algo ppo --sim mujoco
+uv run sharpa-train --algo appo --sim mujoco
+uv run sharpa-train --algo flashsac --sim mujoco
 ```
 
 ## 固定物体尺度

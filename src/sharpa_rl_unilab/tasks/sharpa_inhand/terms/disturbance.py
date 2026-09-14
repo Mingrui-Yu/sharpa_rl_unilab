@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
     from sharpa_rl_unilab.tasks.sharpa_inhand.terms.types import SharpaEnv
 
+
 class SharpaPersistentObjectForce(ManagerTermBase):
     """Source-equivalent decaying random object force."""
 
@@ -40,11 +41,14 @@ class SharpaPersistentObjectForce(ManagerTermBase):
                 "force_decay_interval",
             },
         )
-        self._entity = cast("Entity", env.scene[require_name(term, "entity_name", cfg.params.get("entity_name"))])
+        self._entity = cast(
+            "Entity", env.scene[require_name(term, "entity_name", cfg.params.get("entity_name"))]
+        )
         self._randomization_name = require_name(
             term, "domain_randomization_name", cfg.params.get("domain_randomization_name")
         )
         self._randomization: SharpaDomainRandomization | None = None
+        self.rng: np.random.Generator | None = None
         self._force_scale = require_real(
             term, "force_scale", cfg.params.get("force_scale", 2.0), minimum=0.0
         )
@@ -61,7 +65,9 @@ class SharpaPersistentObjectForce(ManagerTermBase):
         if interval == 0.0:
             raise ValueError(f"{term} force_decay_interval must be positive")
         self._decay = float(np.power(decay, env.step_dt / interval))
-        body_name = require_name(term, "object_body_name", cfg.params.get("object_body_name", "object"))
+        body_name = require_name(
+            term, "object_body_name", cfg.params.get("object_body_name", "object")
+        )
         requested_body_ids, requested_body_names = self._entity.find_bodies([body_name])
         if tuple(requested_body_names) != (body_name,):
             raise ValueError(f"{term} could not resolve the unique object body")
@@ -84,13 +90,14 @@ class SharpaPersistentObjectForce(ManagerTermBase):
             dr = env.event_manager.get_term_cfg(self._randomization_name).func
             if not isinstance(dr, SharpaDomainRandomization):
                 raise TypeError(f"{type(self).__name__} requires SharpaDomainRandomization")
-            self.domain_randomization = dr
+            self._randomization = dr
+        rng = env.rng if self.rng is None else self.rng
         self._force *= self._decay
-        trigger = env.rng.random(env.num_envs) < self._probability
+        trigger = rng.random(env.num_envs) < self._probability
         if np.any(trigger):
             ids = np.flatnonzero(trigger)
-            mass = self.domain_randomization.mass[ids]
-            self._force[ids, 0, :] = env.rng.standard_normal((ids.size, 3)) * mass[:, None]
+            mass = self._randomization.mass[ids]
+            self._force[ids, 0, :] = rng.standard_normal((ids.size, 3)) * mass[:, None]
             self._force[ids] *= self._force_scale
         self._entity.apply_body_wrench_to_sim(
             self._force,

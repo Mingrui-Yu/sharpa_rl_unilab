@@ -2999,6 +2999,10 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+evaluation = [
+    { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "matplotlib", version = "3.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
 export = [
     { name = "onnx" },
     { name = "onnxruntime", version = "1.19.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -3021,6 +3025,7 @@ dev = [
 requires-dist = [
     { name = "filelock" },
     { name = "hydra-core", specifier = ">=1.3" },
+    { name = "matplotlib", marker = "extra == 'evaluation'" },
     { name = "numpy" },
     { name = "onnx", marker = "extra == 'export'" },
     { name = "onnxruntime", marker = "extra == 'export'" },
@@ -3035,7 +3040,7 @@ requires-dist = [
     { name = "unilab", extras = ["mujoco"], marker = "extra == 'mujoco'", editable = "../UniLab" },
     { name = "unilab-rl", specifier = ">=1.2.0,<1.3" },
 ]
-provides-extras = ["mujoco", "export"]
+provides-extras = ["mujoco", "export", "evaluation"]
 
 [package.metadata.requires-dev]
 dev = [

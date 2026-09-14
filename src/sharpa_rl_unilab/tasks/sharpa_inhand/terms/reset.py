@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 
     from sharpa_rl_unilab.tasks.sharpa_inhand.terms.types import SharpaEnv
 
+
 class SharpaHandObjectReset(ManagerTermBase):
     """Reset hand/object state and own task-reset caches."""
 
@@ -55,8 +56,12 @@ class SharpaHandObjectReset(ManagerTermBase):
                 "grasp_pose_noise",
             },
         )
-        self._entity = cast("Entity", env.scene[require_name(term, "entity_name", cfg.params.get("entity_name"))])
-        actuator_names = require_names(term, "actuator_names", cfg.params.get("actuator_names", [".*_ctrl"]))
+        self._entity = cast(
+            "Entity", env.scene[require_name(term, "entity_name", cfg.params.get("entity_name"))]
+        )
+        actuator_names = require_names(
+            term, "actuator_names", cfg.params.get("actuator_names", [".*_ctrl"])
+        )
         joint_ids, joint_names = self._entity.find_joints_by_actuator_names(list(HAND_JOINT_NAMES))
         actuator_ids, matched_actuators = self._entity.find_actuators(
             list(actuator_names), preserve_order=True
@@ -92,24 +97,18 @@ class SharpaHandObjectReset(ManagerTermBase):
         self.object_default_pose = np.asarray(
             self._entity.data.default_root_state[:, :7], dtype=get_global_dtype()
         ).copy()
-        self.reset_height_lower = np.full(
-            (env.num_envs,), np.inf, dtype=get_global_dtype()
-        )
-        self.reset_height_upper = np.full(
-            (env.num_envs,), -np.inf, dtype=get_global_dtype()
-        )
+        self.reset_height_lower = np.full((env.num_envs,), np.inf, dtype=get_global_dtype())
+        self.reset_height_upper = np.full((env.num_envs,), -np.inf, dtype=get_global_dtype())
         self.object_pos_anchor = np.zeros((env.num_envs, 3), dtype=get_global_dtype())
-        self.rotation_axis = np.broadcast_to(
-            self._rotation_axis, (env.num_envs, 3)
-        ).copy()
+        self.rotation_axis = np.broadcast_to(self._rotation_axis, (env.num_envs, 3)).copy()
 
         self._variant_ids = self._resolve_variant_ids(env)
         self.scale_values = self._resolve_variant_scales(env)
         self._grasp_caches: tuple[np.ndarray, ...] | None = None
+        self.cache_row_indices = np.full(env.num_envs, -1, dtype=np.int64)
+        self._sampled_indices = np.empty(0, dtype=np.int64)
         if not self._grasp_generation:
-            prefix = require_name(
-                term, "grasp_cache_path", cfg.params.get("grasp_cache_path")
-            )
+            prefix = require_name(term, "grasp_cache_path", cfg.params.get("grasp_cache_path"))
             caches: list[np.ndarray] = []
             missing: list[str] = []
             for scale in self.scale_values:
@@ -119,9 +118,7 @@ class SharpaHandObjectReset(ManagerTermBase):
                     continue
                 caches.append(np.load(path).astype(np.float64))
             if missing:
-                raise FileNotFoundError(
-                    f"{term} missing grasp cache(s): {', '.join(missing)}"
-                )
+                raise FileNotFoundError(f"{term} missing grasp cache(s): {', '.join(missing)}")
             self._grasp_caches = tuple(caches)
 
     def _resolve_variant_ids(self, env: SharpaEnv) -> np.ndarray:
@@ -146,13 +143,9 @@ class SharpaHandObjectReset(ManagerTermBase):
             raise ValueError(f"invalid Sharpa object scales: {values.tolist()}")
         return values
 
-    def _sample_rows(
-        self, count: int, env: SharpaEnv, variant_ids: np.ndarray
-    ) -> np.ndarray:
+    def _sample_rows(self, count: int, env: SharpaEnv, variant_ids: np.ndarray) -> np.ndarray:
         if self._grasp_generation:
-            hand = np.broadcast_to(
-                SOURCE_DEFAULT_HAND_JOINT_POS, (count, NUM_HAND_JOINTS)
-            ).copy()
+            hand = np.broadcast_to(SOURCE_DEFAULT_HAND_JOINT_POS, (count, NUM_HAND_JOINTS)).copy()
             if self._grasp_pose_noise > 0.0:
                 hand += env.rng.uniform(
                     -self._grasp_pose_noise,
@@ -160,12 +153,13 @@ class SharpaHandObjectReset(ManagerTermBase):
                     size=hand.shape,
                 )
             np.clip(hand, self._ctrl_lower, self._ctrl_upper, out=hand)
-            root_pose = np.broadcast_to(
-                self.object_default_pose[0], (count, 7)
-            ).copy()
+            root_pose = np.broadcast_to(self.object_default_pose[0], (count, 7)).copy()
             return np.concatenate((hand, root_pose), axis=1)
         assert self._grasp_caches is not None
-        return sample_scale_grasp_caches(self._grasp_caches, variant_ids)
+        self._sampled_indices = np.empty(count, dtype=np.int64)
+        return sample_scale_grasp_caches(
+            self._grasp_caches, variant_ids, rng=env.rng, selected_rows=self._sampled_indices
+        )
 
     def __call__(
         self,
@@ -178,6 +172,8 @@ class SharpaHandObjectReset(ManagerTermBase):
         if ids.size == 0:
             return
         rows = self._sample_rows(ids.size, env, self._variant_ids[ids])
+        if not self._grasp_generation:
+            self.cache_row_indices[ids] = self._sampled_indices
         hand_pos = np.asarray(rows[:, :NUM_HAND_JOINTS], dtype=get_global_dtype())
         root_pose = np.asarray(rows[:, NUM_HAND_JOINTS:], dtype=get_global_dtype())
         # Cache rows are global/default poses. CPU batch env origins are zero; the

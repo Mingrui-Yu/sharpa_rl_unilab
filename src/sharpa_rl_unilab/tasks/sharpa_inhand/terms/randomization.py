@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 from unilab.dtype_config import get_global_dtype
 from unilab.managers import ManagerTermBase
-from unilab.utils.geometry import np_sample_uniform_quaternion
 from unilab.utils.rotation import np_quat_apply
 
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.constants import NUM_HAND_JOINTS
@@ -25,6 +24,7 @@ if TYPE_CHECKING:
     from unilab.managers import ManagerTermBaseCfg
 
     from sharpa_rl_unilab.tasks.sharpa_inhand.terms.types import SharpaEnv
+
 
 class SharpaDomainRandomization(ManagerTermBase):
     """Own all reset-time physical DR and its privileged-value caches."""
@@ -57,7 +57,9 @@ class SharpaDomainRandomization(ManagerTermBase):
                 "include_gravity_direction",
             },
         )
-        self._entity = cast("Entity", env.scene[require_name(term, "entity_name", cfg.params.get("entity_name"))])
+        self._entity = cast(
+            "Entity", env.scene[require_name(term, "entity_name", cfg.params.get("entity_name"))]
+        )
         self._randomize_pd = require_bool(
             term, "randomize_pd_gains", cfg.params.get("randomize_pd_gains", True)
         )
@@ -85,13 +87,17 @@ class SharpaDomainRandomization(ManagerTermBase):
         self._randomize_mass = require_bool(
             term, "randomize_mass", cfg.params.get("randomize_mass", True)
         )
-        self._mass_range = require_pair(term, "mass_range", cfg.params.get("mass_range", (0.01, 0.25)))
+        self._mass_range = require_pair(
+            term, "mass_range", cfg.params.get("mass_range", (0.01, 0.25))
+        )
         if self._mass_range[0] <= 0.0:
             raise ValueError(f"{term} mass_range must be positive")
         self._randomize_com = require_bool(
             term, "randomize_com", cfg.params.get("randomize_com", True)
         )
-        self._com_range = require_pair(term, "com_range", cfg.params.get("com_range", (-0.01, 0.01)))
+        self._com_range = require_pair(
+            term, "com_range", cfg.params.get("com_range", (-0.01, 0.01))
+        )
         self._randomize_gravity_direction = require_bool(
             term,
             "randomize_gravity_direction",
@@ -127,25 +133,25 @@ class SharpaDomainRandomization(ManagerTermBase):
         self.kd = np.broadcast_to(self._default_kd, (env.num_envs, NUM_HAND_JOINTS)).copy()
 
         # Object body mass/CoM bindings.
-        object_body = require_name(term, "object_body_name", cfg.params.get("object_body_name", "object"))
+        object_body = require_name(
+            term, "object_body_name", cfg.params.get("object_body_name", "object")
+        )
         body_ids, body_names = self._entity.find_bodies([object_body])
         if tuple(body_names) != (object_body,) or len(body_ids) != 1:
             raise ValueError(f"{term} could not resolve the unique object body")
         self._object_body_ids = np.asarray(body_ids, dtype=np.intp)
         self._object_body_ids.setflags(write=False)
-        _, default_mass = self._entity.bind_body_mass_write(
-            self._object_body_ids, term_name=term
-        )
-        _, default_ipos = self._entity.bind_body_ipos_write(
-            self._object_body_ids, term_name=term
-        )
+        _, default_mass = self._entity.bind_body_mass_write(self._object_body_ids, term_name=term)
+        _, default_ipos = self._entity.bind_body_ipos_write(self._object_body_ids, term_name=term)
         default_mass_array = np.asarray(default_mass, dtype=dtype)
         default_ipos_array = np.asarray(default_ipos, dtype=dtype)
         self._default_mass = (
             default_mass_array[0, ...] if default_mass_array.ndim > 1 else default_mass_array
         ).reshape(())
         self._default_ipos = (
-            default_ipos_array[0, 0, :] if default_ipos_array.ndim == 3 else default_ipos_array.reshape(3)
+            default_ipos_array[0, 0, :]
+            if default_ipos_array.ndim == 3
+            else default_ipos_array.reshape(3)
         )
         self.mass = np.full((env.num_envs,), float(self._default_mass), dtype=dtype)
         self.com_offset = np.zeros((env.num_envs, 3), dtype=dtype)
@@ -158,7 +164,9 @@ class SharpaDomainRandomization(ManagerTermBase):
 
         # Collision-geom friction bindings. Entity names are public facade data;
         # material classification never touches backend model arrays.
-        object_geom = require_name(term, "object_geom_name", cfg.params.get("object_geom_name", "object"))
+        object_geom = require_name(
+            term, "object_geom_name", cfg.params.get("object_geom_name", "object")
+        )
         object_geom_ids, object_geoms = self._entity.find_geoms([object_geom])
         if tuple(object_geoms) != (object_geom,) or len(object_geom_ids) != 1:
             raise ValueError(f"{term} could not resolve the unique object geom")
@@ -188,9 +196,7 @@ class SharpaDomainRandomization(ManagerTermBase):
         _, bound_friction = self._entity.bind_geom_friction_write(selected, term_name=term)
         bound_friction_array = np.asarray(bound_friction, dtype=np.float64)
         self._default_friction = (
-            bound_friction_array[0]
-            if bound_friction_array.ndim == 3
-            else bound_friction_array
+            bound_friction_array[0] if bound_friction_array.ndim == 3 else bound_friction_array
         ).reshape(selected.size, 3)
         self._friction_material = np.full(selected.size, -1, dtype=np.int8)
         material_numbers = {"object": 0, "elastomer": 1, "metal": 2}
@@ -200,7 +206,9 @@ class SharpaDomainRandomization(ManagerTermBase):
                 geom_id = int(geom_id)
                 if geom_id not in selected_set:
                     raise ValueError(f"{term} friction binding is inconsistent")
-                self._friction_material[np.flatnonzero(selected == geom_id)] = material_numbers[material]
+                self._friction_material[np.flatnonzero(selected == geom_id)] = material_numbers[
+                    material
+                ]
         if np.any(self._friction_material < 0):
             raise ValueError(f"{term} friction material binding is incomplete")
 
@@ -297,9 +305,9 @@ class SharpaDomainRandomization(ManagerTermBase):
             self.friction_scale[ids] = 1.0
 
         if self._randomize_mass:
-            mass = env.rng.uniform(
-                self._mass_range[0], self._mass_range[1], size=count
-            ).astype(dtype)
+            mass = env.rng.uniform(self._mass_range[0], self._mass_range[1], size=count).astype(
+                dtype
+            )
         else:
             mass = np.full((count,), float(self._default_mass), dtype=dtype)
         self._entity.write_body_mass_to_sim(
@@ -311,9 +319,9 @@ class SharpaDomainRandomization(ManagerTermBase):
         self.mass[ids] = mass
 
         if self._randomize_com:
-            com = env.rng.uniform(
-                self._com_range[0], self._com_range[1], size=(count, 3)
-            ).astype(dtype)
+            com = env.rng.uniform(self._com_range[0], self._com_range[1], size=(count, 3)).astype(
+                dtype
+            )
         else:
             com = np.zeros((count, 3), dtype=dtype)
         default_ipos = np.broadcast_to(
@@ -330,7 +338,13 @@ class SharpaDomainRandomization(ManagerTermBase):
         if self._randomize_gravity_direction:
             downward = np.zeros((count, 3), dtype=np.float64)
             downward[:, 2] = -self._gravity_magnitude
-            quat = np_sample_uniform_quaternion(count)
+            # Shoemake's uniform rotation, using the environment's explicit RNG.
+            u1 = env.rng.random(count)
+            u2, u3 = env.rng.random((2, count)) * (2.0 * np.pi)
+            r1, r2 = np.sqrt(1.0 - u1), np.sqrt(u1)
+            quat = np.stack(
+                (r2 * np.cos(u3), r1 * np.sin(u2), r1 * np.cos(u2), r2 * np.sin(u3)), axis=-1
+            )
             gravity = np_quat_apply(quat, downward).astype(dtype)
         else:
             gravity = np.broadcast_to(self._default_gravity, (count, 3)).copy()

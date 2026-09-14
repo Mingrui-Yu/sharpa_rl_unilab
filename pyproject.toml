@@ -20,12 +20,14 @@ dependencies = [
 [project.optional-dependencies]
 mujoco = ["unilab[mujoco]"]
 export = ["onnx", "onnxscript", "onnxruntime"]
+evaluation = ["matplotlib"]
 
 [project.scripts]
 sharpa-train = "sharpa_rl_unilab.cli:train_main"
 sharpa-eval = "sharpa_rl_unilab.cli:eval_main"
 sharpa-assets = "sharpa_rl_unilab.assets:main"
-sharpa-distill = "sharpa_rl_unilab.training.train_hora_distill:main"
+sharpa-distill = "sharpa_rl_unilab.training.student_runtime:main"
+sharpa-compare = "sharpa_rl_unilab.training.compare:main"
 
 [project.entry-points."unilab.tasks"]
 sharpa = "sharpa_rl_unilab.tasks"

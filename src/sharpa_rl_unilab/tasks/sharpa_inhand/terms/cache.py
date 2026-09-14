@@ -32,7 +32,11 @@ def resolve_grasp_cache_file(prefix: str, scale: float) -> Path:
 
 
 def sample_scale_grasp_caches(
-    caches: tuple[np.ndarray, ...], variant_ids: np.ndarray
+    caches: tuple[np.ndarray, ...],
+    variant_ids: np.ndarray,
+    *,
+    rng: np.random.Generator | None = None,
+    selected_rows: np.ndarray | None = None,
 ) -> np.ndarray:
     """Sample one cached grasp for each environment from its fixed variant."""
     if not caches:
@@ -48,6 +52,12 @@ def sample_scale_grasp_caches(
         ids = np.flatnonzero(variant_ids == variant_id)
         if ids.size == 0:
             continue
-        choices = np.random.randint(0, np.asarray(cache).shape[0], size=ids.size)
+        choices = (
+            rng.integers(0, cache.shape[0], size=ids.size)
+            if rng is not None
+            else np.random.randint(0, cache.shape[0], size=ids.size)
+        )
+        if selected_rows is not None:
+            selected_rows[ids] = choices
         sampled[ids] = np.asarray(cache)[choices]
     return sampled

@@ -1,4 +1,5 @@
 # @package _global_
+# Legacy flat observations are retained only for grasp-cache generation.
 env:
   scene:
     model_file: src/sharpa_rl_unilab/assets/robots/sharpa_wave/scene.xml

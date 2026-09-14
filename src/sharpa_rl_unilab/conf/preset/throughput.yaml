@@ -1,0 +1,7 @@
+# @package _global_
+# Separate throughput experiment; override hardware.* explicitly when tuning.
+protocol:
+  comparison_mode: throughput
+hardware:
+  num_envs: 8192
+  torch_threads: 8

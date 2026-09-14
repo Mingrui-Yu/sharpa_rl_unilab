@@ -1,0 +1,20 @@
+# @package _global_
+env:
+  observations:
+    actor:
+      terms:
+        frame:
+          params:
+            joint_noise: 0.0
+            contact_smoothing: 1.0
+            contact_latency: 0.0
+            contact_sensor_noise: 0.0
+  events:
+    domain_randomization:
+      params:
+        randomize_pd_gains: false
+        randomize_friction: false
+        randomize_mass: false
+        randomize_com: false
+        randomize_gravity_direction: false
+    persistent_force: null

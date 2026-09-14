@@ -8,7 +8,7 @@ and use the Entity facade rather than backend internals.
 ## Owners
 
 - `conf/ppo/task/sharpa_inhand/mujoco.yaml`
-- `conf/appo/task/sharpa_inhand/mujoco_hora.yaml`
+- `conf/appo/task/sharpa_inhand/mujoco.yaml`
 - `conf/flashsac/task/sharpa_inhand/mujoco.yaml`
 - `conf/ppo/task/sharpa_inhand_grasp/mujoco.yaml`
 
@@ -17,9 +17,9 @@ plan. Grasp caches are bundled under `assets/caches/`; regenerate one only when
 the grasp policy or model changes.
 
 ```bash
-uv run sharpa-train --algo ppo --sim mujoco training.no_play=true
-uv run sharpa-train --algo appo --sim mujoco --profile hora training.no_play=true
-uv run sharpa-train --algo flashsac --sim mujoco training.no_play=true
+uv run sharpa-train --algo ppo --sim mujoco
+uv run sharpa-train --algo appo --sim mujoco
+uv run sharpa-train --algo flashsac --sim mujoco
 ```
 
 ## Fixed object scales

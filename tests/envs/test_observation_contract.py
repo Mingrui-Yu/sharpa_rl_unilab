@@ -226,31 +226,23 @@ def test_clean_tactile_uses_vector_norm_and_deterministic_clip():
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize(
-    "algo,profile", [("ppo", None), ("appo", None), ("appo", "hora"), ("flashsac", None)]
-)
-def test_mujoco_observations_survive_timeout_autoreset(algo, profile, monkeypatch):
-    from pathlib import Path
-
-    from unilab.base.config_adapter import BackendAdapter, create_env
-
+@pytest.mark.parametrize("algo", ["ppo", "appo", "flashsac"])
+def test_mujoco_observations_survive_timeout_autoreset(algo, monkeypatch):
     from sharpa_rl_unilab.cli import compose_config
+    from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import SharpaTeacherEnv
 
-    cfg = compose_config(algo, "mujoco", [], profile=profile)
-    root = Path(__file__).resolve().parents[2]
-    overrides = BackendAdapter(cfg, root_dir=root, algo_name=algo).build_task_env_cfg_override()
-    overrides["max_episode_seconds"] = 0.1
-    env = create_env(cfg, num_envs=8, env_cfg_override=overrides)
+    cfg = compose_config(algo, "mujoco", ["+env.max_episode_seconds=0.1"])
+    env = SharpaTeacherEnv(cfg, num_envs=8)
     terminal = {}
-    original_reset = env.reset
+    original_reset = env.env.reset
 
     def capture_reset(*args, **kwargs):
-        terminal.update({key: values.copy() for key, values in env.state.obs.items()})
+        terminal.update(env._observations())
         return original_reset(*args, **kwargs)
 
     try:
         env.reset(seed=7)
-        monkeypatch.setattr(env, "reset", capture_reset)
+        monkeypatch.setattr(env.env, "reset", capture_reset)
         for _ in range(2):
             state = env.step(np.zeros((8, 22)))
         assert np.any(state.truncated)
@@ -259,8 +251,14 @@ def test_mujoco_observations_survive_timeout_autoreset(algo, profile, monkeypatc
         for key, values in state.obs.items():
             assert np.isfinite(values).all()
             np.testing.assert_array_equal(state.final_observation[key][done], terminal[key][done])
-            frames = values[done].reshape(-1, 3, values.shape[1] // 3)
-            np.testing.assert_array_equal(frames, np.repeat(frames[:, -1:], 3, axis=1))
+            if key != "priv_info":
+                length = 30 if key == "proprio_hist" else 3
+                frames = values[done].reshape(np.sum(done), length, -1)
+                np.testing.assert_array_equal(frames, np.repeat(frames[:, -1:], length, axis=1))
+        assert not {"priv_info", "proprio_hist"}.intersection(state.info)
+        np.testing.assert_array_equal(
+            state.obs["obs"], state.obs["proprio_hist"][:, -3:].reshape(8, 147)
+        )
         source = env.termination_manager.get_term_cfg("dropped").func.observation
         np.testing.assert_allclose(source.dof_vel[done], 0.0)
         np.testing.assert_allclose(source.object_linvel[done], 0.0)
