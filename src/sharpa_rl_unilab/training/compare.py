@@ -38,15 +38,20 @@ def main():
     args, overrides = parser.parse_known_args()
     if len(set(args.seeds)) != len(args.seeds) or len(args.seeds) < 3:
         parser.error("Use at least three distinct training seeds")
+    if any(item.lstrip("+").startswith("algo.max_iterations=") for item in overrides):
+        parser.error("sharpa-compare uses sampling budgets; set budget.transitions instead")
     args.output.mkdir(parents=True, exist_ok=False)
     common = [f"hardware.device={args.device}", *overrides]
     common += [f"evaluation.training_seeds={args.seeds}", f"distillation.seeds={args.seeds}"]
+    # Comparisons explicitly use equal sampling budgets across algorithms.
+    # APPO's standalone HORA default instead stops after 305 learner rounds.
+    sample_budget = "128" if args.smoke else "10000000"
+    if not any(item.startswith("budget.transitions=") for item in common):
+        common.append(f"budget.transitions={sample_budget}")
     if args.smoke:
         common += [
             "hardware.num_envs=8",
             "hardware.torch_threads=2",
-            "budget.transitions=128",
-            "budget.save_every=0",
             "budget.evaluate_every=0",
             "distillation.transitions=32",
             "distillation.num_envs=8",
@@ -70,6 +75,12 @@ def main():
             ]
             if args.smoke and algorithm == "flashsac":
                 specific += ["algo.batch_size=32"]
+            if algorithm == "appo":
+                specific += ["algo.max_iterations=null", "budget.save_every=null"]
+                if args.smoke:
+                    specific += ["algo.save_interval=0"]
+            elif args.smoke:
+                specific += ["budget.save_every=0"]
             cfg = compose_config(algorithm, "mujoco", [*common, *specific], nodr=args.nodr)
             # A fresh process per stage keeps CUDA/module initialization from
             # being charged only to the first algorithm or training seed.

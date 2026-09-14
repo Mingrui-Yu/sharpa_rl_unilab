@@ -200,7 +200,7 @@ def deterministic_actions(actor, obs, device, history_normalizer=None):
 
 def evaluate_checkpoint(checkpoint, *, output=None, device="cpu", evaluation=None):
     actor, cfg, snapshot = load_policy(checkpoint, device)
-    torch.set_num_threads(int(cfg.hardware.torch_threads))
+    device = str(next(actor.parameters()).device)
     if evaluation is not None:
         cfg.evaluation = OmegaConf.merge(cfg.evaluation, evaluation)
     output = Path(output or Path(checkpoint).with_suffix(".evaluation.json"))

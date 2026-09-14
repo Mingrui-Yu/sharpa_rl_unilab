@@ -44,15 +44,21 @@ uv run sharpa-train --algo appo \
 ```
 
 最终模型为 `$SHARPA_TEACHER_RUN/teacher_final.pt`，保存完整运行配置与归一化统计。
-默认使用单 learner、4096 个环境、500 万个新 transition；可通过 `hardware.num_envs`
-与 `budget.transitions` 调整规模。需要关闭域随机化时，在 teacher 命令中添加 `--nodr`，
+APPO 默认使用单 learner、2048 个环境，完成 305 轮 Learner 更新后停止，每 51 轮保存
+`teacher_iteration_N.pt`。每个 rollout 为 8 步，历史池最多保留 8 批；一轮可以接收多批。
+可通过 `hardware.num_envs`、`algo.max_iterations` 和 `algo.save_interval` 调整。
+按采样数停止的实验须显式设置 `algo.max_iterations=null budget.transitions=N`；
+该模式可在末尾采集短 rollout，保存频率仍按更新轮数。PPO、FlashSAC 默认使用
+4096 个环境和 1000 万个新 transition。需要关闭域随机化时，在 teacher 命令中添加 `--nodr`，
 student 和评估会继承该配置。
 
-teacher 和 student 共用 UniLab Rich 终端面板，显示 transition 预算进度、吞吐、
+teacher 和 student 共用 UniLab Rich 终端面板，APPO 默认按更新轮数显示进度与 ETA，
+其余模式按 transition 显示进度，同时记录真实吞吐、
 loss、最近 100 个完整 episode 的平均回报与长度。APPO 的 episode 统计只处理新收到的
 rollout，旧数据的重复训练不会重复计数。完整指标保留在运行目录的 `metrics.jsonl`，
 同时默认写入 TensorBoard；使用 `uv run tensorboard --logdir logs` 查看曲线。
-`budget.log_every` 按新 transition 数控制记录间隔，`training.logger=none` 可关闭
+APPO 每轮记录；其余训练使用 `budget.log_every` 按新 transition 数控制记录间隔。
+`training.logger=none` 可关闭
 TensorBoard，`training.logger=no_print` 则只保留 JSONL 文件。
 
 ## 3. Student：从历史观测估计特权表示

@@ -47,6 +47,8 @@ def test_train_save_load_evaluate_distill(algo, budget, expected, tmp_path, monk
     else:
         overrides += ["algo.algorithm.num_learning_epochs=1", "algo.algorithm.num_mini_batches=1"]
         overrides += ["algo.steps_per_env=2" if algo == "appo" else "algo.num_steps_per_env=2"]
+    if algo == "appo":
+        overrides += ["algo.max_iterations=null", "budget.save_every=null", "algo.save_interval=1"]
     cfg = compose_config(algo, "mujoco", overrides)
     path = train_teacher(cfg)
     metrics = [
@@ -68,7 +70,9 @@ def test_train_save_load_evaluate_distill(algo, budget, expected, tmp_path, monk
     actor, _, checkpoint = load_policy(path, stage="teacher")
     assert checkpoint["counters"]["collected"] == checkpoint["counters"]["received"] == expected
     assert actor.shared.obs_normalizer.count.item() == expected
-    periodic = list(path.parent.glob("teacher_[0-9]*.pt"))
+    periodic = list(
+        path.parent.glob("teacher_iteration_*.pt" if algo == "appo" else "teacher_[0-9]*.pt")
+    )
     assert periodic
     for saved in periodic:
         policy, _, snapshot = load_policy(saved)
@@ -209,6 +213,7 @@ def test_appo_drains_multiple_packets_and_closes(tmp_path, monkeypatch, fail_upd
             self.obs, _ = self.env.reset(seed=11)
             self.actor = actor
             self.count = SimpleNamespace(value=0)
+            self.closed = False
 
         def receive_ready(self):
             packets = []
@@ -227,6 +232,9 @@ def test_appo_drains_multiple_packets_and_closes(tmp_path, monkeypatch, fail_upd
             assert version == 1
 
         def close(self):
+            if self.closed:
+                return
+            self.closed = True
             self.env.close()
             closed.append(True)
 
@@ -244,7 +252,9 @@ def test_appo_drains_multiple_packets_and_closes(tmp_path, monkeypatch, fail_upd
             "hardware.num_envs=8",
             "hardware.device=cpu",
             "budget.transitions=24",
-            "budget.save_every=0",
+            "algo.max_iterations=null",
+            "budget.save_every=null",
+            "algo.save_interval=0",
             "budget.evaluate_every=0",
             "algo.algorithm.num_learning_epochs=1",
             "algo.algorithm.num_mini_batches=1",
@@ -264,5 +274,6 @@ def test_appo_drains_multiple_packets_and_closes(tmp_path, monkeypatch, fail_upd
         metrics = json.loads((tmp_path / "run/metrics.jsonl").read_text().splitlines()[-1])
         assert metrics["reward/rotate"] == 2
         assert metrics["rollouts_read"] == 3
-        assert metrics["staging_rollouts"] == metrics["staging_pool_capacity"] == 3
+        assert metrics["staging_rollouts"] == 3
+        assert metrics["staging_pool_capacity"] == 8
     assert closed == [True]

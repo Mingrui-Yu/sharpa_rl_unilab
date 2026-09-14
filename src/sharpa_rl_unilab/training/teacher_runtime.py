@@ -57,6 +57,55 @@ def config_dict(cfg) -> dict[str, Any]:
     return cast(dict[str, Any], OmegaConf.to_container(cfg, resolve=True))
 
 
+def resolve_device(device=None):
+    if device is not None:
+        return str(device)
+    if torch.cuda.is_available():
+        return "cuda:0"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
+def configure_threads(cfg):
+    if cfg.hardware.torch_threads is not None:
+        torch.set_num_threads(int(cfg.hardware.torch_threads))
+
+
+def training_budget(cfg):
+    """Exactly one stopping budget; APPO snapshots always use update rounds."""
+    iterations = cfg.algo.get("max_iterations") if cfg.algo.algo == "appo" else None
+    transitions = cfg.budget.transitions
+    if (iterations is None) == (transitions is None):
+        raise ValueError(
+            "Select exactly one budget: algo.max_iterations or budget.transitions; "
+            "set the other to null"
+        )
+    if cfg.algo.algo == "appo":
+        if cfg.budget.save_every is not None:
+            raise ValueError(
+                "APPO saves by update round; use algo.save_interval, budget.save_every=null"
+            )
+        if (
+            min(
+                int(cfg.budget.async_queue_size),
+                int(cfg.algo.staging_pool_size),
+                int(cfg.algo.steps_per_env),
+            )
+            < 1
+        ):
+            raise ValueError(
+                "APPO queue capacity, staging capacity and rollout length must be positive"
+            )
+        if int(cfg.algo.save_interval) < 0:
+            raise ValueError("algo.save_interval must be nonnegative")
+    n = int(cfg.algo.num_envs)
+    target = int(iterations) if iterations is not None else math.ceil(int(transitions) / n) * n
+    if target <= 0:
+        raise ValueError("Training budget must be positive")
+    return ("policy_version" if iterations is not None else "received"), target
+
+
 def make_models(cfg, device):
     model = config_dict(cfg.model)
     if cfg.algo.algo == "flashsac":
@@ -166,24 +215,34 @@ def _collector(config, initial_weights, output, weights, stop, count):
     try:
         cfg = OmegaConf.create(config)
         assert isinstance(cfg, DictConfig)
-        torch.set_num_threads(int(cfg.hardware.torch_threads))
-        torch.manual_seed(int(cfg.algo.seed))
-        np.random.seed(int(cfg.algo.seed))
+        configure_threads(cfg)
+        seed = int(cfg.algo.collector_seed)
+        torch.manual_seed(seed)
+        np.random.seed(seed)
         device = str(cfg.hardware.collector_device)
         actor = TeacherActor(config_dict(cfg.model)).to(device).eval()
         actor.load_state_dict(initial_weights)
         env = SharpaTeacherEnv(cfg, int(cfg.algo.num_envs))
-        obs, _ = env.reset(seed=int(cfg.algo.seed))
+        obs, _ = env.reset(seed=seed)
         version = 0
-        target = math.ceil(int(cfg.budget.transitions) / env.num_envs) * env.num_envs
-        while not stop.is_set() and count.value < target:
+        target = (
+            math.ceil(int(cfg.budget.transitions) / env.num_envs) * env.num_envs
+            if cfg.budget.transitions is not None
+            else None
+        )
+        while not stop.is_set() and (target is None or count.value < target):
+            current_weights = None
             try:
                 while True:
                     version, current_weights = weights.get_nowait()
-                    actor.load_state_dict(current_weights)
             except queue.Empty:
                 pass
-            horizon = min(int(cfg.algo.steps_per_env), (target - count.value) // env.num_envs)
+            # Install weights and RMS buffers together, only at a rollout boundary.
+            if current_weights is not None:
+                actor.load_state_dict(current_weights)
+            horizon = int(cfg.algo.steps_per_env)
+            if target is not None:
+                horizon = min(horizon, (target - count.value) // env.num_envs)
             collector_metrics = {}
             batch, obs = collect(
                 env, obs, actor, horizon, device, count=count, metrics=collector_metrics
@@ -203,7 +262,13 @@ def _collector(config, initial_weights, output, weights, stop, count):
                 except queue.Full:
                     pass
     except Exception:
-        output.put({"error": traceback.format_exc()})
+        error = {"error": traceback.format_exc()}
+        while not stop.is_set():
+            try:
+                output.put(error, timeout=0.5)
+                break
+            except queue.Full:
+                pass
     finally:
         if env is not None:
             env.close()
@@ -213,6 +278,8 @@ class AsyncRollouts:
     def __init__(self, cfg, actor):
         ctx = mp.get_context("spawn")
         self.capacity = int(cfg.budget.async_queue_size)
+        # Four pending packets plus at most one rollout being collected/put.
+        # Unlike main's overwrite ring, a full queue applies backpressure.
         self.output = ctx.Queue(maxsize=self.capacity)
         self.weights = ctx.Queue(maxsize=1)
         self.stop = ctx.Event()
@@ -230,6 +297,7 @@ class AsyncRollouts:
             daemon=True,
         )
         self.process.start()
+        self.closed = False
 
     def receive(self):
         while True:
@@ -247,7 +315,7 @@ class AsyncRollouts:
     def receive_ready(self):
         packets = [self.receive()]
         # Like the native APPO runner, drain the bounded ingress before learning.
-        for _ in range(self.capacity):
+        for _ in range(self.capacity - 1):
             try:
                 packet = self.output.get_nowait()
                 if isinstance(packet, dict):
@@ -258,12 +326,23 @@ class AsyncRollouts:
         return packets
 
     def publish(self, version, actor):
-        try:
-            self.weights.put_nowait((version, frozen_weights(actor)))
-        except queue.Full:
-            pass
+        snapshot = (version, frozen_weights(actor))
+        while True:
+            try:
+                self.weights.put_nowait(snapshot)
+                return
+            except queue.Full:
+                # Queue.put uses a feeder thread: Full can precede readability.
+                # Retry after either we or the collector remove the stale state.
+                try:
+                    self.weights.get(timeout=0.01)
+                except queue.Empty:
+                    pass
 
     def close(self):
+        if self.closed:
+            return
+        self.closed = True
         self.stop.set()
         # A multiprocessing Queue's feeder may be waiting for the reader.
         deadline = time.monotonic() + 10
@@ -354,7 +433,7 @@ def save_teacher(path, cfg, actor, critic, learner, counters, elapsed):
 
 
 def load_policy(path, device="cpu", *, stage=None):
-    checkpoint = torch.load(path, map_location=device, weights_only=False)
+    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
     if checkpoint.get("contract") != CONTRACT_VERSION:
         raise ValueError(
             f"Checkpoint must use {CONTRACT_VERSION}; old flat/shared-HORA/FlashSAC weights require retraining"
@@ -369,6 +448,8 @@ def load_policy(path, device="cpu", *, stage=None):
         raise ValueError("Unknown checkpoint stage or algorithm")
     cfg = OmegaConf.create(checkpoint["config"])
     assert isinstance(cfg, DictConfig)
+    device = resolve_device(device if device is not None else cfg.hardware.device)
+    configure_threads(cfg)
     model = config_dict(cfg.model)
     student = checkpoint["stage"] == "student"
     if checkpoint["algorithm"] == "flashsac":
@@ -395,7 +476,7 @@ def timeout_rewards(batch, critic, gamma):
     return batch["rewards"] + gamma * values * pure_timeout
 
 
-def stage_rollout(stages, raw, last_obs, version, actor, critic, device, capacity=3):
+def stage_rollout(stages, raw, last_obs, version, actor, critic, device, capacity=8):
     """Stage raw inputs once; reused pool views never update statistics."""
     fields = {
         key: value
@@ -447,17 +528,19 @@ def train_teacher(cfg):
         raise ValueError(
             "budget.checkpoint selects evaluation weights; training resume is not supported"
         )
-    torch.set_num_threads(int(cfg.hardware.torch_threads))
+    progress_key, target = training_budget(cfg)
+    configure_threads(cfg)
     torch.manual_seed(int(cfg.algo.seed))
     np.random.seed(int(cfg.algo.seed))
-    device = str(cfg.training.get("device") or cfg.hardware.device)
+    device = resolve_device(cfg.training.get("device") or cfg.hardware.device)
     cfg.hardware.device = device
+    if cfg.algo.algo == "appo":
+        cfg.hardware.collector_device = resolve_device(cfg.hardware.collector_device or device)
+        if cfg.algo.collector_seed is None:
+            cfg.algo.collector_seed = int(cfg.algo.seed) + 1
     if cfg.training.get("devices"):
         raise ValueError("The fixed-hardware comparison runner currently uses one learner device")
     n = int(cfg.algo.num_envs)
-    target = math.ceil(int(cfg.budget.transitions) / n) * n
-    if target <= 0:
-        raise ValueError("budget.transitions must be positive")
     algo = str(cfg.algo.algo)
     run = Path(cfg.training.log_dir or f"logs/{algo}/seed_{cfg.algo.seed}_{time.time_ns()}")
     run.mkdir(parents=True, exist_ok=False)
@@ -498,9 +581,8 @@ def train_teacher(cfg):
             env = SharpaTeacherEnv(cfg, n)
             resources.callback(env.close)
             obs, _ = env.reset(seed=int(cfg.algo.seed))
-        save_due, eval_due, log_due = (
-            int(cfg.budget[k]) for k in ("save_every", "evaluate_every", "log_every")
-        )
+        save_due = int(cfg.algo.save_interval if algo == "appo" else cfg.budget.save_every)
+        eval_due, log_due = (int(cfg.budget[k]) for k in ("evaluate_every", "log_every"))
         next_save, next_eval, next_log = save_due, eval_due, log_due
         episodes = EpisodeStatistics(n)
         logger = TrainingLogger(run, cfg, target)
@@ -508,7 +590,7 @@ def train_teacher(cfg):
         logger.start(status="Waiting for first rollout...")
         reward_sums = defaultdict(float)
         reward_steps = 0
-        while counters["received"] < target:
+        while counters[progress_key] < target:
             iteration_started = time.perf_counter()
             timings = {}
             if asynchronous is not None:
@@ -557,7 +639,7 @@ def train_teacher(cfg):
                         actor,
                         critic,
                         device,
-                        capacity=int(cfg.budget.async_queue_size),
+                        capacity=int(cfg.algo.staging_pool_size),
                     )
                     counters["received"] += size
                 timings["learner_replay_stage_time"] = time.perf_counter() - stage_started
@@ -669,17 +751,23 @@ def train_teacher(cfg):
                         t * n // int(cfg.algo.algorithm.num_mini_batches)
                     ) * updates
             counters["policy_version"] += 1
+            finished = counters[progress_key] >= target
             if asynchronous is not None:
                 publish_started = time.perf_counter()
                 asynchronous.publish(counters["policy_version"], actor)
                 timings["weight_sync_time"] = time.perf_counter() - publish_started
                 counters["collected"] = asynchronous.count.value
                 timings["iteration_time"] = time.perf_counter() - iteration_started
+                if finished:
+                    # Stop and drain before recording final sampling counts: an
+                    # in-flight rollout may finish without entering the learner.
+                    asynchronous.close()
+                    counters["collected"] = asynchronous.count.value
             metrics.update(counters)
             metrics["policy_lag"] = counters["policy_version"] - behavior_version - 1
             metrics["wall_seconds"] = time.monotonic() - started
             metrics["reuse_ratio"] = counters["training_samples"] / counters["received"]
-            if counters["received"] >= next_log or counters["received"] == target:
+            if algo == "appo" or counters["received"] >= next_log or finished:
                 # Rewards cover all fresh transitions since the previous log.
                 # Collector timing is the latest rollout; learner timing is the
                 # latest iteration, independent of logging/evaluation intervals.
@@ -690,10 +778,12 @@ def train_teacher(cfg):
                 reward_sums.clear()
                 reward_steps = 0
                 next_log = counters["received"] + max(log_due, 1)
-            do_save = save_due > 0 and counters["collected"] >= next_save
+            save_progress = counters["policy_version"] if algo == "appo" else counters["collected"]
+            do_save = save_due > 0 and save_progress >= next_save
             do_eval = eval_due > 0 and counters["collected"] >= next_eval
             if do_save or do_eval:
-                path = run / f"teacher_{counters['collected']}.pt"
+                suffix = f"iteration_{save_progress}" if algo == "appo" else str(save_progress)
+                path = run / f"teacher_{suffix}.pt"
                 save_teacher(
                     path, cfg, actor, critic, learner, counters, time.monotonic() - started
                 )
@@ -704,7 +794,7 @@ def train_teacher(cfg):
                         path, output=run / f"evaluation_{counters['collected']}.json", device=device
                     )
                     logger.status("Training")
-                next_save = (counters["collected"] // max(save_due, 1) + 1) * max(save_due, 1)
+                next_save = (save_progress // max(save_due, 1) + 1) * max(save_due, 1)
                 if do_eval:
                     next_eval = (counters["collected"] // max(eval_due, 1) + 1) * max(eval_due, 1)
         final = run / "teacher_final.pt"

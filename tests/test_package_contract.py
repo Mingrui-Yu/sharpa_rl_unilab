@@ -39,7 +39,7 @@ def test_common_task_and_nodr_are_identical_for_all_algorithms():
         configs = [
             compose_config(algo, "mujoco", [], nodr=nodr) for algo in ("ppo", "appo", "flashsac")
         ]
-        for key in ("env", "reward", "budget", "hardware", "distillation", "evaluation"):
+        for key in ("env", "reward", "distillation", "evaluation"):
             values = [OmegaConf.to_container(cfg[key], resolve=True) for cfg in configs]
             assert values[0] == values[1] == values[2]
         if nodr:

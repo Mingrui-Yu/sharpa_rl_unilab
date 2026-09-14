@@ -18,7 +18,7 @@ from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import CONTRACT_VERSION, S
 
 from .evaluation import deterministic_actions, file_digest, write_run_metadata
 from .logging import EpisodeStatistics, TrainingLogger
-from .teacher_runtime import load_policy, tensor_obs
+from .teacher_runtime import configure_threads, load_policy, tensor_obs
 
 
 class StudentTrainer:
@@ -75,7 +75,7 @@ def train_student(checkpoint, *, overrides=(), device=None):
     device = device or str(cfg.hardware.device)
     cfg.hardware.device = device
     teacher.to(device)
-    torch.set_num_threads(int(cfg.hardware.torch_threads))
+    configure_threads(cfg)
     seed = int(cfg.distillation.seed)
     torch.manual_seed(seed)
     np.random.seed(seed)

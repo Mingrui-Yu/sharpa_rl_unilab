@@ -6,11 +6,15 @@ defaults:
 algo:
   num_envs: ${hardware.num_envs}
   steps_per_env: 8
+  max_iterations: 305
+  save_interval: 51
+  staging_pool_size: 8
+  collector_seed: null  # Resolved to seed + 1 at runtime.
   algorithm:
     value_loss_coef: 4.0
     entropy_coef: 0.01
     learning_rate: 0.001
-    desired_kl: 0.02
+    desired_kl: 0.04
     num_learning_epochs: 5
     num_mini_batches: 4
     clip_param: 0.2
@@ -18,3 +22,15 @@ algo:
     lam: 0.95
     adaptive_kl_factor: 1.2
     adaptive_lr_factor: 1.1
+protocol:
+  appo_baseline: appo-hora-790ae32
+budget:
+  transitions: null
+  save_every: null
+  evaluate_every: 0
+  async_queue_size: 4
+hardware:
+  num_envs: 2048
+  device: null
+  collector_device: null
+  torch_threads: null

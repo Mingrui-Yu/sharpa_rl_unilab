@@ -45,7 +45,12 @@ uv run sharpa-train --algo ppo
 
 Append Hydra overrides for tuning; `--cfg` prints the composed Manager-Based
 configuration. All algorithms share physical settings, observation preprocessing,
-global transition budgets and fixed-scene quantitative evaluation. `--nodr` uses
+and fixed-scene quantitative evaluation. APPO defaults to 2048 environments,
+305 learner updates and a checkpoint every 51 updates; its collector follows the
+automatically selected learner device. PPO and FlashSAC use transition budgets.
+For an APPO sampling budget, explicitly set `algo.max_iterations=null
+budget.transitions=N`; checkpoints still use `algo.save_interval`.
+`sharpa-compare` explicitly selects sampling budgets for comparisons. `--nodr` uses
 one common override; `+preset=throughput` selects a separate throughput experiment.
 
 ```bash
@@ -59,7 +64,8 @@ Teacher and student runs show a UniLab Rich terminal panel and save TensorBoard
 events alongside the full `metrics.jsonl`. Run `uv run tensorboard --logdir logs`
 to view curves indexed by newly received transitions. Set `training.logger=none`
 for the panel and JSONL only, or `training.logger=no_print` for JSONL only.
-`budget.log_every` controls the recording interval in transitions. Native TensorBoard
+APPO logs every learner update and shows iteration progress/ETA; sampling counters
+remain separate. Other runs use `budget.log_every` in transitions. Native TensorBoard
 logging keeps slash metrics as-is and prefixes flat metrics with `train/`.
 See [component reuse and validation](docs/migrations/issue-2-simplify.md).
 

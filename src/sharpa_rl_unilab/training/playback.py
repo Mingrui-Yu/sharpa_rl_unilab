@@ -10,7 +10,7 @@ from unilab.visualization.playback import camera_cfg_from_training
 from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import SharpaTeacherEnv
 
 from .evaluation import deterministic_actions
-from .teacher_runtime import load_policy
+from .teacher_runtime import load_policy, resolve_device
 
 
 def play_checkpoint(checkpoint, *, device=None):
@@ -24,8 +24,7 @@ def play_checkpoint(checkpoint, *, device=None):
     steps = int(training.play_steps)
     if num_envs < 1 or steps < 1:
         raise ValueError("Playback requires positive training.play_env_num and training.play_steps")
-    device = device or str(cfg.hardware.device)
-    torch.set_num_threads(int(cfg.hardware.torch_threads))
+    device = resolve_device(device or cfg.hardware.device)
     actor.to(device)
     history_normalizer = None
     if snapshot["stage"] == "student":

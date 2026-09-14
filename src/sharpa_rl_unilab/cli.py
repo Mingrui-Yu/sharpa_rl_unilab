@@ -98,7 +98,7 @@ def _main(*, play: bool, argv: list[str] | None = None) -> None:
             result = evaluate_checkpoint(
                 checkpoint,
                 output=args.output,
-                device=str(cfg.hardware.device),
+                device=cfg.hardware.device,
                 evaluation=evaluation,
             )
             print(result["summary"])

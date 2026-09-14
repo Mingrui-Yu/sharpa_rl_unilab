@@ -42,7 +42,14 @@ uv run sharpa-compare --output logs/comparison --seeds 1 2 3
 teacher 和 student 默认显示 UniLab Rich 终端面板，并在运行目录写入 TensorBoard
 事件与完整的 `metrics.jsonl`。运行 `uv run tensorboard --logdir logs` 查看曲线；
 横轴为实际收到的新 transition 数。`training.logger=none` 只关闭 TensorBoard，
-`training.logger=no_print` 仅保留 JSONL。`budget.log_every` 控制指标记录间隔。
+`training.logger=no_print` 仅保留 JSONL。APPO 每轮记录指标，按更新轮数显示进度和 ETA；
+其余训练使用 `budget.log_every` 控制记录间隔。
+
+APPO 默认使用 2048 个环境，训练 305 轮，每 51 轮保存一次；Learner 自动选择
+CUDA、MPS 或 CPU，Collector 默认跟随 Learner，可用 `hardware.collector_device=cpu`
+覆盖。历史池为 8 批，待接收队列为 4 批。采样预算实验须显式设置
+`algo.max_iterations=null budget.transitions=N`，保存间隔仍使用 `algo.save_interval`。
+PPO、FlashSAC 的预算语义不变，`sharpa-compare` 显式选择采样预算。
 
 ## 正确性说明
 

@@ -31,7 +31,7 @@ def test_episode_statistics_span_packets_and_reset_only_completed_rows():
 
 
 def test_rich_logging_preserves_metrics_and_flushes_tensorboard(tmp_path, capsys):
-    cfg = compose_config("appo", "mujoco", [])
+    cfg = compose_config("appo", "mujoco", ["algo.max_iterations=null"])
     logger = TrainingLogger(tmp_path, cfg, 200)
     logger._console.width = 180
     try:

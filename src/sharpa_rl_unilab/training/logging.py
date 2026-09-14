@@ -1,4 +1,4 @@
-"""UniLab's Rich/TensorBoard logging adapted to transition-budgeted training."""
+"""UniLab's Rich/TensorBoard logging with explicit training budgets."""
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ class EpisodeStatistics:
 
 
 class TrainingLogger(OffPolicyLogger):
-    """Native panels/backends, with progress measured in received transitions.
+    """Native panels/backends, with iteration or received-transition progress.
 
     OffPolicyLogger also serves PPO and distillation: unlike OnPolicyLogger,
     it accepts an explicit environment-step axis and measured throughput.
@@ -65,6 +65,12 @@ class TrainingLogger(OffPolicyLogger):
         if backend not in {"tensorboard", "none", "no_print"}:
             raise ValueError("training.logger must be tensorboard, none or no_print")
         self.target = target
+        self.by_iterations = (
+            cfg.algo.algo == "appo"
+            and cfg.protocol.stage == "teacher"
+            and cfg.algo.get("max_iterations") is not None
+        )
+        self._progress = 0
         self._previous_steps = 0
         self._previous_seconds = 0.0
         super().__init__(
@@ -79,6 +85,7 @@ class TrainingLogger(OffPolicyLogger):
     def log(self, metrics, *, timings=None):
         metrics = dict(metrics)
         steps, seconds = int(metrics["received"]), float(metrics["wall_seconds"])
+        self._progress = int(metrics["policy_version"]) if self.by_iterations else steps
         elapsed = max(seconds - self._previous_seconds, 1e-9)
         throughput = (steps - self._previous_steps) / elapsed
         metrics["perf/transitions_per_second"] = throughput
@@ -145,19 +152,17 @@ class TrainingLogger(OffPolicyLogger):
         )
 
     def _estimate_eta(self, *, iteration=None):
-        if not self._previous_steps:
+        if not self._progress:
             return ""
         return _fmt_time(
-            self._previous_seconds
-            * max(self.target - self._previous_steps, 0)
-            / self._previous_steps
+            self._previous_seconds * max(self.target - self._progress, 0) / self._progress
         )
 
     def _build_display(self):
         panel = super()._build_display()
         panel.title = (
             f"UniLab Training | {self.algo_name} | {self.env_name} | "
-            f"Transitions {self._previous_steps:,}/{self.target:,}"
+            f"{'Iterations' if self.by_iterations else 'Transitions'} {self._progress:,}/{self.target:,}"
         )
         return panel
 
