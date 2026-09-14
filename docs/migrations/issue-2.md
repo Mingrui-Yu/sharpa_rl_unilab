@@ -108,7 +108,7 @@ student 推理只需要 obs 与 proprio_hist。
 ```bash
 uv run sharpa-train --algo ppo
 uv run sharpa-train --algo appo --nodr
-uv run sharpa-train --algo flashsac +preset=throughput hardware.num_envs=4096
+uv run sharpa-train --algo flashsac +preset=throughput
 uv run sharpa-eval --checkpoint /path/to/teacher_final.pt
 uv run sharpa-distill --checkpoint /path/to/teacher_final.pt
 uv run sharpa-eval --checkpoint /path/to/student_final.pt
@@ -118,7 +118,7 @@ uv run sharpa-compare --output logs/smoke --smoke
 
 绘图需要 `uv sync --extra mujoco --extra evaluation`。
 `--cfg` 打印实际合并配置；`+preset=throughput` 是独立吞吐实验标记，
-可显式调整硬件。这里的环境数始终是全局数；当前入口明确拒绝多 learner
+默认使用4096个环境，可显式调整硬件。这里的环境数始终是全局数；当前入口明确拒绝多 learner
 设备配置，避免把未实现的多 rank 统计当作已支持。旧 checkpoint 必须重训，
 不做静默结构迁移；训练断点恢复和旧视频/JIT/ONNX 导出入口不在 v2 支持范围。
 抓取缓存生成继续保留独立的旧 flat 观测与原 UniLab PPO 工具入口。
