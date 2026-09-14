@@ -14,7 +14,7 @@ model:
 budget:
   transitions: 10000000
   save_every: 1000000
-  evaluate_every: 1000000
+  evaluate_every: 0
   log_every: 10000
   checkpoint: null
   async_queue_size: 3
