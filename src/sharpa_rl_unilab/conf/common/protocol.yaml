@@ -19,7 +19,7 @@ budget:
   checkpoint: null
   async_queue_size: 3
 hardware:
-  num_envs: 2048
+  num_envs: 4096
   device: cuda:0
   collector_device: cpu
   torch_threads: 4
@@ -35,7 +35,7 @@ evaluation:
   manifest: null
 distillation:
   transitions: 100000000
-  num_envs: 2048
+  num_envs: 4096
   learning_rate: 0.0003
   save_every: 10000000
   seeds: [1, 2, 3]

@@ -70,7 +70,7 @@ KL 设置及 scheduler 曲线；这不是历史 run 的 optimizer state。
 
 ## 预算、评估和蒸馏
 
-默认固定硬件实验为单 learner、全局2048环境、5M新 transition。
+默认固定硬件实验为单 learner、全局4096环境、5M新 transition。
 各方法保留自己的 rollout/update 频率。最终预算最多向上取整一个向量步，
 容差为 N-1；APPO 每个实际向量步更新独立全局计数，接收端检查重复/缺包。
 日志分别记录 collected、received、training_samples、各类 optimizer updates、
@@ -99,7 +99,7 @@ SAC 分开的 Actor/Q 使用各计一次。
 所有 teacher 均使用相同 student 流程：冻结 teacher 编码器、基础统计、
 主干和动作头，仅训练原有30帧 `ProprioAdaptTConv`；历史统计每新批次更新一次。
 每个向量步先做一次 latent MSE 更新，再执行更新后 student 的确定性动作。
-默认100M蒸馏 transition、2048环境、lr=3e-4，seed集合[1,2,3]。
+默认100M蒸馏 transition、4096环境、lr=3e-4，seed集合[1,2,3]。
 checkpoint 保存完整环境/模型/蒸馏配置、历史统计、teacher hash和两阶段成本；
 student 推理只需要 obs 与 proprio_hist。
 

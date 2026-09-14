@@ -44,7 +44,7 @@ uv run sharpa-train --algo appo \
 ```
 
 最终模型为 `$SHARPA_TEACHER_RUN/teacher_final.pt`，保存完整运行配置与归一化统计。
-默认使用单 learner、2048 个环境、500 万个新 transition；可通过 `hardware.num_envs`
+默认使用单 learner、4096 个环境、500 万个新 transition；可通过 `hardware.num_envs`
 与 `budget.transitions` 调整规模。需要关闭域随机化时，在 teacher 命令中添加 `--nodr`，
 student 和评估会继承该配置。
 
@@ -63,7 +63,7 @@ uv run sharpa-distill --checkpoint "$SHARPA_TEACHER_RUN/teacher_final.pt" \
 ```
 
 最终模型为 `$SHARPA_STUDENT_RUN/student_final.pt`。默认蒸馏预算为 1 亿个 transition、
-2048 个环境、学习率 `3e-4`，可通过 `distillation.transitions`、`distillation.num_envs`
+4096 个环境、学习率 `3e-4`，可通过 `distillation.transitions`、`distillation.num_envs`
 与 `distillation.learning_rate` 调整。
 
 蒸馏继承 teacher 的完整环境配置，包括抓取缓存前缀，不接受 `env.*` 覆盖。
