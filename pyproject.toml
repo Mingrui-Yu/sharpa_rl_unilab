@@ -1,0 +1,89 @@
+[build-system]
+requires = ["uv_build>=0.12.1,<0.13"]
+build-backend = "uv_build"
+
+[project]
+name = "sharpa_rl-unilab"
+version = "0.1.0"
+description = "Sharpa Wave in-hand manipulation tasks and the HORA teacher/student algorithms"
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+dependencies = [
+    "unilab>=1.3.0,<1.4",
+    "unilab-rl>=1.2.0,<1.3",
+    "numpy", "torch>=2.8", "tensordict", "hydra-core>=1.3",
+    "filelock", "tensorboard",
+]
+
+[project.optional-dependencies]
+mujoco = ["unilab[mujoco]"]
+export = ["onnx", "onnxscript", "onnxruntime"]
+
+[project.scripts]
+sharpa-train = "sharpa_rl_unilab.cli:train_main"
+sharpa-eval = "sharpa_rl_unilab.cli:eval_main"
+sharpa-assets = "sharpa_rl_unilab.assets:main"
+sharpa-distill = "sharpa_rl_unilab.training.train_hora_distill:main"
+
+[project.entry-points."unilab.tasks"]
+sharpa = "sharpa_rl_unilab.tasks"
+
+[project.urls]
+Repository = "https://github.com/unilabsim/sharpa_rl_unilab"
+
+[dependency-groups]
+dev = ["pytest", "ruff", "mypy", "pyright==1.1.408"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501", "E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--tb=short"
+markers = ["slow: physics integration tests"]
+
+[tool.mypy]
+ignore_missing_imports = true
+no_site_packages = true
+
+[[tool.mypy.overrides]]
+module = "sharpa_rl_unilab.tools.*"
+disable_error_code = ["method-assign"]
+
+[tool.pyright]
+pythonVersion = "3.10"
+venvPath = "."
+venv = ".venv"
+include = ["src/sharpa_rl_unilab"]
+exclude = ["src/sharpa_rl_unilab/tools"]
+
+[tool.uv.build-backend]
+module-name = "sharpa_rl_unilab"
+
+[tool.uv]
+constraint-dependencies = ["torch==2.8.0; sys_platform != 'linux' or platform_machine != 'aarch64'"]
+# UniLab is consumed exclusively from its registered PyPI release; there is no
+# local checkout source override.
+[tool.uv.sources]
+torch = [
+    { index = "r2-cu130", marker = "sys_platform=='linux' and platform_machine=='aarch64'" },
+    { index = "pytorch-cu128", marker = "sys_platform=='linux' and platform_machine=='x86_64'" },
+    { index = "pytorch-cu128", marker = "sys_platform=='win32'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "r2-cu130"
+url = "https://download-r2.pytorch.org/whl/cu130"
+explicit = true

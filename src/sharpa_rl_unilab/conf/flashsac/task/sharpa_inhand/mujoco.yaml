@@ -1,0 +1,42 @@
+# @package _global_
+defaults:
+  - /task/sharpa_inhand/base
+  - _self_
+
+training:
+  task_name: SharpaInhandRotation
+  sim_backend: mujoco
+  use_amp: false
+  env_steps_per_sync: 2
+  no_play: true
+  play_steps: 200
+  render_spacing: 0.5
+  cam_distance: 1.5
+  cam_lookat: [0.75, 0.75, 0.4]
+  cam_elevation: -20.0
+
+interactive:
+  action_mode: policy
+  policy_obs_mode: actor
+  camera_distance: 1.5
+  camera_elevation: -20.0
+  camera_azimuth: 90.0
+  use_env_visual_model: true
+
+algo:
+  num_envs: 1024
+  batch_size: 2048
+  replay_buffer_n: 1280
+  updates_per_step: 14
+  learning_starts: 1
+  policy_frequency: 2
+  max_iterations: 5371
+  save_interval: 896
+  actor_lr: 4.5e-4
+  critic_lr: 4.5e-4
+  actor_hidden_dim: 512
+  critic_hidden_dim: 512
+  algo_params:
+    alpha_lr: 4.5e-4
+    amp_dtype: auto
+    use_compile: true
