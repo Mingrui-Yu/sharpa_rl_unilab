@@ -66,7 +66,7 @@ class TrainingLogger(OffPolicyLogger):
             raise ValueError("training.logger must be tensorboard, none or no_print")
         self.target = target
         self.by_iterations = (
-            cfg.algo.algo == "appo"
+            cfg.algo.algo in {"ppo", "appo"}
             and cfg.protocol.stage == "teacher"
             and cfg.algo.get("max_iterations") is not None
         )

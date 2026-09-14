@@ -49,11 +49,11 @@ def test_hora_parameters_and_other_algorithm_defaults():
     assert cfg.protocol.appo_baseline == "appo-hora-790ae32"
     for algo in ("ppo", "flashsac"):
         other = compose_config(algo, "mujoco", [])
-        assert other.hardware.num_envs == 4096
+        assert other.hardware.num_envs == (2048 if algo == "ppo" else 4096)
         assert other.hardware.device == "cuda:0"
         assert other.hardware.collector_device == "cpu"
         assert other.hardware.torch_threads == 4
-        assert other.budget.transitions == 10000000
+        assert other.budget.transitions == (None if algo == "ppo" else 10000000)
         assert other.budget.save_every == 1000000
         assert other.distillation == cfg.distillation
 
@@ -220,8 +220,9 @@ def test_collector_switches_complete_policy_only_between_rollouts(monkeypatch):
     torch.testing.assert_close(batch["actions_log_prob"], original_logp, rtol=0, atol=0)
 
 
-def test_iteration_progress_keeps_real_sampling_axis(tmp_path):
-    cfg = compose_config("appo", "mujoco", ["training.logger=no_print"])
+@pytest.mark.parametrize("algo", ["ppo", "appo"])
+def test_iteration_progress_keeps_real_sampling_axis(tmp_path, algo):
+    cfg = compose_config(algo, "mujoco", ["training.logger=no_print"])
     logger = TrainingLogger(tmp_path, cfg, 10)
     try:
         logger.log({"policy_version": 2, "received": 1234, "collected": 1456, "wall_seconds": 10})

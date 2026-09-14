@@ -47,9 +47,12 @@ Append Hydra overrides for tuning; `--cfg` prints the composed Manager-Based
 configuration. All algorithms share physical settings, observation preprocessing,
 and fixed-scene quantitative evaluation. APPO defaults to 2048 environments,
 305 learner updates and a checkpoint every 51 updates; its collector follows the
-automatically selected learner device. PPO and FlashSAC use transition budgets.
-For an APPO sampling budget, explicitly set `algo.max_iterations=null
-budget.transitions=N`; checkpoints still use `algo.save_interval`.
+automatically selected learner device. PPO defaults to 2048 environments and
+301 updates of 8 steps per environment (4,931,584 transitions). Its checkpoints
+still use `budget.save_every`, defaulting to 1,000,000 transitions.
+For a PPO or APPO sampling budget, explicitly set `algo.max_iterations=null
+budget.transitions=N`; APPO checkpoints still use `algo.save_interval`.
+FlashSAC uses a transition budget.
 `sharpa-compare` explicitly selects sampling budgets for comparisons. `--nodr` uses
 one common override; `+preset=throughput` selects a separate throughput experiment.
 

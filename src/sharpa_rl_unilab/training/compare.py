@@ -44,7 +44,7 @@ def main():
     common = [f"hardware.device={args.device}", *overrides]
     common += [f"evaluation.training_seeds={args.seeds}", f"distillation.seeds={args.seeds}"]
     # Comparisons explicitly use equal sampling budgets across algorithms.
-    # APPO's standalone HORA default instead stops after 305 learner rounds.
+    # PPO and APPO standalone defaults instead stop by update rounds.
     sample_budget = "128" if args.smoke else "10000000"
     if not any(item.startswith("budget.transitions=") for item in common):
         common.append(f"budget.transitions={sample_budget}")
@@ -75,8 +75,10 @@ def main():
             ]
             if args.smoke and algorithm == "flashsac":
                 specific += ["algo.batch_size=32"]
+            if algorithm in {"ppo", "appo"}:
+                specific += ["algo.max_iterations=null"]
             if algorithm == "appo":
-                specific += ["algo.max_iterations=null", "budget.save_every=null"]
+                specific += ["budget.save_every=null"]
                 if args.smoke:
                     specific += ["algo.save_interval=0"]
             elif args.smoke:

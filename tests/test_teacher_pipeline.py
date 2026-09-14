@@ -47,8 +47,10 @@ def test_train_save_load_evaluate_distill(algo, budget, expected, tmp_path, monk
     else:
         overrides += ["algo.algorithm.num_learning_epochs=1", "algo.algorithm.num_mini_batches=1"]
         overrides += ["algo.steps_per_env=2" if algo == "appo" else "algo.num_steps_per_env=2"]
+    if algo in {"ppo", "appo"}:
+        overrides += ["algo.max_iterations=null"]
     if algo == "appo":
-        overrides += ["algo.max_iterations=null", "budget.save_every=null", "algo.save_interval=1"]
+        overrides += ["budget.save_every=null", "algo.save_interval=1"]
     cfg = compose_config(algo, "mujoco", overrides)
     path = train_teacher(cfg)
     metrics = [

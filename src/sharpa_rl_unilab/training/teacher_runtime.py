@@ -74,7 +74,7 @@ def configure_threads(cfg):
 
 def training_budget(cfg):
     """Exactly one stopping budget; APPO snapshots always use update rounds."""
-    iterations = cfg.algo.get("max_iterations") if cfg.algo.algo == "appo" else None
+    iterations = cfg.algo.get("max_iterations") if cfg.algo.algo in {"ppo", "appo"} else None
     transitions = cfg.budget.transitions
     if (iterations is None) == (transitions is None):
         raise ValueError(
@@ -604,7 +604,8 @@ def train_teacher(cfg):
                 horizon = int(
                     cfg.algo.get("num_steps_per_env", cfg.training.get("env_steps_per_sync", 2))
                 )
-                horizon = min(horizon, (target - counters["received"]) // n)
+                if progress_key == "received":
+                    horizon = min(horizon, (target - counters["received"]) // n)
                 collector_metrics = {}
                 raw, last_obs = collect(env, obs, actor, horizon, device, metrics=collector_metrics)
                 obs = last_obs
