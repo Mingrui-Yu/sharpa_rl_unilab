@@ -1,19 +1,6 @@
-"""Sharpa Wave Manager-Based task-family registrations."""
+"""Sharpa Wave Manager-Based task registrations."""
 
-from . import config as config
-from . import grasp_gen as grasp_gen
-from . import rotation as rotation
-from .config import (
-    SharpaInhandGraspEnvCfg,
-    SharpaInhandRotationCfg,
-    SharpaInhandRotationGraspCfg,
-)
+from . import grasp_registry as grasp_registry
+from . import rotation_registry as rotation_registry
 
-__all__ = [
-    "SharpaInhandGraspEnvCfg",
-    "SharpaInhandRotationCfg",
-    "SharpaInhandRotationGraspCfg",
-    "config",
-    "grasp_gen",
-    "rotation",
-]
+__all__ = ["grasp_registry", "rotation_registry"]

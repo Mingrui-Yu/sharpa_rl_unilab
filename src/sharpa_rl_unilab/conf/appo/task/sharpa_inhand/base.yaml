@@ -89,7 +89,7 @@ env:
       flatten_history_dim: true
       terms:
         privileged:
-          func: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.SharpaFlattenedObservation
+          func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation.SharpaFlattenedObservation
           params:
             entity_name: robot
             action_name: hand
@@ -113,7 +113,7 @@ env:
             clip_obs: 5.0
   actions:
     hand:
-      _target_: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.SharpaIncrementalPositionActionCfg
+      _target_: sharpa_rl_unilab.tasks.sharpa_inhand.terms.action.SharpaIncrementalPositionActionCfg
       entity_name: robot
       actuator_names:
       - .*_ctrl
@@ -127,7 +127,7 @@ env:
       func: unilab.envs.mdp.reset_scene_to_default
       mode: reset
     reset:
-      func: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.SharpaHandObjectReset
+      func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.reset.SharpaHandObjectReset
       mode: reset
       params:
         entity_name: robot
@@ -142,7 +142,7 @@ env:
         - 1.0
         use_default_object_pose_for_object_pos_anchor: true
     domain_randomization:
-      func: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.SharpaDomainRandomization
+      func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.randomization.SharpaDomainRandomization
       mode: reset
       params:
         entity_name: robot
@@ -175,7 +175,7 @@ env:
         include_friction_scale: true
         include_gravity_direction: false
     persistent_force:
-      func: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.SharpaPersistentObjectForce
+      func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.disturbance.SharpaPersistentObjectForce
       mode: step
       params:
         entity_name: robot
@@ -187,7 +187,7 @@ env:
         force_decay_interval: 0.08
   terminations:
     dropped:
-      func: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.SharpaDropTermination
+      func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.termination.SharpaDropTermination
       params:
         observation_group: flat
         observation_term: privileged
@@ -199,32 +199,32 @@ env:
   critic_observation_group: null
 reward:
   rotate:
-    func: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.rotate_reward
+    func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.rewards.rotate_reward
     weight: 2.5
     params:
       state_term_name: dropped
   obj_linvel:
-    func: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.object_linear_velocity_l1
+    func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.rewards.object_linear_velocity_l1
     weight: -0.3
     params:
       state_term_name: dropped
   pose_diff:
-    func: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.hand_pose_deviation_l2
+    func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.rewards.hand_pose_deviation_l2
     weight: -0.4
     params:
       state_term_name: dropped
   torque:
-    func: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.estimated_torque_l2
+    func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.rewards.estimated_torque_l2
     weight: -0.1
     params:
       state_term_name: dropped
   work:
-    func: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.estimated_work_l2
+    func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.rewards.estimated_work_l2
     weight: -0.5
     params:
       state_term_name: dropped
   object_pos:
-    func: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.object_position_reward
+    func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.rewards.object_position_reward
     weight: 0.003
     params:
       state_term_name: dropped

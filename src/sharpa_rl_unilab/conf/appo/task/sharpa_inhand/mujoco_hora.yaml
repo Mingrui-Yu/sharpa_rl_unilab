@@ -53,7 +53,7 @@ env:
       flatten_history_dim: true
       terms:
         frame:
-          func: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.SharpaRotationObservation
+          func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation.SharpaRotationObservation
           params:
             entity_name: robot
             action_name: hand
@@ -80,7 +80,7 @@ env:
       flatten_history_dim: true
       terms:
         privileged:
-          func: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.SharpaCriticObservation
+          func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation.SharpaCriticObservation
           params:
             entity_name: robot
             action_name: hand
@@ -101,7 +101,7 @@ env:
   critic_observation_group: critic
   terminations:
     dropped:
-      func: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.SharpaDropTermination
+      func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.termination.SharpaDropTermination
       params:
         observation_group: actor
         observation_term: frame

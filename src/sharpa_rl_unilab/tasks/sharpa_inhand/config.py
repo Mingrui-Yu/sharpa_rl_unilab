@@ -14,6 +14,7 @@ from sharpa_rl_unilab.assets import ASSETS_ROOT_PATH
 _ROBOT_ROOT = ASSETS_ROOT_PATH / "robots" / "sharpa_wave"
 _SCALE_NAMES = ("0.8", "0.9", "1", "1.1", "1.2", "1.3", "1.4", "1.5")
 
+
 def _variants() -> FixedModelVariantCatalogCfg:
     return FixedModelVariantCatalogCfg(
         variants=tuple(
@@ -38,11 +39,6 @@ class SharpaInhandRotationCfg(ManagerBasedRlEnvCfg):
     max_episode_seconds: float = 20.0  # pyright: ignore[reportIncompatibleVariableOverride]
 
 
-SharpaWaveRotationCfg = SharpaInhandRotationCfg
-
-__all__ = ["SharpaInhandRotationCfg", "SharpaWaveRotationCfg"]
-
-
 def _grasp_variants() -> FixedModelVariantCatalogCfg:
     """Resolve the one-scale grasp-generation variant from the helper environment."""
     scale = os.environ.get("SHARPA_GRASP_SCALE", "0.8")
@@ -64,6 +60,4 @@ class SharpaInhandRotationGraspCfg(SharpaInhandRotationCfg):
     )
 
 
-SharpaInhandGraspEnvCfg = SharpaInhandRotationGraspCfg
-
-__all__.extend(["SharpaInhandGraspEnvCfg", "SharpaInhandRotationGraspCfg"])
+__all__ = ["SharpaInhandRotationCfg", "SharpaInhandRotationGraspCfg"]

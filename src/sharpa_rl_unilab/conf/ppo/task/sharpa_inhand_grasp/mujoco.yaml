@@ -44,7 +44,7 @@ env:
       zero_action: true
   events:
     reset:
-      func: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.SharpaGraspReset
+      func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.reset.SharpaHandObjectReset
       params:
         entity_name: robot
         action_name: hand
@@ -72,7 +72,7 @@ env:
   terminations:
     dropped: null
     grasp_quality:
-      func: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.SharpaGraspQualityTermination
+      func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.grasp.SharpaGraspQualityTermination
       params:
         observation_group: flat
         observation_term: privileged
@@ -85,7 +85,7 @@ env:
       time_out: true
   recorders:
     grasp_cache:
-      func: sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms.SharpaGraspRecorder
+      func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.grasp.SharpaGraspRecorder
       params:
         entity_name: robot
         event_state_name: reset

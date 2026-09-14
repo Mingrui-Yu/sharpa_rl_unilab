@@ -8,7 +8,7 @@ from sharpa_rl_unilab.tasks.sharpa_inhand.config import (
     SharpaInhandRotationCfg,
     SharpaInhandRotationGraspCfg,
 )
-from sharpa_rl_unilab.tasks.sharpa_inhand.manager_terms import (
+from sharpa_rl_unilab.tasks.sharpa_inhand.terms.cache import (
     resolve_grasp_cache_file,
     sample_scale_grasp_caches,
 )
@@ -55,7 +55,15 @@ def test_grasp_cache_resolution_and_sampling_use_variant_buckets() -> None:
 def test_task_source_no_longer_uses_legacy_direct_runtime() -> None:
     root = Path(__file__).resolve().parents[1] / "src" / "sharpa_rl_unilab"
     forbidden = ("adapt_legacy_factory", "unilab.dr", "DomainRandomizationProvider", "ResetPlan")
+    compatibility_aliases = (
+        "SharpaWaveRotationCfg",
+        "SharpaInhandGraspEnvCfg",
+        "manager_terms.py",
+    )
     for path in (root / "tasks").rglob("*.py"):
         text = path.read_text()
         for token in forbidden:
             assert token not in text, f"{token} found in {path}"
+        for token in compatibility_aliases:
+            assert token not in text, f"compatibility alias {token} found in {path}"
+    assert not (root / "tasks" / "sharpa_inhand" / "manager_terms.py").exists()
