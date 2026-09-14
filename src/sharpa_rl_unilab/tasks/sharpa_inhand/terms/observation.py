@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
     from sharpa_rl_unilab.tasks.sharpa_inhand.terms.types import SharpaEnv
 
+
 class SharpaRotationObservation(ManagerTermBase):
     """Own one Sharpa policy frame plus state shared by termination and rewards."""
 
@@ -57,7 +58,9 @@ class SharpaRotationObservation(ManagerTermBase):
         super().__init__(env)
         term = type(self).__name__
         validate_term_params(term, cfg, self._ALLOWED_PARAMS)
-        self._entity = cast("Entity", env.scene[require_name(term, "entity_name", cfg.params.get("entity_name"))])
+        self._entity = cast(
+            "Entity", env.scene[require_name(term, "entity_name", cfg.params.get("entity_name"))]
+        )
         self._action_name = require_name(term, "action_name", cfg.params.get("action_name"))
         self._action: SharpaIncrementalPositionAction | None = None
         self._joint_ids_array, joint_names = self._entity.find_joints_by_actuator_names(
@@ -109,9 +112,7 @@ class SharpaRotationObservation(ManagerTermBase):
             term, "tactile_force_clip_max", cfg.params.get("tactile_force_clip_max", 4.0)
         )
         self._clip_obs = require_real(term, "clip_obs", cfg.params.get("clip_obs", 5.0))
-        disabled = np.asarray(
-            cfg.params.get("disable_tactile_ids", ()), dtype=np.intp
-        )
+        disabled = np.asarray(cfg.params.get("disable_tactile_ids", ()), dtype=np.intp)
         if np.any(disabled < 0) or np.any(disabled >= len(sensor_names)):
             raise ValueError(f"{term} disable_tactile_ids are out of range: {disabled.tolist()}")
 
@@ -145,7 +146,9 @@ class SharpaRotationObservation(ManagerTermBase):
                 return None
             action = action_manager.get_term(self._action_name)
             if not isinstance(action, SharpaIncrementalPositionAction):
-                raise TypeError(f"{type(self).__name__} action must be SharpaIncrementalPositionAction")
+                raise TypeError(
+                    f"{type(self).__name__} action must be SharpaIncrementalPositionAction"
+                )
             self._action = action
         return self._action
 
@@ -217,11 +220,7 @@ class SharpaRotationObservation(ManagerTermBase):
         offset = 0
         for index, width in enumerate(self._sensor_dims):
             values = np.asarray(raw[:, offset : offset + width], dtype=dtype)
-            result[:, index] = (
-                np.linalg.norm(values[:, :3], axis=1)
-                if width >= 3
-                else values[:, 0]
-            )
+            result[:, index] = np.linalg.norm(values[:, :3], axis=1) if width >= 3 else values[:, 0]
             offset += width
         if self._tactile_clip > 0.0:
             np.clip(result, 0.0, self._tactile_clip, out=result)
@@ -235,16 +234,13 @@ class SharpaRotationObservation(ManagerTermBase):
             1.0 - self._contact_smoothing
         )
         self._prev_tactile_force[:] = current
-        latency = (
-            env.rng.random(smooth.shape) < self._contact_latency
-        ).astype(get_global_dtype())
+        latency = (env.rng.random(smooth.shape) < self._contact_latency).astype(get_global_dtype())
         if self._binary_contact:
             contact = (smooth > self._contact_threshold).astype(get_global_dtype())
             self.last_contacts[:] = self.last_contacts * latency + contact * (1.0 - latency)
-            keep = (
-                env.rng.random(self.last_contacts.shape)
-                >= self._contact_noise
-            ).astype(get_global_dtype())
+            keep = (env.rng.random(self.last_contacts.shape) >= self._contact_noise).astype(
+                get_global_dtype()
+            )
             return np.where(
                 self.last_contacts > 0.1,
                 keep * self.last_contacts,

@@ -1,14 +1,16 @@
 # 入门
 
-## 前置条件
+## 你需要准备什么
 
 - 训练推荐使用带 NVIDIA GPU 的 Linux 系统。
 - [uv](https://docs.astral.sh/uv/) 0.12 或更新版本。
 - 可访问 UniLab 与本仓库的 Git 权限。
-- MuJoCo 原生渲染包由 `mujoco` extra 自动安装；不需要系统级 MuJoCo。
+- 不需要显示服务；评估可以录制离屏视频。
 
-本包将 UniLab 视为外部依赖。`pyproject.toml` 中的开发元数据从兄弟目录
-`../UniLab` checkout 解析该依赖，因此两个仓库需要并排克隆：
+## 与 UniLab 并排安装
+
+本包将 UniLab 视为外部任务 runtime。开发元数据从兄弟 checkout 解析
+UniLab：
 
 ```bash
 mkdir ~/ws/unilab-tasks
@@ -16,42 +18,36 @@ cd ~/ws/unilab-tasks
 git clone https://github.com/Motphys/UniLab.git
 git clone https://github.com/unilabsim/sharpa_rl_unilab.git
 cd sharpa_rl_unilab
-```
-
-安装锁定环境：
-
-```bash
 uv sync --extra mujoco --extra export
 ```
 
-准备并校验内置的机器人与抓取资产：
+准备内置的机器人、场景与 grasp-cache 资产：
 
 ```bash
 uv run sharpa-assets
 ```
 
-这些资产属于 Python 包。只有在需要时才会创建可写修复缓存；
-`SHARPA_RL_UNILAB_ASSET_CACHE` 可以将该缓存指向其他目录。
+常规训练和评估不需要下载 Hugging Face 资产。
 
-## 校验安装
+## 检查安装
 
-运行包检查，并检查一个合成后的 Manager-Based 配置：
+在不启动物理仿真的情况下打印两个完整 Hydra 配置：
 
 ```bash
-uv run ruff check src tests
-uv run pytest -q
-uv run pyright
 uv run sharpa-train --algo appo --sim mujoco --profile hora --cfg
 uv run sharpa-train --algo flashsac --sim mujoco --cfg
 ```
 
-配置打印命令会在加载仿真资产前退出。这是查看 Hydra override 并确认 owner
-是否存在的最快方式。
+然后运行包测试：
 
-## 运行一次 one-iteration smoke train
+```bash
+uv run pytest -q
+```
 
-使用较小的环境数和一个显式临时 run 目录。以下命令会覆盖完整 collector、
-learner、checkpoint 与 summary 路径，但不会启动基准时长的训练。
+## 运行两分钟完整性检查
+
+最小完整训练使用 4 个环境和 1 次 iteration。它会验证资产加载、仿真、采
+集、学习、checkpoint 与 run summary。
 
 HORA APPO：
 
@@ -59,7 +55,7 @@ HORA APPO：
 uv run sharpa-train --algo appo --sim mujoco --profile hora \
   algo.num_envs=4 algo.steps_per_env=2 algo.max_iterations=1 \
   algo.save_interval=1 training.no_play=true \
-  training.log_dir=/tmp/sharpa-hora-appo-smoke
+  training.log_dir=/tmp/sharpa-hora-appo-check
 ```
 
 FlashSAC：
@@ -69,14 +65,14 @@ uv run sharpa-train --algo flashsac --sim mujoco \
   algo.num_envs=4 algo.batch_size=8 algo.replay_buffer_n=16 \
   algo.updates_per_step=1 algo.learning_starts=1 algo.max_iterations=1 \
   algo.save_interval=1 training.no_play=true \
-  training.log_dir=/tmp/sharpa-flashsac-smoke
+  training.log_dir=/tmp/sharpa-flashsac-check
 ```
 
-一次成功的 smoke run 会写入 `model_1.pt` 和 `run_summary.json` 到其
+每次成功运行都会写出一个 checkpoint 和 `run_summary.json` 到配置的
 `training.log_dir`。
 
 ## 下一步
 
-- 启动基准训练：[训练工作流](user-guide/training.md)
-- 加载 checkpoint：[评估与回放](user-guide/evaluation.md)
-- 理解 terms 与 fixed object variants：[任务参考](reference/task.md)
+- 启动完整 teacher 训练：[训练指南](training.md)
+- 加载 checkpoint 并录制视频：[评估指南](evaluation.md)
+- 了解任务、观测与随机化：[任务指南](task.md)

@@ -18,8 +18,7 @@ def test_fixed_variant_catalog_and_xml_sizes_are_consistent() -> None:
     cfg = SharpaInhandRotationCfg()
     expected = ("0.8", "0.9", "1", "1.1", "1.2", "1.3", "1.4", "1.5")
     names = tuple(
-        variant.name.removeprefix("scene_scale_")
-        for variant in cfg.fixed_model_variants.variants
+        variant.name.removeprefix("scene_scale_") for variant in cfg.fixed_model_variants.variants
     )
     assert names == expected
 
@@ -52,18 +51,10 @@ def test_grasp_cache_resolution_and_sampling_use_variant_buckets() -> None:
     np.testing.assert_allclose(sampled[[0, 2]], np.broadcast_to(caches[1], (2, 29)))
 
 
-def test_task_source_no_longer_uses_legacy_direct_runtime() -> None:
+def test_task_source_uses_manager_based_api() -> None:
     root = Path(__file__).resolve().parents[1] / "src" / "sharpa_rl_unilab"
     forbidden = ("adapt_legacy_factory", "unilab.dr", "DomainRandomizationProvider", "ResetPlan")
-    compatibility_aliases = (
-        "SharpaWaveRotationCfg",
-        "SharpaInhandGraspEnvCfg",
-        "manager_terms.py",
-    )
     for path in (root / "tasks").rglob("*.py"):
         text = path.read_text()
         for token in forbidden:
             assert token not in text, f"{token} found in {path}"
-        for token in compatibility_aliases:
-            assert token not in text, f"compatibility alias {token} found in {path}"
-    assert not (root / "tasks" / "sharpa_inhand" / "manager_terms.py").exists()

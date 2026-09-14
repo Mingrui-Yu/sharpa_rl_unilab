@@ -1,24 +1,11 @@
-# Sharpa RL documentation
+# Sharpa RL user guide
 
-This documentation is organized for an independent UniLab task package. It is
-not a mirror of the upstream UniLab documentation tree.
-The Chinese edition mirrors this file structure and content under docs/zh_CN/.
+These pages describe how to install the task package, train policies, evaluate
+checkpoints, and use the HORA teacher/student workflow.
 
-## Start here
-
-1. [Installation and first run](getting-started.md)
-2. [Training workflows](user-guide/training.md)
-3. [Evaluation and playback](user-guide/evaluation.md)
-
-## Task reference
-
-- [Sharpa in-hand task](reference/task.md)
-
-## HORA
-
-- [Teacher training and student distillation](user-guide/hora.md)
-
-## Development
-
-- [Architecture](developer/architecture.md)
-- [Validation record](developer/validation.md)
+- [Getting started](getting-started.md)
+- [Training guide](training.md)
+- [Evaluation guide](evaluation.md)
+- [HORA guide](hora.md)
+- [Task and environment guide](task.md)
+- [Reference training results](results.md)

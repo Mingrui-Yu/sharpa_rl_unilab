@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
     from sharpa_rl_unilab.tasks.sharpa_inhand.terms.types import SharpaEnv
 
+
 class SharpaGraspQualityTermination(ManagerTermBase):
     """Reject timeouts unless the object is a stable multi-finger grasp."""
 
@@ -127,7 +128,9 @@ class SharpaGraspRecorder(RecorderTerm):
                 "auto_save",
             },
         )
-        self._entity = cast("Entity", env.scene[require_name(term, "entity_name", cfg.params.get("entity_name"))])
+        self._entity = cast(
+            "Entity", env.scene[require_name(term, "entity_name", cfg.params.get("entity_name"))]
+        )
         self.task_state = env.event_manager.get_term_cfg(
             require_name(term, "event_state_name", cfg.params.get("event_state_name"))
         ).func

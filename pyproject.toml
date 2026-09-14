@@ -53,7 +53,6 @@ markers = ["slow: physics integration tests"]
 ignore_missing_imports = true
 no_site_packages = true
 
-# The migrated benchmark tool monkeypatches provider methods to A/B init-DR.
 [[tool.mypy.overrides]]
 module = "sharpa_rl_unilab.tools.*"
 disable_error_code = ["method-assign"]
@@ -63,8 +62,6 @@ pythonVersion = "3.10"
 venvPath = "."
 venv = ".venv"
 include = ["src/sharpa_rl_unilab"]
-# The migrated benchmark tool drives native MuJoCo APIs whose installed
-# stubs omit the generated exports. It is exercised by runtime smoke tests.
 exclude = ["src/sharpa_rl_unilab/tools"]
 
 [tool.uv.build-backend]

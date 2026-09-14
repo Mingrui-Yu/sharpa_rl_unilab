@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
     from sharpa_rl_unilab.tasks.sharpa_inhand.terms.types import SharpaEnv
 
+
 class SharpaPersistentObjectForce(ManagerTermBase):
     """Source-equivalent decaying random object force."""
 
@@ -40,7 +41,9 @@ class SharpaPersistentObjectForce(ManagerTermBase):
                 "force_decay_interval",
             },
         )
-        self._entity = cast("Entity", env.scene[require_name(term, "entity_name", cfg.params.get("entity_name"))])
+        self._entity = cast(
+            "Entity", env.scene[require_name(term, "entity_name", cfg.params.get("entity_name"))]
+        )
         self._randomization_name = require_name(
             term, "domain_randomization_name", cfg.params.get("domain_randomization_name")
         )
@@ -61,7 +64,9 @@ class SharpaPersistentObjectForce(ManagerTermBase):
         if interval == 0.0:
             raise ValueError(f"{term} force_decay_interval must be positive")
         self._decay = float(np.power(decay, env.step_dt / interval))
-        body_name = require_name(term, "object_body_name", cfg.params.get("object_body_name", "object"))
+        body_name = require_name(
+            term, "object_body_name", cfg.params.get("object_body_name", "object")
+        )
         requested_body_ids, requested_body_names = self._entity.find_bodies([body_name])
         if tuple(requested_body_names) != (body_name,):
             raise ValueError(f"{term} could not resolve the unique object body")

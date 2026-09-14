@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from unilab.managers import ManagerTermBaseCfg
     from unilab.managers._types import ManagerBasedRlEnv
 
+
 def require_name(term: str, field: str, value: Any) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError(f"{term} {field} must be a non-empty string")

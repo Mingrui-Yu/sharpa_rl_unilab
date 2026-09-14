@@ -1,132 +1,119 @@
-# UniLab Sharpa RL 任务仓库
+# UniLab Sharpa RL
 
-本仓库提供 Sharpa Wave 手内操作任务与 HORA 算法，是独立的 UniLab task
-package。任务已使用 UniLab 当前 **Manager-Based API**：本仓库拥有 action、
-observation、reset、event、reward、termination 与 recorder terms；UniLab 保持
-外部依赖，负责 manager 生命周期与仿真后端。
+[English](README.md) | [文档](docs/README.md)
 
-[English README](README.md) · [文档索引](docs/README.md)
+## 任务概述
 
-## 支持的工作流
+这是一个独立的 UniLab Sharpa Wave 手内操作任务包，提供 MuJoCo 可用的
+手/物体任务、内置机器人资产、grasp cache，以及 PPO、APPO、HORA APPO、
+FlashSAC 和 HORA student 蒸馏训练入口。
 
-| 工作流 | 命令族 |
-| --- | --- |
-| PPO baseline | `sharpa-train --algo ppo --sim mujoco` |
-| APPO baseline | `sharpa-train --algo appo --sim mujoco` |
-| HORA APPO teacher | `sharpa-train --algo appo --sim mujoco --profile hora` |
-| FlashSAC teacher | `sharpa-train --algo flashsac --sim mujoco` |
-| 抓取缓存生成 | `sharpa-train --algo ppo --task sharpa_inhand_grasp` |
-| HORA student 蒸馏 | `sharpa-distill` |
-| 评估 / 回放 | `sharpa-eval` |
+## 亮点与展示
+
+- 训练在 22 自由度 Sharpa Wave 手内旋转自由圆柱的策略。
+- 使用触觉历史、特权 critic 信息与物体尺度随机化。
+- 导出 FlashSAC actor ONNX，并录制评估视频。
+- 训练 HORA teacher，并蒸馏只使用 actor 观测的 student。
+
+**展示：** GIF 占位。
 
 ## 安装
 
-开发环境的 `unilab` 依赖来自兄弟目录 checkout，因此两个仓库需要并排放置：
+将 UniLab 与本任务包作为兄弟目录克隆：
 
 ```bash
-mkdir -p ~/ws/unilab-tasks
+mkdir ~/ws/unilab-tasks
 cd ~/ws/unilab-tasks
 git clone https://github.com/Motphys/UniLab.git
 git clone https://github.com/unilabsim/sharpa_rl_unilab.git
 cd sharpa_rl_unilab
-
 uv sync --extra mujoco --extra export
 uv run sharpa-assets
 ```
 
-安装校验：
+推荐使用 NVIDIA CUDA 训练。评估可通过
+`training.play_render_mode=record` 在无显示环境运行。
 
-```bash
-uv run ruff check src tests
-uv run pytest -q
-uv run pyright
-```
+## 快速开始
 
-## 快速运行指南
-
-先打印配置，不分配仿真环境：
-
-```bash
-uv run sharpa-train --algo appo --sim mujoco --profile hora --cfg
-uv run sharpa-train --algo flashsac --sim mujoco --cfg
-```
-
-执行最小完整训练：
+### 1. 安装冒烟测试
 
 ```bash
 uv run sharpa-train --algo appo --sim mujoco --profile hora \
   algo.num_envs=4 algo.steps_per_env=2 algo.max_iterations=1 \
   algo.save_interval=1 training.no_play=true \
-  training.log_dir=/tmp/sharpa-hora-appo-smoke
+  training.log_dir=/tmp/sharpa-hora-appo-check
+```
 
+```bash
 uv run sharpa-train --algo flashsac --sim mujoco \
   algo.num_envs=4 algo.batch_size=8 algo.replay_buffer_n=16 \
   algo.updates_per_step=1 algo.learning_starts=1 algo.max_iterations=1 \
   algo.save_interval=1 training.no_play=true \
-  training.log_dir=/tmp/sharpa-flashsac-smoke
+  training.log_dir=/tmp/sharpa-flashsac-check
 ```
 
-成功后会写出 `model_1.pt` 与 `run_summary.json`。
+### 2. 训练策略
 
-完整训练：
+HORA APPO teacher：
 
 ```bash
 uv run sharpa-train --algo appo --sim mujoco --profile hora \
   algo.seed=1 training.no_play=true
+```
 
+FlashSAC teacher：
+
+```bash
 uv run sharpa-train --algo flashsac --sim mujoco \
   algo.seed=1 training.no_play=true
 ```
 
-默认输出目录：
+[参考结果](docs/zh_CN/results.md)中的 APPO 使用不带 `--profile hora` 的
+baseline owner。
 
-```text
-logs/hora_appo/SharpaInhandRotation/<timestamp>/
-logs/flash_sac/SharpaInhandRotation/<timestamp>/
-```
+### 3. 评估 checkpoint
 
-在同一仓库根目录运行以下命令即可评估最新 checkpoint：
+评估最新 HORA APPO checkpoint：
 
 ```bash
 uv run sharpa-eval --algo appo --sim mujoco --profile hora \
-  algo.load_run=-1 \
-  training.play_render_mode=record
+  algo.load_run=-1 training.play_render_mode=record
+```
 
+评估最新 FlashSAC checkpoint：
+
+```bash
 uv run sharpa-eval --algo flashsac --sim mujoco \
-  algo.load_run=-1 \
-  training.play_render_mode=record
+  algo.load_run=-1 training.play_render_mode=record
 ```
 
-评估指定 checkpoint：
+视频会写在所选 checkpoint 旁。FlashSAC 还会写出并验证 `policy.onnx`。
+
+### 4. 复现参考基准
 
 ```bash
-uv run sharpa-eval --algo appo --sim mujoco --profile hora \
-  algo.load_run=/absolute/path/to/run/model_305.pt \
-  training.play_render_mode=record
+uv run sharpa-train --algo appo --sim mujoco \
+  algo.seed=1 training.no_play=true
 ```
 
-无显示器录制视频使用 `training.play_render_mode=record`；FlashSAC 默认会在
-checkpoint 旁导出并验证 `policy.onnx`。
+```bash
+uv run sharpa-train --algo flashsac --sim mujoco \
+  algo.seed=1 training.no_play=true
+```
+
+参考指标记录在 [docs/zh_CN/results.md](docs/zh_CN/results.md)。
 
 ## 文档
 
-完整命令、输出目录、resume、视频、ONNX 与排障说明见中文文档：
-
-- [文档索引](docs/README.md)
 - [入门](docs/zh_CN/getting-started.md)
-- [训练流程](docs/zh_CN/user-guide/training.md)
-- [评估与回放](docs/zh_CN/user-guide/evaluation.md)
-- [HORA](docs/zh_CN/user-guide/hora.md)
-- [任务参考](docs/zh_CN/reference/task.md)
-- [架构](docs/zh_CN/developer/architecture.md)
-- [验证记录](docs/zh_CN/developer/validation.md)
+- [训练指南](docs/zh_CN/training.md)
+- [评估指南](docs/zh_CN/evaluation.md)
+- [HORA 指南](docs/zh_CN/hora.md)
+- [任务与环境指南](docs/zh_CN/task.md)
+- [参考结果](docs/zh_CN/results.md)
 
-## 正确性要点
+## 许可
 
-- 物体尺寸随机化使用 immutable fixed model variants
-  （`0.8` 到 `1.5`），不做运行时 geom-size DR。
-- fixed variant 中所有 body geom 均唯一命名，满足 `mjbatch.VariantPack`。
-- 自由物体保留 `simple="false"`，避免 reset-time mass/CoM DR 触发
-  `mj_setConst` sameframe 崩溃。
-- 触觉延迟/平滑、特权信息、执行器增益、物体物理参数、重力与衰减外力均为
-  显式 manager terms，并只通过 Entity facade 访问状态。
+代码使用 [Apache License 2.0](LICENSE)。资产来源与第三方说明见
+[NOTICE.md](NOTICE.md)。
