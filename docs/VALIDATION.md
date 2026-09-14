@@ -1,5 +1,10 @@
 # Validation record
 
+The runs below use the pre-issue-2 observation and training protocols. Their
+Actor inputs, sample budgets and evaluation procedures differ. They are
+historical execution records, not an algorithm ranking or evidence of relative
+sample efficiency. See [the issue 2 migration record](migrations/issue-2.md).
+
 ## 2026-09-14 Manager-Based migration
 
 - UniLab source: `b4e6b58fe0861a435fd19c0f0206bd84f4427a9c` (`origin/main`).
@@ -35,6 +40,5 @@ Both runs used the synced checkout at
 | Final value / critic loss | 0.03056 | 1.74715 |
 | Checkpoint | `logs/full_runs/appo/model_301.pt` | `logs/full_runs/flashsac/model_5371.pt` |
 
-APPO obtained the higher final/best return and preserved objects longer.
-FlashSAC completed its full off-policy schedule with a higher-sample-efficiency
-learner, but its final return remained below APPO on this fixed benchmark.
+Both runs completed their respective schedules. These measurements do not
+establish a fair APPO–FlashSAC comparison.

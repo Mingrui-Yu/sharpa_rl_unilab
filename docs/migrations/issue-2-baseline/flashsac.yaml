@@ -1,4 +1,131 @@
-# @package _global_
+algo:
+  algo: flashsac
+  algo_log_name: flash_sac
+  load_run: '-1'
+  seed: 1
+  num_envs: 1024
+  batch_size: 2048
+  replay_buffer_n: 1280
+  updates_per_step: 14
+  learning_starts: 1
+  policy_frequency: 2
+  max_iterations: 5371
+  save_interval: 896
+  gamma: 0.97
+  tau: 0.01
+  actor_lr: 0.00045
+  critic_lr: 0.00045
+  actor_hidden_dim: 512
+  critic_hidden_dim: 512
+  num_atoms: 101
+  obs_normalization: false
+  use_layer_norm: false
+  algo_params:
+    normalize_reward: true
+    normalized_g_max: 5.0
+    actor_num_blocks: 2
+    critic_num_blocks: 2
+    actor_bc_alpha: 0.0
+    actor_noise_zeta_mu: 2.0
+    actor_noise_zeta_max: 16
+    critic_min_v: -5.0
+    critic_max_v: 5.0
+    temp_initial_value: 0.01
+    temp_target_sigma: 0.15
+    temp_target_entropy: null
+    learning_rate_init: 0.0003
+    learning_rate_peak: 0.0003
+    learning_rate_end: 0.00015
+    learning_rate_warmup_steps: 0
+    learning_rate_decay_steps: 500000
+    n_step: 1
+    amp_dtype: auto
+    use_compile: true
+    use_cuda_graph_critic: false
+    use_cuda_graph_actor: false
+    use_cuda_graph_critic_packed_staging: false
+    use_cuda_graph_actor_packed_staging: false
+    alpha_lr: 0.00045
+training:
+  task_name: SharpaInhandRotation
+  devices: null
+  dp_collector_cpu_ids: null
+  logger: tensorboard
+  wandb_project: unilab
+  wandb_entity: null
+  wandb_group: null
+  wandb_job_type: null
+  wandb_name: null
+  wandb_tags: []
+  wandb_notes: null
+  wandb_mode: null
+  sim_backend: mujoco
+  nan_guard:
+    enabled: true
+    buffer_size: 100
+    max_envs_to_dump: 5
+    output_dir: null
+  use_amp: false
+  play_only: false
+  no_play: true
+  sim2sim_strict: true
+  play_render_mode: auto
+  export_onnx: true
+  play_env_num: 16
+  play_steps: 200
+  cam_distance: 1.5
+  cam_elevation: -20.0
+  cam_azimuth: 90.0
+  log_root: null
+  log_dir: null
+  env_steps_per_sync: 2
+  trace_enabled: false
+  trace_output_dir: null
+  trace_thread_time: false
+  trace_cuda_events: true
+  nvtx_profile_ranges: false
+  replay_prefetch_mode: one_tick
+  torch_threads:
+    enabled: true
+    learner_num_threads: auto
+    collector_num_threads: auto
+    learner_num_interop_threads: 1
+    collector_num_interop_threads: 1
+    compile_threads: auto
+    set_env_vars: true
+  render_spacing: 0.5
+  cam_lookat:
+  - 0.75
+  - 0.75
+  - 0.4
+interactive:
+  action_mode: policy
+  policy_obs_mode: actor
+  show_target_bodies: false
+  show_reward_debug: false
+  target_show_axes: false
+  target_body_names: ''
+  target_max_bodies: 0
+  target_marker_radius: 0.02
+  target_axis_length: 0.08
+  target_marker_alpha: 0.75
+  reward_debug_show_velocity: false
+  reward_debug_lin_vel_scale: 0.08
+  reward_debug_ang_vel_scale: 0.05
+  reward_debug_show_connectors: false
+  reward_debug_show_global_anchor: false
+  camera_follow_body: true
+  camera_focus_body_name: ''
+  camera_height_offset: 0.15
+  camera_distance: 1.5
+  camera_elevation: -20.0
+  camera_azimuth: 90.0
+  use_env_visual_model: true
+  speed: 1.0
+  start_paused: false
+  keyboard: false
+  keyboard_step_lin: 0.1
+  keyboard_step_ang: 0.2
 env:
   scene:
     model_file: src/sharpa_rl_unilab/assets/robots/sharpa_wave/scene.xml
@@ -118,8 +245,26 @@ env:
         privileged:
           func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation.SharpaCriticObservation
           params:
-            observation_group: actor
-            observation_term: frame
+            entity_name: robot
+            action_name: hand
+            event_state_name: reset
+            domain_randomization_name: domain_randomization
+            sensor_names:
+            - contact_right_thumb_elastomer_force
+            - contact_right_index_elastomer_force
+            - contact_right_middle_elastomer_force
+            - contact_right_ring_elastomer_force
+            - contact_right_pinky_elastomer_force
+            enable_tactile: true
+            joint_noise: 0.02
+            contact_smoothing: 0.5
+            contact_latency: 0.005
+            contact_sensor_noise: 0.01
+            binary_contact: false
+            contact_threshold: 0.05
+            tactile_force_clip_max: 4.0
+            disable_tactile_ids: []
+            clip_obs: 5.0
   actions:
     hand:
       _target_: sharpa_rl_unilab.tasks.sharpa_inhand.terms.action.SharpaIncrementalPositionActionCfg

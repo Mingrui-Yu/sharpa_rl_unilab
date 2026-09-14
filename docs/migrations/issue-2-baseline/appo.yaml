@@ -1,4 +1,123 @@
-# @package _global_
+algo:
+  algo: appo
+  algo_log_name: appo
+  seed: 1
+  num_envs: 16384
+  steps_per_env: 8
+  max_iterations: 301
+  save_interval: 50
+  load_run: '-1'
+  obs_groups:
+    actor:
+      policy: 0
+  actor:
+    class_name: rsl_rl.models.MLPModel
+    hidden_dims:
+    - 512
+    - 256
+    - 128
+    activation: elu
+    obs_normalization: true
+    distribution_cfg:
+      class_name: rsl_rl.modules.distribution.GaussianDistribution
+      init_std: 1.0
+      std_type: scalar
+  critic:
+    class_name: rsl_rl.models.MLPModel
+    hidden_dims:
+    - 512
+    - 256
+    - 128
+    activation: elu
+    obs_normalization: true
+  algorithm:
+    num_learning_epochs: 5
+    num_mini_batches: 4
+    clip_param: 0.2
+    gamma: 0.99
+    lam: 0.95
+    value_loss_coef: 4.0
+    entropy_coef: 0.01
+    learning_rate: 0.001
+    max_grad_norm: 1.0
+    use_clipped_value_loss: true
+    schedule: adaptive
+    desired_kl: 0.02
+    adaptive_kl_factor: 1.2
+    adaptive_lr_factor: 1.1
+    optimizer: adam
+    tau: 1.0
+    target_update_freq: 1
+    vtrace_clip_rho: 1.0
+    vtrace_clip_c: 1.0
+    enable_compile: false
+training:
+  task_name: SharpaInhandRotation
+  device: null
+  collector_device: null
+  logger: tensorboard
+  wandb_project: unilab
+  wandb_entity: null
+  wandb_group: null
+  wandb_job_type: null
+  wandb_name: null
+  wandb_tags: []
+  wandb_notes: null
+  wandb_mode: null
+  sim_backend: mujoco
+  nan_guard:
+    enabled: true
+    buffer_size: 100
+    max_envs_to_dump: 5
+    output_dir: null
+  log_root: null
+  log_dir: null
+  play_only: false
+  no_play: false
+  sim2sim_strict: true
+  play_render_mode: auto
+  play_env_num: 16
+  play_steps: 200
+  cam_distance: 1.5
+  cam_elevation: -20.0
+  cam_azimuth: 90.0
+  cam_tracking: false
+  cam_tracking_env_idx: 0
+  cam_tracking_extra_envs: 2
+  replay_queue_size: null
+  render_spacing: 0.5
+  cam_lookat:
+  - 0.75
+  - 0.75
+  - 0.4
+interactive:
+  action_mode: zero
+  policy_obs_mode: auto
+  show_target_bodies: false
+  show_reward_debug: false
+  target_show_axes: false
+  target_body_names: ''
+  target_max_bodies: 0
+  target_marker_radius: 0.02
+  target_axis_length: 0.08
+  target_marker_alpha: 0.75
+  reward_debug_show_velocity: false
+  reward_debug_lin_vel_scale: 0.08
+  reward_debug_ang_vel_scale: 0.05
+  reward_debug_show_connectors: false
+  reward_debug_show_global_anchor: false
+  camera_follow_body: true
+  camera_focus_body_name: ''
+  camera_height_offset: 0.15
+  camera_distance: null
+  camera_elevation: null
+  camera_azimuth: null
+  use_env_visual_model: true
+  speed: 1.0
+  start_paused: false
+  keyboard: false
+  keyboard_step_lin: 0.1
+  keyboard_step_ang: 0.2
 env:
   scene:
     model_file: src/sharpa_rl_unilab/assets/robots/sharpa_wave/scene.xml
@@ -84,12 +203,12 @@ env:
         - right_pinky_PIP_ctrl
         - right_pinky_DIP_ctrl
   observations:
-    actor:
+    flat:
       history_length: 3
       flatten_history_dim: true
       terms:
-        frame:
-          func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation.SharpaRotationObservation
+        privileged:
+          func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation.SharpaFlattenedObservation
           params:
             entity_name: robot
             action_name: hand
@@ -111,15 +230,6 @@ env:
             tactile_force_clip_max: 4.0
             disable_tactile_ids: []
             clip_obs: 5.0
-    critic:
-      history_length: 3
-      flatten_history_dim: true
-      terms:
-        privileged:
-          func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation.SharpaCriticObservation
-          params:
-            observation_group: actor
-            observation_term: frame
   actions:
     hand:
       _target_: sharpa_rl_unilab.tasks.sharpa_inhand.terms.action.SharpaIncrementalPositionActionCfg
@@ -198,14 +308,14 @@ env:
     dropped:
       func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.termination.SharpaDropTermination
       params:
-        observation_group: actor
-        observation_term: frame
+        observation_group: flat
+        observation_term: privileged
     time_out:
       func: unilab.envs.mdp.time_out
       time_out: true
   scale_rewards_by_dt: true
-  policy_observation_group: actor
-  critic_observation_group: critic
+  policy_observation_group: flat
+  critic_observation_group: null
 reward:
   rotate:
     func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.rewards.rotate_reward

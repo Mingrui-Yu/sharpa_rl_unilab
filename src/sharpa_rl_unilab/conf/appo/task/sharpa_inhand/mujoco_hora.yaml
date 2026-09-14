@@ -59,7 +59,7 @@ env:
             action_name: hand
             event_state_name: reset
             domain_randomization_name: domain_randomization
-            sensor_names: &id001
+            sensor_names:
             - contact_right_thumb_elastomer_force
             - contact_right_index_elastomer_force
             - contact_right_middle_elastomer_force
@@ -73,7 +73,7 @@ env:
             binary_contact: false
             contact_threshold: 0.05
             tactile_force_clip_max: 4.0
-            disable_tactile_ids: &id002 []
+            disable_tactile_ids: []
             clip_obs: 5.0
     critic:
       history_length: 3
@@ -82,21 +82,8 @@ env:
         privileged:
           func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation.SharpaCriticObservation
           params:
-            entity_name: robot
-            action_name: hand
-            event_state_name: reset
-            domain_randomization_name: domain_randomization
-            sensor_names: *id001
-            enable_tactile: true
-            joint_noise: 0.02
-            contact_smoothing: 0.5
-            contact_latency: 0.005
-            contact_sensor_noise: 0.01
-            binary_contact: false
-            contact_threshold: 0.05
-            tactile_force_clip_max: 4.0
-            disable_tactile_ids: *id002
-            clip_obs: 5.0
+            observation_group: actor
+            observation_term: frame
   policy_observation_group: actor
   critic_observation_group: critic
   terminations:
