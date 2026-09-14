@@ -1,70 +1,157 @@
-# Sharpa in-hand manipulation and HORA for UniLab
+# Sharpa RL for UniLab
 
-Sharpa Wave dexterous in-hand rotation now uses UniLab's current
-**Manager-Based API**. The task owns action, observation, reset, event,
-termination and reward terms while UniLab remains an external dependency and
-owns the manager lifecycle and simulation backends. The former task-owned
-legacy/direct `NpEnv` implementation and its compatibility factory have been
-removed.
+Sharpa Wave in-hand manipulation and HORA algorithms, packaged as an independent
+UniLab task repository. The task uses UniLab's current Manager-Based API: it
+owns action, observation, reset, event, reward, termination and recorder terms,
+while UniLab remains the external dependency that owns managers and simulation
+backends.
 
-Supported teacher entrypoints are PPO, HORA APPO and FlashSAC. HORA student
-distillation remains available for an APPO teacher.
+[中文说明](README_zh.md) · [Documentation index](docs/README.md)
 
-## Install and validation
+## Supported workflows
+
+| Workflow | Command family |
+| --- | --- |
+| PPO baseline | `sharpa-train --algo ppo --sim mujoco` |
+| APPO baseline | `sharpa-train --algo appo --sim mujoco` |
+| HORA APPO teacher | `sharpa-train --algo appo --sim mujoco --profile hora` |
+| FlashSAC teacher | `sharpa-train --algo flashsac --sim mujoco` |
+| Grasp-cache generation | `sharpa-train --algo ppo --task sharpa_inhand_grasp` |
+| HORA student distillation | `sharpa-distill` |
+| Evaluation/playback | `sharpa-eval` |
+
+## Install
+
+UniLab is consumed as an external dependency, but development metadata resolves
+it from a sibling checkout. Clone the repositories side by side:
 
 ```bash
+mkdir ~/ws/unilab-tasks
+cd ~/ws/unilab-tasks
+git clone https://github.com/Motphys/UniLab.git
 git clone https://github.com/unilabsim/sharpa_rl_unilab.git
 cd sharpa_rl_unilab
-uv sync --extra mujoco
-uv run pytest
+
+uv sync --extra mujoco --extra export
+uv run sharpa-assets
+```
+
+Verify the installation:
+
+```bash
+uv run ruff check src tests
+uv run pytest -q
 uv run pyright
 ```
 
-Development uses the sibling checkout `../UniLab` as the `unilab` source; the
-package dependency is still external (`unilab>=1.2.0,<1.3`), and
-`unilab-rl>=1.2.0,<1.3` resolves from its release.
+## Preview a configuration
 
-About 40 MB of robot XML, meshes and grasp caches are bundled in Git and the
-Python package. `uv run sharpa-assets` prepares a writable local cache;
-`SHARPA_RL_UNILAB_ASSET_CACHE` can select its directory.
-
-## Train and evaluate
-
-| Algorithm | Owner |
-| --- | --- |
-| PPO | `ppo/task/sharpa_inhand/mujoco.yaml` |
-| HORA APPO | `appo/task/sharpa_inhand/mujoco_hora.yaml` |
-| FlashSAC | `flashsac/task/sharpa_inhand/mujoco.yaml` |
-| Grasp generation | `ppo/task/sharpa_inhand_grasp/mujoco.yaml` |
+`--cfg` prints the fully composed Hydra configuration without allocating a
+simulation environment:
 
 ```bash
-uv run sharpa-train --algo appo --sim mujoco --profile hora training.no_play=true
-uv run sharpa-train --algo flashsac --sim mujoco training.no_play=true
-uv run sharpa-train --algo ppo --sim mujoco training.no_play=true
+uv run sharpa-train --algo appo --sim mujoco --profile hora --cfg
+uv run sharpa-train --algo flashsac --sim mujoco --cfg
 ```
 
-Append Hydra overrides for tuning; `--cfg` prints the composed Manager-Based
-configuration. For evaluation, point `algo.load_run` at a run directory and use
-`algo.checkpoint=-1` for its newest checkpoint.
+## Smoke-train both teacher paths
+
+These are intentionally tiny one-iteration runs. They verify the complete
+collector, learner, checkpoint and summary path.
+
+```bash
+uv run sharpa-train --algo appo --sim mujoco --profile hora \
+  algo.num_envs=4 algo.steps_per_env=2 algo.max_iterations=1 \
+  algo.save_interval=1 training.no_play=true \
+  training.log_dir=/tmp/sharpa-hora-appo-smoke
+
+uv run sharpa-train --algo flashsac --sim mujoco \
+  algo.num_envs=4 algo.batch_size=8 algo.replay_buffer_n=16 \
+  algo.updates_per_step=1 algo.learning_starts=1 algo.max_iterations=1 \
+  algo.save_interval=1 training.no_play=true \
+  training.log_dir=/tmp/sharpa-flashsac-smoke
+```
+
+Each successful run writes `model_1.pt` and `run_summary.json`.
+
+## Full training
+
+```bash
+# HORA APPO
+uv run sharpa-train --algo appo --sim mujoco --profile hora \
+  algo.seed=1 training.no_play=true
+
+# FlashSAC
+uv run sharpa-train --algo flashsac --sim mujoco \
+  algo.seed=1 training.no_play=true
+
+# PPO baseline
+uv run sharpa-train --algo ppo --sim mujoco \
+  algo.seed=1 training.no_play=true
+```
+
+Default output roots:
+
+```text
+logs/hora_appo/SharpaInhandRotation/<timestamp>/
+logs/flash_sac/SharpaInhandRotation/<timestamp>/
+logs/rsl_rl_ppo/SharpaInhandRotation/<timestamp>/
+```
+
+A run contains its resolved config, TensorBoard events, checkpoints, and a
+completion summary. Monitor all runs with:
+
+```bash
+uv run tensorboard --logdir ./logs --port 6006
+```
+
+## Evaluate a checkpoint
+
+Run from the same repository root used for training. `-1` selects the latest run
+and its latest checkpoint in the canonical log tree.
 
 ```bash
 uv run sharpa-eval --algo appo --sim mujoco --profile hora \
-  algo.load_run=/absolute/path/to/hora-appo/run algo.checkpoint=-1
+  algo.load_run=-1 \
+  training.play_render_mode=record
+
 uv run sharpa-eval --algo flashsac --sim mujoco \
-  algo.load_run=/absolute/path/to/flashsac/run algo.checkpoint=-1
+  algo.load_run=-1 \
+  training.play_render_mode=record
 ```
+
+To load an exact checkpoint, pass its file path:
+
+```bash
+uv run sharpa-eval --algo appo --sim mujoco --profile hora \
+  algo.load_run=/absolute/path/to/run/model_305.pt \
+  training.play_render_mode=record
+```
+
+For a headless video, use `training.play_render_mode=record`; FlashSAC also
+exports and verifies `policy.onnx` beside the checkpoint by default. The
+complete workflow is documented in [evaluation and playback](docs/en/user-guide/evaluation.md).
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Getting started](docs/en/getting-started.md)
+- [Training workflows](docs/en/user-guide/training.md)
+- [Evaluation and playback](docs/en/user-guide/evaluation.md)
+- [HORA teacher/student](docs/en/user-guide/hora.md)
+- [Task reference](docs/en/reference/task.md)
+- [Architecture](docs/en/developer/architecture.md)
+- [Validation record](docs/en/developer/validation.md)
 
 ## Manager-Based correctness notes
 
-- Object size DR uses UniLab's fixed model-variant catalog
-  (`scene_scale_0.8.xml` … `scene_scale_1.5.xml`), not mutable geom-size DR.
-- Every fixed-variant body geom has a unique name, which is required by
+- Object size randomization uses immutable UniLab fixed model variants from
+  `scene_scale_0.8.xml` through `scene_scale_1.5.xml`; it does not mutate geom
+  sizes at runtime.
+- Every fixed-variant body geom has a unique nonempty name for
   `mjbatch.VariantPack`.
-- Each variant retains `simple="false"` on the free object. This avoids the
-  earlier reset-time mass/CoM `mj_setConst` sameframe crash.
-- Tactile smoothing/latency, privileged state, incremental position targets,
-  randomized actuator gains, object mass/CoM/friction/gravity and decaying
-  object forces are explicit manager terms using the Entity facade.
-
-See [architecture](docs/ARCHITECTURE.md), [validation](docs/VALIDATION.md) and
-[HORA](docs/en/7-hora.md).
+- Every variant keeps `simple="false"` on the free object, avoiding the earlier
+  reset-time mass/CoM `mj_setConst` sameframe crash.
+- Tactile latency/smoothing, privileged state, actuator gains, object physical
+  parameters, gravity and decaying external forces are explicit manager terms
+  using the Entity facade.
