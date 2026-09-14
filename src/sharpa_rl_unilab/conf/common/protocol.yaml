@@ -44,6 +44,7 @@ training:
   device: null
   devices: null
   log_dir: null
+  logger: tensorboard
   play_only: false
   task_name: SharpaInhandRotation
   sim_backend: mujoco

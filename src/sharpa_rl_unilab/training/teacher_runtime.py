@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import inspect
-import json
 import math
 import multiprocessing as mp
 import queue
@@ -35,6 +34,8 @@ from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import (
     SharpaTeacherEnv,
     transition_next,
 )
+
+from .logging import EpisodeStatistics, TrainingLogger
 
 
 def tensor_obs(obs, device):
@@ -440,7 +441,11 @@ def train_teacher(cfg):
         int(cfg.budget[k]) for k in ("save_every", "evaluate_every", "log_every")
     )
     next_save, next_eval, next_log = save_due, eval_due, log_due
+    episodes = EpisodeStatistics(n)
+    logger = None
     try:
+        logger = TrainingLogger(run, cfg, target)
+        logger.start(status="Waiting for first rollout...")
         while counters["received"] < target:
             if asynchronous is not None:
                 packets = asynchronous.receive_ready()
@@ -455,6 +460,9 @@ def train_teacher(cfg):
                 obs = last_obs
                 behavior_version = counters["policy_version"]
                 counters["collected"] += horizon * n
+            fresh_rollouts = [packet[0] for packet in packets] if asynchronous is not None else [raw]
+            for fresh in fresh_rollouts:
+                episodes.update(fresh["rewards"], fresh["terminated"], fresh["truncated"])
             batch = {
                 k: torch.as_tensor(v, dtype=torch.float32, device=device) for k, v in raw.items()
             }
@@ -583,9 +591,8 @@ def train_teacher(cfg):
             metrics["wall_seconds"] = time.monotonic() - started
             metrics["reuse_ratio"] = counters["training_samples"] / counters["received"]
             if counters["received"] >= next_log or counters["received"] == target:
-                with (run / "metrics.jsonl").open("a") as f:
-                    f.write(json.dumps(metrics) + "\n")
-                print(json.dumps(metrics), flush=True)
+                metrics.update(episodes.metrics())
+                logger.log(metrics)
                 next_log = counters["received"] + max(log_due, 1)
             do_save = save_due > 0 and counters["collected"] >= next_save
             do_eval = eval_due > 0 and counters["collected"] >= next_eval
@@ -594,21 +601,30 @@ def train_teacher(cfg):
                 save_teacher(
                     path, cfg, actor, critic, learner, counters, time.monotonic() - started
                 )
+                logger.log_save(str(path))
                 if do_eval:
+                    logger.status(f"Evaluating {path.name}...")
                     evaluate_checkpoint(
                         path, output=run / f"evaluation_{counters['collected']}.json", device=device
                     )
+                    logger.status("Training")
                 next_save = (counters["collected"] // max(save_due, 1) + 1) * max(save_due, 1)
                 if do_eval:
                     next_eval = (counters["collected"] // max(eval_due, 1) + 1) * max(eval_due, 1)
         final = run / "teacher_final.pt"
         save_teacher(final, cfg, actor, critic, learner, counters, time.monotonic() - started)
+        logger.log_save(str(final))
         if eval_due > 0:
+            logger.status("Evaluating final checkpoint...")
             evaluate_checkpoint(final, output=run / "evaluation_final.json", device=device)
-        print(f"Saved {final}", flush=True)
+        logger.finish()
         return final
     finally:
-        if asynchronous is not None:
-            asynchronous.close()
-        if env is not None:
-            env.close()
+        try:
+            if logger is not None:
+                logger.close()
+        finally:
+            if asynchronous is not None:
+                asynchronous.close()
+            if env is not None:
+                env.close()

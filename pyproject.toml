@@ -14,7 +14,7 @@ dependencies = [
     "unilab>=1.2.0,<1.3",
     "unilab-rl>=1.2.0,<1.3",
     "numpy", "torch>=2.8", "tensordict", "hydra-core>=1.3",
-    "filelock", "tensorboard",
+    "filelock", "tensorboard", "rich",
 ]
 
 [project.optional-dependencies]

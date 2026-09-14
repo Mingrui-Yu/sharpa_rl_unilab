@@ -39,6 +39,11 @@ uv run sharpa-compare --output logs/comparison --seeds 1 2 3
 执行短预算流程验证。旧 checkpoint 必须重训。当前 v2 入口支持单 learner
 设备和从头训练，详见[协议、迁移和验证范围](docs/migrations/issue-2.md)。
 
+teacher 和 student 默认显示 UniLab Rich 终端面板，并在运行目录写入 TensorBoard
+事件与完整的 `metrics.jsonl`。运行 `uv run tensorboard --logdir logs` 查看曲线；
+横轴为实际收到的新 transition 数。`training.logger=none` 只关闭 TensorBoard，
+`training.logger=no_print` 仅保留 JSONL。`budget.log_every` 控制指标记录间隔。
+
 ## 正确性说明
 
 - 物体尺寸随机化使用 UniLab fixed model variants

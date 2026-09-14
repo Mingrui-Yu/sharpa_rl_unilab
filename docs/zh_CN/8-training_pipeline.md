@@ -48,6 +48,13 @@ uv run sharpa-train --algo appo \
 与 `budget.transitions` 调整规模。需要关闭域随机化时，在 teacher 命令中添加 `--nodr`，
 student 和评估会继承该配置。
 
+teacher 和 student 共用 UniLab Rich 终端面板，显示 transition 预算进度、吞吐、
+loss、最近 100 个完整 episode 的平均回报与长度。APPO 的 episode 统计只处理新收到的
+rollout，旧数据的重复训练不会重复计数。完整指标保留在运行目录的 `metrics.jsonl`，
+同时默认写入 TensorBoard；使用 `uv run tensorboard --logdir logs` 查看曲线。
+`budget.log_every` 按新 transition 数控制记录间隔，`training.logger=none` 可关闭
+TensorBoard，`training.logger=no_print` 则只保留 JSONL 文件。
+
 ## 3. Student：从历史观测估计特权表示
 
 加载 teacher，冻结其特权编码器、策略主干、动作头与基础归一化统计，仅通过 latent MSE

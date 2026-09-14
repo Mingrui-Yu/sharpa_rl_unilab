@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import time
 from pathlib import Path
@@ -17,6 +16,7 @@ from sharpa_rl_unilab.algos.hora.teacher import frozen_weights, make_student
 from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import CONTRACT_VERSION, SharpaTeacherEnv
 
 from .evaluation import deterministic_actions, file_digest, write_run_metadata
+from .logging import EpisodeStatistics, TrainingLogger
 from .teacher_runtime import load_policy, tensor_obs
 
 
@@ -50,10 +50,10 @@ class StudentTrainer:
 def train_student(checkpoint, *, overrides=(), device=None):
     started = time.monotonic()
     teacher, cfg, source = load_policy(checkpoint, device or "cpu", stage="teacher")
-    allowed = ("distillation.", "evaluation.", "hardware.", "training.log_dir")
+    allowed = ("distillation.", "evaluation.", "hardware.", "training.log_dir", "training.logger")
     if any(not override.split("=", 1)[0].startswith(allowed) for override in overrides):
         raise ValueError(
-            "Distillation overrides may set distillation/evaluation/hardware fields and training.log_dir"
+            "Distillation overrides may set distillation/evaluation/hardware fields, training.log_dir and training.logger"
         )
     cfg = OmegaConf.merge(cfg, OmegaConf.from_dotlist(list(overrides)))
     assert isinstance(cfg, DictConfig)
@@ -117,11 +117,17 @@ def train_student(checkpoint, *, overrides=(), device=None):
     env = SharpaTeacherEnv(cfg, n)
     save_every = int(cfg.distillation.save_every)
     next_save, next_log = save_every, int(cfg.budget.log_every)
+    episodes = EpisodeStatistics(n)
+    logger = None
     try:
+        logger = TrainingLogger(run, cfg, target)
+        logger.start(status="Initializing student rollouts...")
         obs, _ = env.reset(seed=seed)
         while counters["collected"] < target:
             actions, loss = trainer.update_and_act(obs)
-            obs = env.step(actions).obs
+            state = env.step(actions)
+            episodes.update(state.reward[None], state.terminated[None], state.truncated[None])
+            obs = state.obs
             for key in ("collected", "received", "training_samples"):
                 counters[key] += n
             counters["optimizer_updates"] += 1
@@ -131,17 +137,23 @@ def train_student(checkpoint, *, overrides=(), device=None):
                     **counters,
                     "latent_mse": loss,
                     "wall_seconds": time.monotonic() - started,
+                    **episodes.metrics(),
                 }
-                with (run / "metrics.jsonl").open("a") as stream:
-                    stream.write(json.dumps(metrics) + "\n")
-                print(json.dumps(metrics), flush=True)
+                logger.log(metrics)
                 next_log = counters["collected"] + max(int(cfg.budget.log_every), 1)
             if save_every > 0 and counters["collected"] >= next_save:
-                save(f"student_{counters['collected']}.pt")
+                logger.log_save(str(save(f"student_{counters['collected']}.pt")))
                 next_save = (counters["collected"] // save_every + 1) * save_every
-        return save("student_final.pt")
+        final = save("student_final.pt")
+        logger.log_save(str(final))
+        logger.finish()
+        return final
     finally:
-        env.close()
+        try:
+            if logger is not None:
+                logger.close()
+        finally:
+            env.close()
 
 
 def main():

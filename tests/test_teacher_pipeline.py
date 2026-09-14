@@ -48,6 +48,12 @@ def test_train_save_load_evaluate_distill(algo, tmp_path, monkeypatch):
         overrides += ["algo.steps_per_env=2" if algo == "appo" else "algo.num_steps_per_env=2"]
     cfg = compose_config(algo, "mujoco", overrides)
     path = train_teacher(cfg)
+    metrics = [
+        json.loads(line) for line in (path.parent / "metrics.jsonl").read_text().splitlines()
+    ]
+    assert metrics[-1]["received"] == 32
+    assert metrics[-1]["perf/transitions_per_second"] > 0
+    assert list(path.parent.glob("events.out.tfevents.*"))
     actor, _, checkpoint = load_policy(path, stage="teacher")
     assert checkpoint["counters"]["collected"] == checkpoint["counters"]["received"] == 32
     assert actor.shared.obs_normalizer.count.item() == 32
@@ -75,6 +81,10 @@ def test_train_save_load_evaluate_distill(algo, tmp_path, monkeypatch):
         ],
     )
     policy, _, snapshot = load_policy(student, stage="student")
+    student_metrics = json.loads((student.parent / "metrics.jsonl").read_text().splitlines()[-1])
+    assert student_metrics["received"] == 16
+    assert "latent_mse" in student_metrics
+    assert list(student.parent.glob("events.out.tfevents.*"))
     assert snapshot["history_normalizer"]["count"].item() == 16
     assert policy.shared.obs_normalizer.count.item() == 32
     measured = evaluate_checkpoint(student)
