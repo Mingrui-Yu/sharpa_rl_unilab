@@ -15,7 +15,9 @@ FlashSAC 和 HORA student 蒸馏训练入口。
 - 导出 FlashSAC actor ONNX，并录制评估视频。
 - 训练 HORA teacher，并蒸馏只使用 actor 观测的 student。
 
-**展示：** GIF 占位。
+| APPO | FlashSAC |
+| --- | --- |
+| ![APPO 评估回放](docs/media/sharpa-appo-eval.gif) | ![FlashSAC 评估回放](docs/media/sharpa-flashsac-eval.gif) |
 
 ## 安装
 
@@ -36,52 +38,30 @@ uv run sharpa-assets
 
 ## 快速开始
 
-### 1. 安装冒烟测试
+### 训练 APPO
 
 ```bash
-uv run sharpa-train --algo appo --sim mujoco --profile hora \
-  algo.num_envs=4 algo.steps_per_env=2 algo.max_iterations=1 \
-  algo.save_interval=1 training.no_play=true \
-  training.log_dir=/tmp/sharpa-hora-appo-check
-```
-
-```bash
-uv run sharpa-train --algo flashsac --sim mujoco \
-  algo.num_envs=4 algo.batch_size=8 algo.replay_buffer_n=16 \
-  algo.updates_per_step=1 algo.learning_starts=1 algo.max_iterations=1 \
-  algo.save_interval=1 training.no_play=true \
-  training.log_dir=/tmp/sharpa-flashsac-check
-```
-
-### 2. 训练策略
-
-HORA APPO teacher：
-
-```bash
-uv run sharpa-train --algo appo --sim mujoco --profile hora \
+uv run sharpa-train --algo appo --sim mujoco \
   algo.seed=1 training.no_play=true
 ```
 
-FlashSAC teacher：
+### 训练 FlashSAC
 
 ```bash
 uv run sharpa-train --algo flashsac --sim mujoco \
   algo.seed=1 training.no_play=true
 ```
 
-[参考结果](docs/zh_CN/results.md)中的 APPO 使用不带 `--profile hora` 的
-baseline owner。
+### 评估 checkpoint
 
-### 3. 评估 checkpoint
-
-评估最新 HORA APPO checkpoint：
+APPO：
 
 ```bash
-uv run sharpa-eval --algo appo --sim mujoco --profile hora \
+uv run sharpa-eval --algo appo --sim mujoco \
   algo.load_run=-1 training.play_render_mode=record
 ```
 
-评估最新 FlashSAC checkpoint：
+FlashSAC：
 
 ```bash
 uv run sharpa-eval --algo flashsac --sim mujoco \
@@ -89,20 +69,6 @@ uv run sharpa-eval --algo flashsac --sim mujoco \
 ```
 
 视频会写在所选 checkpoint 旁。FlashSAC 还会写出并验证 `policy.onnx`。
-
-### 4. 复现参考基准
-
-```bash
-uv run sharpa-train --algo appo --sim mujoco \
-  algo.seed=1 training.no_play=true
-```
-
-```bash
-uv run sharpa-train --algo flashsac --sim mujoco \
-  algo.seed=1 training.no_play=true
-```
-
-参考指标记录在 [docs/zh_CN/results.md](docs/zh_CN/results.md)。
 
 ## 文档
 
