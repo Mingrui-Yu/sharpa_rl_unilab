@@ -13,6 +13,17 @@ uv run sharpa-distill --checkpoint /absolute/path/to/teacher_final.pt
 uv run sharpa-eval --checkpoint /absolute/path/to/student_final.pt
 ```
 
+`sharpa-train` and `sharpa-distill` replay their final checkpoint after training
+and save `play_video.mp4` in that checkpoint's directory. Playback uses 16
+environments and 400 control steps by default. Set `training.no_play=true` or
+`training.play_render_mode=none` to skip it; `training.play_env_num` and
+`training.play_steps` control its size and duration. MuJoCo's default `auto`
+mode records video. Playback is independent of `budget.evaluate_every`, so
+disabling quantitative evaluation still allows video recording.
+Headless recording requires a working EGL or OSMesa runtime; for software
+rendering, install `libosmesa6` and set `MUJOCO_GL=osmesa`. UniLab reports and
+skips video export when no off-screen renderer is available.
+
 Distillation accepts all three teacher algorithms. It freezes the inherited
 policy and base normalization, trains only the 30-frame history encoder by
 latent MSE, and acts with the updated student's deterministic action after each

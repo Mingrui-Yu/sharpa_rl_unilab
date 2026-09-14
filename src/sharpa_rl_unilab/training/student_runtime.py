@@ -51,15 +51,29 @@ class StudentTrainer:
 def train_student(checkpoint, *, overrides=(), device=None):
     started = time.monotonic()
     teacher, cfg, source = load_policy(checkpoint, device or "cpu", stage="teacher")
-    allowed = ("distillation.", "evaluation.", "hardware.", "training.log_dir", "training.logger")
+    allowed = (
+        "distillation.",
+        "evaluation.",
+        "hardware.",
+        "training.log_dir",
+        "training.logger",
+        "training.no_play",
+        "training.play_render_mode",
+        "training.play_env_num",
+        "training.play_steps",
+        "training.render_spacing",
+        "training.cam_",
+    )
     if any(not override.split("=", 1)[0].startswith(allowed) for override in overrides):
         raise ValueError(
-            "Distillation overrides may set distillation/evaluation/hardware fields, training.log_dir and training.logger"
+            "Distillation overrides may set distillation/evaluation/hardware fields, "
+            "training.log_dir, training.logger and playback settings"
         )
     cfg = OmegaConf.merge(cfg, OmegaConf.from_dotlist(list(overrides)))
     assert isinstance(cfg, DictConfig)
     cfg.protocol.stage = "student"
     device = device or str(cfg.hardware.device)
+    cfg.hardware.device = device
     teacher.to(device)
     torch.set_num_threads(int(cfg.hardware.torch_threads))
     seed = int(cfg.distillation.seed)
@@ -153,13 +167,17 @@ def train_student(checkpoint, *, overrides=(), device=None):
 
 
 def main():
+    from .playback import play_checkpoint
+
     parser = argparse.ArgumentParser(
         description="Distill any protocol-v2 PPO/APPO/FlashSAC teacher"
     )
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--device", default=None)
     args, overrides = parser.parse_known_args()
-    print(train_student(args.checkpoint, overrides=overrides, device=args.device))
+    checkpoint = train_student(args.checkpoint, overrides=overrides, device=args.device)
+    print(checkpoint)
+    play_checkpoint(checkpoint, device=args.device)
 
 
 if __name__ == "__main__":

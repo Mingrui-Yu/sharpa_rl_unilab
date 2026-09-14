@@ -103,13 +103,15 @@ def _main(*, play: bool, argv: list[str] | None = None) -> None:
             )
             print(result["summary"])
         else:
+            from sharpa_rl_unilab.training.playback import play_checkpoint
             from sharpa_rl_unilab.training.teacher_runtime import train_teacher
 
             if args.checkpoint:
                 raise ValueError(
                     "--checkpoint is an evaluation argument; training resume is not supported"
                 )
-            train_teacher(cfg)
+            checkpoint = train_teacher(cfg)
+            play_checkpoint(checkpoint, device=str(cfg.hardware.device))
     else:
         from unilab.scripts import train_rsl_rl
 

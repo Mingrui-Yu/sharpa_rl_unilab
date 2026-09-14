@@ -48,7 +48,9 @@ training:
   play_only: false
   task_name: SharpaInhandRotation
   sim_backend: mujoco
-  no_play: true
+  no_play: false
+  play_render_mode: auto
+  play_env_num: 16
   play_steps: 400
   render_spacing: 0.5
   cam_distance: 0.75
