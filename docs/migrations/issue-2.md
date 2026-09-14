@@ -39,7 +39,7 @@ FlashSAC 保留有界 log-std、重参数化 tanh 及 Jacobian 修正、持久�
 ## 数据与归一化
 
 APPO 使用独立 spawn collector、有限队列和三批 staging；读取当时可用的
-rollout，再在环境轴拼接，避免跨轨迹连接。权重和统计一起带版本同步，
+rollout，由原生 RolloutStagingPool 在环境轴提供批次视图，避免跨轨迹连接。权重和统计一起带版本同步，
 实际行为 log-prob 随数据保存。最后不足一个 rollout 时缩短采样；不同长度
 的旧 staging 不拼接到最后短批次。
 
@@ -125,3 +125,5 @@ uv run sharpa-compare --output logs/smoke --smoke
 
 验证结果见 [VALIDATION.md](../VALIDATION.md)。短预算 pipeline smoke 只证明
 流程与契约可执行，不能用于算法性能或样本效率排名。
+
+本次组件简化、原生接口限制及验证结果见 [训练代码简化结果](issue-2-simplify.md)。

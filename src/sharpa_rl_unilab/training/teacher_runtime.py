@@ -8,7 +8,7 @@ import multiprocessing as mp
 import queue
 import time
 import traceback
-from collections import deque
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, cast
 
@@ -18,6 +18,7 @@ from omegaconf import DictConfig, OmegaConf
 from rsl_rl.algorithms import PPO
 from rsl_rl.storage import RolloutStorage
 from tensordict import TensorDict
+from uni_rl.algos.appo.staging import RolloutStagingPool
 
 from sharpa_rl_unilab.algos.hora.teacher import (
     CleanValue,
@@ -356,29 +357,48 @@ def timeout_rewards(batch, critic, gamma):
     return batch["rewards"] + gamma * values * pure_timeout
 
 
-def stage_rollout(stages, raw, last_obs, version, actor, critic, device):
-    batch = tensor_obs(raw, device)
-    packed = pack_actor(batch)
-    observe_new_samples(actor, critic, packed, batch["critic"])
-    if stages and stages[0]["observations"].shape[0] != packed.shape[0]:
-        stages.clear()
-    stages.append(
-        dict(
-            observations=packed,
-            critic=batch["critic"],
-            rewards=batch["rewards"],
-            next_critic=batch["next_critic"],
-            truncated=batch["truncated"],
-            terminated=batch["terminated"],
-            dones=(batch["terminated"].bool() | batch["truncated"].bool()).float(),
-            actions=batch["actions"],
-            actions_log_prob=batch["actions_log_prob"],
-            behavior_version=torch.full_like(batch["rewards"], version),
-            last_obs=policy_td(last_obs, device)["policy"],
-            last_critic=tensor_obs(last_obs, device)["critic"],
+def stage_rollout(stages, raw, last_obs, version, actor, critic, device, capacity=3):
+    """Stage raw inputs once; reused pool views never update statistics."""
+    fields = {
+        key: value
+        for key, value in raw.items()
+        if key
+        in (
+            "critic",
+            "rewards",
+            "next_critic",
+            "truncated",
+            "terminated",
+            "actions",
+            "actions_log_prob",
         )
+    }
+    fields.update(
+        observations=np.concatenate((raw["obs"], raw["priv_info"]), axis=-1),
+        dones=raw["terminated"].astype(bool) | raw["truncated"].astype(bool),
+        behavior_version=np.full_like(raw["rewards"], version),
     )
-    return packed.shape[0] * packed.shape[1]
+    fields = {
+        key: value.swapaxes(0, 1).astype(np.float32, copy=False) for key, value in fields.items()
+    }
+    fields.update(
+        last_obs=np.concatenate((last_obs["obs"], last_obs["priv_info"]), axis=-1),
+        last_critic=last_obs["critic"],
+    )
+    n, t = fields["observations"].shape[:2]
+    # A final short rollout replaces old full-length stages, as before.
+    if stages is None or stages.batch()["observations"].shape[0] != t:
+        stages = RolloutStagingPool(
+            capacity=capacity,
+            num_envs=n,
+            slot_shapes={k: v.shape for k, v in fields.items()},
+            device=device,
+        )
+    slot = stages.stage_numpy_views(fields)
+    batch = stages.batch()
+    rows = slice(slot * n, (slot + 1) * n)
+    observe_new_samples(actor, critic, batch["observations"][:, rows], batch["critic"][:, rows])
+    return stages, t * n
 
 
 def train_teacher(cfg):
@@ -418,33 +438,35 @@ def train_teacher(cfg):
         temperature_updates=0,
         policy_version=0,
     )
-    stages = deque(maxlen=int(cfg.budget.async_queue_size))
+    stages = None
     replay = (
         Replay(int(cfg.algo.get("replay_buffer_n", 1280)) * n, device)
         if algo == "flashsac"
         else None
     )
-    if algo == "appo":
-        learner = TeacherAPPOLearner(
-            actor=cast(
-                Any, actor
-            ),  # Native annotations require MLPModel; adapters implement its interface.
-            critic=cast(Any, critic),
-            device=device,
-            **algorithm_options(cfg, TeacherAPPOLearner.__mro__[1]),
+    with ExitStack() as resources:
+        if algo == "appo":
+            learner = TeacherAPPOLearner(
+                actor=cast(
+                    Any, actor
+                ),  # Native annotations require MLPModel; adapters implement its interface.
+                critic=cast(Any, critic),
+                device=device,
+                **algorithm_options(cfg, TeacherAPPOLearner.__mro__[1]),
+            )
+            asynchronous = AsyncRollouts(cfg, actor)
+            resources.callback(asynchronous.close)
+        else:
+            env = SharpaTeacherEnv(cfg, n)
+            resources.callback(env.close)
+            obs, _ = env.reset(seed=int(cfg.algo.seed))
+        save_due, eval_due, log_due = (
+            int(cfg.budget[k]) for k in ("save_every", "evaluate_every", "log_every")
         )
-        asynchronous = AsyncRollouts(cfg, actor)
-    else:
-        env = SharpaTeacherEnv(cfg, n)
-        obs, _ = env.reset(seed=int(cfg.algo.seed))
-    save_due, eval_due, log_due = (
-        int(cfg.budget[k]) for k in ("save_every", "evaluate_every", "log_every")
-    )
-    next_save, next_eval, next_log = save_due, eval_due, log_due
-    episodes = EpisodeStatistics(n)
-    logger = None
-    try:
+        next_save, next_eval, next_log = save_due, eval_due, log_due
+        episodes = EpisodeStatistics(n)
         logger = TrainingLogger(run, cfg, target)
+        resources.callback(logger.close)
         logger.start(status="Waiting for first rollout...")
         while counters["received"] < target:
             if asynchronous is not None:
@@ -460,78 +482,77 @@ def train_teacher(cfg):
                 obs = last_obs
                 behavior_version = counters["policy_version"]
                 counters["collected"] += horizon * n
-            fresh_rollouts = [packet[0] for packet in packets] if asynchronous is not None else [raw]
+            fresh_rollouts = (
+                [packet[0] for packet in packets] if asynchronous is not None else [raw]
+            )
             for fresh in fresh_rollouts:
                 episodes.update(fresh["rewards"], fresh["terminated"], fresh["truncated"])
-            batch = {
-                k: torch.as_tensor(v, dtype=torch.float32, device=device) for k, v in raw.items()
-            }
-            packed = torch.cat((batch["obs"], batch["priv_info"]), -1)
-            t = packed.shape[0]
-            if asynchronous is None:
-                counters["received"] += t * n
-            dones = (batch["terminated"].bool() | batch["truncated"].bool()).float()
-            if algo == "flashsac":
-                assert isinstance(learner, TeacherFlashLearner) and replay is not None
-                observe_new_samples(actor, critic, packed, batch["critic"])
-                replay.add(batch)
-                learner.update_reward_stats(batch["rewards"], dones)
-                metrics = {}
-                if counters["received"] >= int(cfg.algo.learning_starts) * n:
-                    for index in range(int(cfg.algo.updates_per_step)):
-                        sampled = replay.sample(int(cfg.algo.batch_size))
-                        metrics.update(learner.update_critic(sampled))
-                        counters["optimizer_updates"] += 1
-                        counters["critic_updates"] += 1
-                        if index % int(cfg.algo.policy_frequency) == 0:
-                            metrics.update(learner.update_actor(sampled))
-                            counters["optimizer_updates"] += 2
-                            counters["actor_updates"] += 1
-                            counters["temperature_updates"] += 1
-                            counters["training_samples"] += int(cfg.algo.batch_size)
-                        learner.soft_update_target()
-                        counters["training_samples"] += int(cfg.algo.batch_size)
-                    metrics.update(learner.saturation_metrics)
+            if asynchronous is not None:
+                assert isinstance(learner, TeacherAPPOLearner)
+                for raw, last_obs, version, packet_end in packets:
+                    size = raw["obs"].shape[0] * n
+                    if packet_end != counters["received"] + size:
+                        raise RuntimeError(
+                            "Collector packet gap or duplicate; refusing to recount normalization samples"
+                        )
+                    stages, size = stage_rollout(
+                        stages,
+                        raw,
+                        last_obs,
+                        version,
+                        actor,
+                        critic,
+                        device,
+                        capacity=int(cfg.budget.async_queue_size),
+                    )
+                    counters["received"] += size
+                learner.sync_target_actor_buffers()
+                assert stages is not None
+                combined = stages.batch()
+                combined["rewards"] = timeout_rewards(
+                    combined, critic, float(cfg.algo.algorithm.gamma)
+                )
+                learner.process_batch(combined)
+                metrics = learner.update(combined)
+                updates = int(metrics["appo/updates_executed"])
+                batch_size = combined["observations"].shape[0] * combined["observations"].shape[1]
+                counters["training_samples"] += (
+                    batch_size // int(cfg.algo.algorithm.num_mini_batches) * updates
+                )
+                lag = counters["policy_version"] - combined["behavior_version"]
+                metrics["policy_lag_mean"] = float(lag.mean())
+                metrics["policy_lag_max"] = float(lag.max())
+                metrics["staging_rollouts"] = stages.active_count
+                counters["optimizer_updates"] += updates
+                counters["actor_updates"] += updates
+                counters["critic_updates"] += updates
             else:
-                if algo == "appo":
-                    assert isinstance(learner, TeacherAPPOLearner)
-                    for raw, last_obs, version, packet_end in packets:
-                        size = raw["obs"].shape[0] * n
-                        if packet_end != counters["received"] + size:
-                            raise RuntimeError(
-                                "Collector packet gap or duplicate; refusing to recount normalization samples"
-                            )
-                        counters["received"] += stage_rollout(
-                            stages, raw, last_obs, version, actor, critic, device
-                        )
-                    learner.sync_target_actor_buffers()
-                    # Each staged rollout has its own bootstrap; concatenate on
-                    # the environment axis so unrelated trajectories never join.
-                    combined = {
-                        k: torch.cat(
-                            [stage[k] for stage in stages], dim=0 if k.startswith("last_") else 1
-                        )
-                        for k in stages[0]
-                    }
-                    combined["rewards"] = timeout_rewards(
-                        combined, critic, float(cfg.algo.algorithm.gamma)
-                    )
-                    learner.process_batch(combined)
-                    metrics = learner.update(combined)
-                    updates = int(metrics["appo/updates_executed"])
-                    batch_size = (
-                        combined["observations"].shape[0] * combined["observations"].shape[1]
-                    )
-                    counters["training_samples"] += (
-                        batch_size // int(cfg.algo.algorithm.num_mini_batches) * updates
-                    )
-                    lag = counters["policy_version"] - combined["behavior_version"]
-                    metrics["policy_lag_mean"] = float(lag.mean())
-                    metrics["policy_lag_max"] = float(lag.max())
-                    metrics["staging_rollouts"] = len(stages)
-                    counters["optimizer_updates"] += updates
-                    counters["actor_updates"] += updates
-                    counters["critic_updates"] += updates
+                batch = tensor_obs(raw, device)
+                packed = pack_actor(batch)
+                t = packed.shape[0]
+                counters["received"] += t * n
+                dones = (batch["terminated"].bool() | batch["truncated"].bool()).float()
+                if algo == "flashsac":
+                    assert isinstance(learner, TeacherFlashLearner) and replay is not None
+                    observe_new_samples(actor, critic, packed, batch["critic"])
+                    replay.add(batch)
+                    learner.update_reward_stats(batch["rewards"], dones)
+                    metrics = {}
+                    if counters["received"] >= int(cfg.algo.learning_starts) * n:
+                        for index in range(int(cfg.algo.updates_per_step)):
+                            sampled = replay.sample(int(cfg.algo.batch_size))
+                            metrics.update(learner.update_critic(sampled))
+                            counters["optimizer_updates"] += 1
+                            counters["critic_updates"] += 1
+                            if index % int(cfg.algo.policy_frequency) == 0:
+                                metrics.update(learner.update_actor(sampled))
+                                counters["optimizer_updates"] += 2
+                                counters["actor_updates"] += 1
+                                counters["temperature_updates"] += 1
+                                counters["training_samples"] += int(cfg.algo.batch_size)
+                            learner.soft_update_target()
+                            counters["training_samples"] += int(cfg.algo.batch_size)
+                        metrics.update(learner.saturation_metrics)
                 else:
                     corrected_reward = timeout_rewards(
                         batch, critic, float(cfg.algo.algorithm.gamma)
@@ -539,7 +560,11 @@ def train_teacher(cfg):
                     td = TensorDict(
                         {"policy": packed[0], "critic": batch["critic"][0]}, batch_size=n
                     )
-                    storage = RolloutStorage("rl", n, t, td, [22], device)
+                    storage = (
+                        learner.storage
+                        if isinstance(learner, PPO) and learner.storage.num_transitions_per_env == t
+                        else RolloutStorage("rl", n, t, td, [22], device)
+                    )
                     if learner is None:
                         learner = PPO(
                             cast(Any, actor),
@@ -572,7 +597,7 @@ def train_teacher(cfg):
                     # The update may change normalization, but behavior density
                     # and old values remain exactly those of collection.
                     observe_new_samples(actor, critic, packed, batch["critic"])
-                    metrics = learner.update()
+                    metrics = cast(PPO, learner).update()
                     updates = int(cfg.algo.algorithm.num_learning_epochs) * int(
                         cfg.algo.algorithm.num_mini_batches
                     )
@@ -619,12 +644,3 @@ def train_teacher(cfg):
             evaluate_checkpoint(final, output=run / "evaluation_final.json", device=device)
         logger.finish()
         return final
-    finally:
-        try:
-            if logger is not None:
-                logger.close()
-        finally:
-            if asynchronous is not None:
-                asynchronous.close()
-            if env is not None:
-                env.close()

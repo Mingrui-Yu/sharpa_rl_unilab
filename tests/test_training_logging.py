@@ -43,13 +43,18 @@ def test_rich_logging_preserves_metrics_and_flushes_tensorboard(tmp_path, capsys
                     "episode/length": 20,
                 }
             )
+        assert logger._terminal_snapshot.metrics["received"] == 200
+        assert logger._terminal_snapshot.scalars["steps_per_sec"] == 50
+        assert logger._estimate_eta() == "0s"
         logger.log_save("teacher_final.pt")
         logger.finish()
     finally:
         logger.close()
     output = capsys.readouterr().out
     assert "UniLab Training" in output
-    assert "Policy loss" in output
+    assert "Loss/Policy Loss" in output
+    assert "Transitions 200/200" in output
+    assert "iter 200" not in output
     assert '"surrogate_loss"' not in output
     rows = [json.loads(line) for line in (tmp_path / "metrics.jsonl").read_text().splitlines()]
     assert rows[-1]["surrogate_loss"] == -0.1
@@ -58,3 +63,21 @@ def test_rich_logging_preserves_metrics_and_flushes_tensorboard(tmp_path, capsys
     rewards = events.Scalars("episode/return")
     assert [event.step for event in rewards] == [100, 200]
     assert [event.value for event in rewards] == [2.5, 2.5]
+
+
+@pytest.mark.parametrize("backend", ["none", "no_print"])
+def test_logging_backends_close_on_failure(tmp_path, capsys, backend):
+    from contextlib import closing
+
+    cfg = compose_config("ppo", "mujoco", [f"training.logger={backend}"])
+    with (
+        pytest.raises(RuntimeError, match="training failed"),
+        closing(TrainingLogger(tmp_path, cfg, 8)) as logger,
+    ):
+        logger.start()
+        logger.log({"received": 8, "wall_seconds": 1, "policy_version": 1})
+        raise RuntimeError("training failed")
+    output = capsys.readouterr().out
+    assert ("UniLab Training" in output) == (backend == "none")
+    assert not list(tmp_path.glob("events.out.tfevents.*"))
+    assert json.loads((tmp_path / "metrics.jsonl").read_text())["received"] == 8

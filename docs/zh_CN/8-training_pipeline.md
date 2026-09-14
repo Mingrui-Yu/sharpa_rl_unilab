@@ -93,3 +93,6 @@ uv run sharpa-eval --checkpoint "$SHARPA_STUDENT_RUN/student_final.pt"
 `uv run sharpa-compare --output logs/comparison --seeds 1 2 3`，输出目录须尚不存在；
 绘图依赖通过 `uv sync --extra mujoco --extra evaluation` 安装。验证范围见
 [VALIDATION.md](../VALIDATION.md)。
+
+原生 TensorBoard 日志保留含 `/` 的指标名，其余指标位于 `train/` 下；完整原始字段
+保存在 JSONL。组件复用与验证范围见[训练代码简化结果](../migrations/issue-2-simplify.md)。

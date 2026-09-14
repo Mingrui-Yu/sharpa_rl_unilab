@@ -1,8 +1,9 @@
 import json
 
 import pytest
+from unilab.training.experiment import get_git_info
 
-from sharpa_rl_unilab.training.evaluation import METRICS, aggregate_seeds, git_output
+from sharpa_rl_unilab.training.evaluation import METRICS, aggregate_seeds
 
 
 def test_seed_aggregation_uses_independent_training_seeds(tmp_path):
@@ -34,4 +35,4 @@ def test_seed_aggregation_uses_independent_training_seeds(tmp_path):
 
 
 def test_installed_package_does_not_require_a_git_checkout(tmp_path):
-    assert git_output(tmp_path, "rev-parse", "HEAD") is None
+    assert get_git_info(tmp_path)["commit"] is None

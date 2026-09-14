@@ -1,5 +1,3 @@
-from collections import deque
-
 import numpy as np
 import pytest
 import torch
@@ -123,15 +121,16 @@ def test_replay_reencodes_both_raw_privilege_vectors_and_isolates_gradients():
 def test_normalization_counts_fresh_batches_once_despite_staging_and_replay():
     cfg = compose_config("appo", "mujoco", [])
     actor, critic, _ = make_models(cfg, "cpu")
-    stages = deque(maxlen=3)
+    stages = None
     obs = {key: value.numpy() for key, value in observations().items()}
     raw = {key: value.numpy() for key, value in transitions().items()}
     for version in range(2):
-        stage_rollout(stages, raw, obs, version, actor, critic, "cpu")
+        stages, size = stage_rollout(stages, raw, obs, version, actor, critic, "cpu")
+        assert size == 8
     assert actor.shared.obs_normalizer.count.item() == 16
     assert critic.obs_normalizer.count.item() == 16
     before = frozen_weights(actor.shared.obs_normalizer)
-    td = TensorDict({"policy": stages[0]["observations"].flatten(0, 1)}, batch_size=8)
+    td = TensorDict({"policy": stages.batch()["observations"][:, :8].flatten(0, 1)}, batch_size=8)
     for _ in range(5):
         actor(td, stochastic_output=True)
         actor.update_normalization(td)
@@ -186,3 +185,28 @@ def test_old_checkpoint_fails_closed(tmp_path):
     torch.save({"model_state_dict": {}}, path)
     with pytest.raises(ValueError, match="retraining"):
         load_policy(path)
+
+
+def test_staging_wraparound_and_short_tail_keep_raw_targets():
+    cfg = compose_config("appo", "mujoco", [])
+    actor, critic, _ = make_models(cfg, "cpu")
+    obs = {k: v.numpy() for k, v in observations().items()}
+    raw = {k: v.numpy().repeat(2, axis=0) for k, v in transitions().items()}
+    pool = None
+    for version in range(5):
+        raw["priv_info"].fill(version)
+        pool, size = stage_rollout(pool, raw, obs, version, actor, critic, "cpu", capacity=2)
+        assert size == 16
+    assert pool.active_count == 2
+    batch = pool.batch()
+    assert set(batch["behavior_version"].flatten().tolist()) == {3, 4}
+    torch.testing.assert_close(batch["observations"][..., 147], batch["behavior_version"])
+    before = batch["rewards"].clone()
+    batch["rewards"] = timeout_rewards(batch, critic, 0.99)
+    torch.testing.assert_close(pool.batch()["rewards"], before)
+    assert actor.shared.obs_normalizer.count.item() == 80
+    short = {k: v[:1] for k, v in raw.items()}
+    pool, size = stage_rollout(pool, short, obs, 5, actor, critic, "cpu", capacity=2)
+    assert size == 8 and pool.active_count == 1
+    assert pool.batch()["observations"].shape[:2] == (1, 8)
+    assert actor.shared.obs_normalizer.count.item() == 88

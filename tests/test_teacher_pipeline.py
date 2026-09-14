@@ -13,7 +13,8 @@ from sharpa_rl_unilab.training.teacher_runtime import load_policy, train_teacher
 
 @pytest.mark.slow
 @pytest.mark.parametrize("algo", ["ppo", "appo", "flashsac"])
-def test_train_save_load_evaluate_distill(algo, tmp_path, monkeypatch):
+@pytest.mark.parametrize("budget, expected", [(17, 24), (25, 32)])
+def test_train_save_load_evaluate_distill(algo, budget, expected, tmp_path, monkeypatch):
     if algo == "ppo":
         from rsl_rl.algorithms import PPO
 
@@ -32,7 +33,7 @@ def test_train_save_load_evaluate_distill(algo, tmp_path, monkeypatch):
         "hardware.num_envs=8",
         "hardware.device=cpu",
         "hardware.torch_threads=2",
-        "budget.transitions=25",
+        f"budget.transitions={budget}",
         "budget.save_every=16",
         "budget.evaluate_every=16",
         "evaluation.scales=[1.0]",
@@ -51,12 +52,14 @@ def test_train_save_load_evaluate_distill(algo, tmp_path, monkeypatch):
     metrics = [
         json.loads(line) for line in (path.parent / "metrics.jsonl").read_text().splitlines()
     ]
-    assert metrics[-1]["received"] == 32
+    assert metrics[-1]["received"] == expected
     assert metrics[-1]["perf/transitions_per_second"] > 0
     assert list(path.parent.glob("events.out.tfevents.*"))
+    metadata = json.loads((path.parent / "run_config.json").read_text())
+    assert metadata["contract_snapshot"]["version"] == "sharpa-hora-v2"
     actor, _, checkpoint = load_policy(path, stage="teacher")
-    assert checkpoint["counters"]["collected"] == checkpoint["counters"]["received"] == 32
-    assert actor.shared.obs_normalizer.count.item() == 32
+    assert checkpoint["counters"]["collected"] == checkpoint["counters"]["received"] == expected
+    assert actor.shared.obs_normalizer.count.item() == expected
     periodic = list(path.parent.glob("teacher_[0-9]*.pt"))
     assert periodic
     for saved in periodic:
@@ -86,10 +89,10 @@ def test_train_save_load_evaluate_distill(algo, tmp_path, monkeypatch):
     assert "latent_mse" in student_metrics
     assert list(student.parent.glob("events.out.tfevents.*"))
     assert snapshot["history_normalizer"]["count"].item() == 16
-    assert policy.shared.obs_normalizer.count.item() == 32
+    assert policy.shared.obs_normalizer.count.item() == expected
     measured = evaluate_checkpoint(student)
     assert measured["manifest_sha256"] == result["manifest_sha256"]
-    assert measured["teacher_cost"]["counters"]["collected"] == 32
+    assert measured["teacher_cost"]["counters"]["collected"] == expected
     assert snapshot["teacher"]["sha256"] == result["checkpoint_sha256"]
 
 
@@ -156,3 +159,92 @@ def test_manifest_records_actual_scenes_and_enforces_quota(tmp_path):
     path.write_text(json.dumps(first))
     with pytest.raises(ValueError, match="quota"):
         load_manifest(cfg, path)
+
+
+@pytest.mark.slow
+def test_reset_failure_closes_environment(tmp_path, monkeypatch):
+    closed = []
+    original = SharpaTeacherEnv.close
+
+    def close(env):
+        closed.append(True)
+        original(env)
+
+    def fail_reset(*args, **kwargs):
+        raise RuntimeError("reset failed")
+
+    monkeypatch.setattr(SharpaTeacherEnv, "close", close)
+    monkeypatch.setattr(SharpaTeacherEnv, "reset", fail_reset)
+    cfg = compose_config(
+        "ppo",
+        "mujoco",
+        ["hardware.num_envs=8", "hardware.device=cpu", f"training.log_dir={tmp_path / 'run'}"],
+    )
+    with pytest.raises(RuntimeError, match="reset failed"):
+        train_teacher(cfg)
+    assert closed == [True]
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("fail_update", [False, True])
+def test_appo_drains_multiple_packets_and_closes(tmp_path, monkeypatch, fail_update):
+    from types import SimpleNamespace
+
+    from sharpa_rl_unilab.training import teacher_runtime as runtime
+
+    closed = []
+
+    class ReadyRollouts:
+        def __init__(self, cfg, actor):
+            self.env = SharpaTeacherEnv(cfg, 8)
+            self.obs, _ = self.env.reset(seed=11)
+            self.actor = actor
+            self.count = SimpleNamespace(value=0)
+
+        def receive_ready(self):
+            packets = []
+            for _ in range(3):
+                raw, self.obs = runtime.collect(self.env, self.obs, self.actor, 1, "cpu")
+                self.count.value += 8
+                packets.append((raw, self.obs, 0, self.count.value))
+            return packets
+
+        def publish(self, version, actor):
+            assert version == 1
+
+        def close(self):
+            self.env.close()
+            closed.append(True)
+
+    monkeypatch.setattr(runtime, "AsyncRollouts", ReadyRollouts)
+    if fail_update:
+
+        def fail(*args):
+            raise RuntimeError("learner failed")
+
+        monkeypatch.setattr(runtime.TeacherAPPOLearner, "update", fail)
+    cfg = compose_config(
+        "appo",
+        "mujoco",
+        [
+            "hardware.num_envs=8",
+            "hardware.device=cpu",
+            "budget.transitions=24",
+            "budget.save_every=0",
+            "budget.evaluate_every=0",
+            "algo.algorithm.num_learning_epochs=1",
+            "algo.algorithm.num_mini_batches=1",
+            "training.logger=no_print",
+            f"training.log_dir={tmp_path / 'run'}",
+        ],
+    )
+    if fail_update:
+        with pytest.raises(RuntimeError, match="learner failed"):
+            train_teacher(cfg)
+    else:
+        actor, _, checkpoint = load_policy(train_teacher(cfg))
+        assert actor.shared.obs_normalizer.count.item() == 24
+        counters = checkpoint["counters"]
+        assert counters["received"] == counters["collected"] == counters["training_samples"] == 24
+        assert counters["optimizer_updates"] == 1
+    assert closed == [True]

@@ -56,3 +56,6 @@ teacher 和 student 默认显示 UniLab Rich 终端面板，并在运行目录�
 
 详见 [架构](docs/ARCHITECTURE.md)、[验证](docs/VALIDATION.md) 与
 [完整训练流程](docs/zh_CN/8-training_pipeline.md)。
+
+原生 TensorBoard 日志保留含 `/` 的指标名，其余指标位于 `train/` 下；完整原始字段
+保存在 JSONL。组件复用与验证范围见[训练代码简化结果](docs/migrations/issue-2-simplify.md)。

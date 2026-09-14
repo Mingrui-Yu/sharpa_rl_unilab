@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import math
 import time
+from contextlib import ExitStack
 from pathlib import Path
 
 import numpy as np
@@ -114,13 +115,14 @@ def train_student(checkpoint, *, overrides=(), device=None):
         )
         return path
 
-    env = SharpaTeacherEnv(cfg, n)
-    save_every = int(cfg.distillation.save_every)
-    next_save, next_log = save_every, int(cfg.budget.log_every)
-    episodes = EpisodeStatistics(n)
-    logger = None
-    try:
+    with ExitStack() as resources:
+        env = SharpaTeacherEnv(cfg, n)
+        resources.callback(env.close)
+        save_every = int(cfg.distillation.save_every)
+        next_save, next_log = save_every, int(cfg.budget.log_every)
+        episodes = EpisodeStatistics(n)
         logger = TrainingLogger(run, cfg, target)
+        resources.callback(logger.close)
         logger.start(status="Initializing student rollouts...")
         obs, _ = env.reset(seed=seed)
         while counters["collected"] < target:
@@ -148,12 +150,6 @@ def train_student(checkpoint, *, overrides=(), device=None):
         logger.log_save(str(final))
         logger.finish()
         return final
-    finally:
-        try:
-            if logger is not None:
-                logger.close()
-        finally:
-            env.close()
 
 
 def main():

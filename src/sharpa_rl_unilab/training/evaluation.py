@@ -6,7 +6,6 @@ import hashlib
 import importlib.metadata
 import json
 import platform
-import subprocess
 import time
 from pathlib import Path
 
@@ -15,6 +14,7 @@ import torch
 from omegaconf import OmegaConf
 from tensordict import TensorDict
 from uni_rl.algos.common.normalization import EmpiricalNormalization
+from unilab.training.experiment import get_git_info, write_run_config_snapshot
 
 from sharpa_rl_unilab.algos.hora.teacher import TeacherFlashActor
 from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import CONTRACT_VERSION, SharpaTeacherEnv
@@ -46,25 +46,22 @@ def write_json(path, data):
     path.write_text(json.dumps(data, indent=2, allow_nan=False) + "\n")
 
 
-def git_output(root, *args):
-    try:
-        result = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True)
-    except FileNotFoundError:
-        return None
-    return result.stdout.strip() if result.returncode == 0 else None
-
-
 def write_run_metadata(run, cfg):
     OmegaConf.save(cfg, run / "config.yaml", resolve=True)
     root = Path(__file__).resolve().parents[3]
-    revision = git_output(root, "rev-parse", "HEAD")
-    dirty = git_output(root, "status", "--porcelain")
+    git = get_git_info(root)
+    write_run_config_snapshot(
+        run,
+        full_cfg=cfg,
+        run_metadata={"git": git, "stage": str(cfg.protocol.stage)},
+        contract_snapshot={"version": CONTRACT_VERSION},
+    )
     write_json(
         run / "run.json",
         {
             "contract": CONTRACT_VERSION,
-            "revision": revision,
-            "dirty": None if dirty is None else bool(dirty),
+            "revision": git["commit"],
+            "dirty": git["dirty"],
             "platform": platform.platform(),
             "python": platform.python_version(),
             "dependencies": {

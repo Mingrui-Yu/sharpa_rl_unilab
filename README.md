@@ -59,7 +59,9 @@ Teacher and student runs show a UniLab Rich terminal panel and save TensorBoard
 events alongside the full `metrics.jsonl`. Run `uv run tensorboard --logdir logs`
 to view curves indexed by newly received transitions. Set `training.logger=none`
 for the panel and JSONL only, or `training.logger=no_print` for JSONL only.
-`budget.log_every` controls the recording interval in transitions.
+`budget.log_every` controls the recording interval in transitions. Native TensorBoard
+logging keeps slash metrics as-is and prefixes flat metrics with `train/`.
+See [component reuse and validation](docs/migrations/issue-2-simplify.md).
 
 Use `uv sync --extra mujoco --extra evaluation` for comparison figures. Add
 `--smoke` to `sharpa-compare` for a short pipeline check. Old checkpoints require
