@@ -8,6 +8,7 @@ import multiprocessing as mp
 import queue
 import time
 import traceback
+from collections import defaultdict
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, cast
@@ -19,6 +20,8 @@ from rsl_rl.algorithms import PPO
 from rsl_rl.storage import RolloutStorage
 from tensordict import TensorDict
 from uni_rl.algos.appo.staging import RolloutStagingPool
+from uni_rl.algos.appo.worker import compute_rollout_active_steps_per_sec
+from uni_rl.algos.common.collector_timing import extract_env_step_breakdown_timing_ms
 
 from sharpa_rl_unilab.algos.hora.teacher import (
     CleanValue,
@@ -93,9 +96,12 @@ def algorithm_options(cfg, cls):
     return {k: v for k, v in params.items() if k in allowed}
 
 
-def collect(env, obs, actor, horizon, device, *, count=None):
+def collect(env, obs, actor, horizon, device, *, count=None, metrics=None):
     rows = []
+    rollout_started = time.perf_counter()
+    totals = defaultdict(float)
     for _ in range(horizon):
+        inference_started = time.perf_counter()
         td = policy_td(obs, device)
         with torch.no_grad():
             if isinstance(actor, TeacherFlashActor):
@@ -110,7 +116,18 @@ def collect(env, obs, actor, horizon, device, *, count=None):
                 actions = actor(td, stochastic_output=True)
                 logp = actor.get_output_log_prob(actions)
         sampled_actions = actions.cpu().numpy().copy()
+        inference_seconds = time.perf_counter() - inference_started
+        step_started = time.perf_counter()
         state = env.step(sampled_actions)
+        step_seconds = time.perf_counter() - step_started
+        if metrics is not None:
+            for key, value in state.info.get("log", {}).items():
+                if key.startswith("reward/"):
+                    totals[key] += float(value)
+            totals["timing/collector_mlp_infer_ms"] += inference_seconds * 1000
+            totals["timing/collector_env_step_ms"] += step_seconds * 1000
+            for key, value in extract_env_step_breakdown_timing_ms(state.info).items():
+                totals[f"timing/collector_{key}"] += value
         nxt = transition_next(state)
         row = {key: obs[key].copy() for key in ("obs", "priv_info", "critic")}
         row.update({"next_" + key: nxt[key] for key in ("obs", "priv_info", "critic")})
@@ -129,7 +146,19 @@ def collect(env, obs, actor, horizon, device, *, count=None):
         if count is not None:
             with count.get_lock():
                 count.value += env.num_envs
-    return {k: np.stack([row[k] for row in rows]) for k in rows[0]}, obs
+    batch = {k: np.stack([row[k] for row in rows]) for k in rows[0]}
+    if metrics is not None:
+        # Per-step means for this fresh rollout; rollout wall includes packing,
+        # but excludes waiting to publish the packet to the learner.
+        metrics.update({key: value / horizon for key, value in totals.items()})
+        rollout_ms = (time.perf_counter() - rollout_started) * 1000
+        metrics["timing/collector_rollout_ms"] = rollout_ms
+        throughput = compute_rollout_active_steps_per_sec(
+            num_envs=env.num_envs, steps_per_env=horizon, rollout_ms=rollout_ms
+        )
+        if throughput is not None:
+            metrics["perf/collector_active_steps_per_sec"] = throughput
+    return batch, obs
 
 
 def _collector(config, initial_weights, output, weights, stop, count):
@@ -155,9 +184,18 @@ def _collector(config, initial_weights, output, weights, stop, count):
             except queue.Empty:
                 pass
             horizon = min(int(cfg.algo.steps_per_env), (target - count.value) // env.num_envs)
-            batch, obs = collect(env, obs, actor, horizon, device, count=count)
+            collector_metrics = {}
+            batch, obs = collect(
+                env, obs, actor, horizon, device, count=count, metrics=collector_metrics
+            )
             collected = count.value
-            packet = (batch, {k: v.copy() for k, v in obs.items()}, version, collected)
+            packet = (
+                batch,
+                {k: v.copy() for k, v in obs.items()},
+                version,
+                collected,
+                collector_metrics,
+            )
             while not stop.is_set():
                 try:
                     output.put(packet, timeout=0.5)
@@ -468,28 +506,44 @@ def train_teacher(cfg):
         logger = TrainingLogger(run, cfg, target)
         resources.callback(logger.close)
         logger.start(status="Waiting for first rollout...")
+        reward_sums = defaultdict(float)
+        reward_steps = 0
         while counters["received"] < target:
+            iteration_started = time.perf_counter()
+            timings = {}
             if asynchronous is not None:
+                wait_started = time.perf_counter()
                 packets = asynchronous.receive_ready()
-                raw, last_obs, behavior_version, _ = packets[0]
+                timings["collector_wait_time"] = time.perf_counter() - wait_started
+                raw, last_obs, behavior_version, _, _ = packets[0]
+                collector_metrics = packets[-1][4]
                 counters["collected"] = asynchronous.count.value
             else:
                 horizon = int(
                     cfg.algo.get("num_steps_per_env", cfg.training.get("env_steps_per_sync", 2))
                 )
                 horizon = min(horizon, (target - counters["received"]) // n)
-                raw, last_obs = collect(env, obs, actor, horizon, device)
+                collector_metrics = {}
+                raw, last_obs = collect(env, obs, actor, horizon, device, metrics=collector_metrics)
                 obs = last_obs
                 behavior_version = counters["policy_version"]
                 counters["collected"] += horizon * n
             fresh_rollouts = (
-                [packet[0] for packet in packets] if asynchronous is not None else [raw]
+                [(packet[0], packet[4]) for packet in packets]
+                if asynchronous is not None
+                else [(raw, collector_metrics)]
             )
-            for fresh in fresh_rollouts:
+            for fresh, fresh_metrics in fresh_rollouts:
                 episodes.update(fresh["rewards"], fresh["terminated"], fresh["truncated"])
+                size = fresh["rewards"].size
+                reward_steps += size
+                for key, value in fresh_metrics.items():
+                    if key.startswith("reward/"):
+                        reward_sums[key] += value * size
             if asynchronous is not None:
                 assert isinstance(learner, TeacherAPPOLearner)
-                for raw, last_obs, version, packet_end in packets:
+                stage_started = time.perf_counter()
+                for raw, last_obs, version, packet_end, _ in packets:
                     size = raw["obs"].shape[0] * n
                     if packet_end != counters["received"] + size:
                         raise RuntimeError(
@@ -506,14 +560,19 @@ def train_teacher(cfg):
                         capacity=int(cfg.budget.async_queue_size),
                     )
                     counters["received"] += size
+                timings["learner_replay_stage_time"] = time.perf_counter() - stage_started
                 learner.sync_target_actor_buffers()
                 assert stages is not None
+                sample_started = time.perf_counter()
                 combined = stages.batch()
+                timings["learner_replay_sample_time"] = time.perf_counter() - sample_started
+                train_started = time.perf_counter()
                 combined["rewards"] = timeout_rewards(
                     combined, critic, float(cfg.algo.algorithm.gamma)
                 )
                 learner.process_batch(combined)
                 metrics = learner.update(combined)
+                timings["train_time"] = time.perf_counter() - train_started
                 updates = int(metrics["appo/updates_executed"])
                 batch_size = combined["observations"].shape[0] * combined["observations"].shape[1]
                 counters["training_samples"] += (
@@ -523,6 +582,8 @@ def train_teacher(cfg):
                 metrics["policy_lag_mean"] = float(lag.mean())
                 metrics["policy_lag_max"] = float(lag.max())
                 metrics["staging_rollouts"] = stages.active_count
+                metrics["staging_pool_capacity"] = stages.capacity
+                metrics["rollouts_read"] = len(packets)
                 counters["optimizer_updates"] += updates
                 counters["actor_updates"] += updates
                 counters["critic_updates"] += updates
@@ -609,15 +670,25 @@ def train_teacher(cfg):
                     ) * updates
             counters["policy_version"] += 1
             if asynchronous is not None:
+                publish_started = time.perf_counter()
                 asynchronous.publish(counters["policy_version"], actor)
+                timings["weight_sync_time"] = time.perf_counter() - publish_started
                 counters["collected"] = asynchronous.count.value
+                timings["iteration_time"] = time.perf_counter() - iteration_started
             metrics.update(counters)
             metrics["policy_lag"] = counters["policy_version"] - behavior_version - 1
             metrics["wall_seconds"] = time.monotonic() - started
             metrics["reuse_ratio"] = counters["training_samples"] / counters["received"]
             if counters["received"] >= next_log or counters["received"] == target:
+                # Rewards cover all fresh transitions since the previous log.
+                # Collector timing is the latest rollout; learner timing is the
+                # latest iteration, independent of logging/evaluation intervals.
+                metrics.update(collector_metrics)
+                metrics.update({key: value / reward_steps for key, value in reward_sums.items()})
                 metrics.update(episodes.metrics())
-                logger.log(metrics)
+                logger.log(metrics, timings=timings if asynchronous is not None else None)
+                reward_sums.clear()
+                reward_steps = 0
                 next_log = counters["received"] + max(log_due, 1)
             do_save = save_due > 0 and counters["collected"] >= next_save
             do_eval = eval_due > 0 and counters["collected"] >= next_eval

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any, cast
 
 import numpy as np
@@ -112,15 +113,20 @@ class SharpaTeacherEnv:
         truncated = state.truncated.copy() & ~terminated
         done = terminated | truncated
         info = dict(state.info)
+        info["timing"] = dict(info.get("timing", {}))
         final = None
         if np.any(done):
             final = {key: value.copy() for key, value in obs.items()}
         if np.any(done) and self.auto_reset:
+            reset_started = time.perf_counter()
             ids = np.flatnonzero(done).astype(np.int32)
             self.env.reset(ids)
             reset_obs = self._observations()
             for key in obs:
                 obs[key][ids] = reset_obs[key][ids]
+            # The underlying environment has autoreset disabled; this wrapper
+            # owns the reset and observation scatter measured here.
+            info["timing"]["reset_done_ms"] = (time.perf_counter() - reset_started) * 1000
         self.state = NpEnvState(obs, reward, terminated, truncated, info, final)
         return self.state
 

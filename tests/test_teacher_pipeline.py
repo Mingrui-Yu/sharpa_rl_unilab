@@ -54,6 +54,14 @@ def test_train_save_load_evaluate_distill(algo, budget, expected, tmp_path, monk
     ]
     assert metrics[-1]["received"] == expected
     assert metrics[-1]["perf/transitions_per_second"] > 0
+    for name in ("rotate", "obj_linvel", "pose_diff", "torque", "work", "object_pos"):
+        assert np.isfinite(metrics[-1][f"reward/{name}"])
+    assert metrics[-1]["timing/collector_env_step_ms"] > 0
+    assert metrics[-1]["timing/collector_mlp_infer_ms"] > 0
+    assert metrics[-1]["perf/collector_active_steps_per_sec"] > 0
+    if algo == "appo":
+        assert metrics[-1]["timing/learner_train_ms"] > 0
+        assert metrics[-1]["perf/iter_ms"] >= metrics[-1]["timing/learner_train_ms"]
     assert list(path.parent.glob("events.out.tfevents.*"))
     metadata = json.loads((path.parent / "run_config.json").read_text())
     assert metadata["contract_snapshot"]["version"] == "sharpa-hora-v2"
@@ -118,6 +126,7 @@ def test_simultaneous_drop_and_timeout_and_partial_reset(monkeypatch):
         monkeypatch.setattr(SharpaDropTermination, "__call__", force_drop)
         state = env.step(np.zeros((8, 22)))
         assert state.terminated.all() and not state.truncated.any()
+        assert state.info["timing"]["reset_done_ms"] > 0
         for key, values in transition_next(state).items():
             np.testing.assert_array_equal(values, state.final_observation[key])
     finally:
@@ -203,10 +212,15 @@ def test_appo_drains_multiple_packets_and_closes(tmp_path, monkeypatch, fail_upd
 
         def receive_ready(self):
             packets = []
-            for _ in range(3):
-                raw, self.obs = runtime.collect(self.env, self.obs, self.actor, 1, "cpu")
+            for index in range(3):
+                collector_metrics = {}
+                raw, self.obs = runtime.collect(
+                    self.env, self.obs, self.actor, 1, "cpu", metrics=collector_metrics
+                )
+                # Distinct reports verify aggregation across every fresh packet.
+                collector_metrics["reward/rotate"] = float(index + 1)
                 self.count.value += 8
-                packets.append((raw, self.obs, 0, self.count.value))
+                packets.append((raw, self.obs, 0, self.count.value, collector_metrics))
             return packets
 
         def publish(self, version, actor):
@@ -247,4 +261,8 @@ def test_appo_drains_multiple_packets_and_closes(tmp_path, monkeypatch, fail_upd
         counters = checkpoint["counters"]
         assert counters["received"] == counters["collected"] == counters["training_samples"] == 24
         assert counters["optimizer_updates"] == 1
+        metrics = json.loads((tmp_path / "run/metrics.jsonl").read_text().splitlines()[-1])
+        assert metrics["reward/rotate"] == 2
+        assert metrics["rollouts_read"] == 3
+        assert metrics["staging_rollouts"] == metrics["staging_pool_capacity"] == 3
     assert closed == [True]
