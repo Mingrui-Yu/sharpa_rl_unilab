@@ -49,11 +49,11 @@ def test_hora_parameters_and_other_algorithm_defaults():
     assert cfg.protocol.appo_baseline == "appo-hora-790ae32"
     for algo in ("ppo", "flashsac"):
         other = compose_config(algo, "mujoco", [])
-        assert other.hardware.num_envs == (2048 if algo == "ppo" else 4096)
+        assert other.hardware.num_envs == 2048
         assert other.hardware.device == "cuda:0"
         assert other.hardware.collector_device == "cpu"
-        assert other.hardware.torch_threads == 4
-        assert other.budget.transitions == (None if algo == "ppo" else 10000000)
+        assert other.hardware.torch_threads == (4 if algo == "ppo" else None)
+        assert other.budget.transitions is None
         assert other.budget.save_every == 1000000
         assert other.distillation == cfg.distillation
 

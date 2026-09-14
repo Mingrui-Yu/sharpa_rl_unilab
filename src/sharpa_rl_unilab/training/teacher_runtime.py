@@ -70,11 +70,19 @@ def resolve_device(device=None):
 def configure_threads(cfg):
     if cfg.hardware.torch_threads is not None:
         torch.set_num_threads(int(cfg.hardware.torch_threads))
+    elif cfg.algo.algo == "flashsac":
+        from uni_rl.offpolicy.thread_budget import (
+            apply_torch_thread_runtime,
+            resolve_torch_thread_runtime,
+        )
+
+        runtime = resolve_torch_thread_runtime(cfg.training.torch_threads)
+        apply_torch_thread_runtime(runtime, role="learner")
 
 
 def training_budget(cfg):
     """Exactly one stopping budget; APPO snapshots always use update rounds."""
-    iterations = cfg.algo.get("max_iterations") if cfg.algo.algo in {"ppo", "appo"} else None
+    iterations = cfg.algo.get("max_iterations")
     transitions = cfg.budget.transitions
     if (iterations is None) == (transitions is None):
         raise ValueError(
@@ -529,6 +537,12 @@ def train_teacher(cfg):
             "budget.checkpoint selects evaluation weights; training resume is not supported"
         )
     progress_key, target = training_budget(cfg)
+    if cfg.algo.algo == "flashsac" and progress_key == "policy_version":
+        from .flashsac_runtime import train_flashsac
+
+        return train_flashsac(cfg)
+    if cfg.algo.algo == "flashsac":
+        print("FlashSAC sampling budget: using the synchronous compatibility runner")
     configure_threads(cfg)
     torch.manual_seed(int(cfg.algo.seed))
     np.random.seed(int(cfg.algo.seed))
@@ -751,7 +765,8 @@ def train_teacher(cfg):
                     counters["training_samples"] += (
                         t * n // int(cfg.algo.algorithm.num_mini_batches)
                     ) * updates
-            counters["policy_version"] += 1
+            if algo != "flashsac" or counters["received"] >= int(cfg.algo.learning_starts) * n:
+                counters["policy_version"] += 1
             finished = counters[progress_key] >= target
             if asynchronous is not None:
                 publish_started = time.perf_counter()

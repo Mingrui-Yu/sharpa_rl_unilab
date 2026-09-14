@@ -52,7 +52,11 @@ automatically selected learner device. PPO defaults to 2048 environments and
 still use `budget.save_every`, defaulting to 1,000,000 transitions.
 For a PPO or APPO sampling budget, explicitly set `algo.max_iterations=null
 budget.transitions=N`; APPO checkpoints still use `algo.save_interval`.
-FlashSAC uses a transition budget.
+FlashSAC defaults to 2048 environments and 10000 update rounds through UniLab’s
+DoubleBuffer runner, with AMP disabled and automatic threads per process role.
+Its checkpoints retain transition-based `budget.save_every` thresholds. Explicit
+`algo.max_iterations=null budget.transitions=N` selects the synchronous sampling
+compatibility path; see [FlashSAC runtime details](docs/migrations/issue-2-flashsac-native.md).
 `sharpa-compare` explicitly selects sampling budgets for comparisons. `--nodr` uses
 one common override; `+preset=throughput` selects a separate throughput experiment.
 
@@ -67,7 +71,7 @@ Teacher and student runs show a UniLab Rich terminal panel and save TensorBoard
 events alongside the full `metrics.jsonl`. Run `uv run tensorboard --logdir logs`
 to view curves indexed by newly received transitions. Set `training.logger=none`
 for the panel and JSONL only, or `training.logger=no_print` for JSONL only.
-APPO logs every learner update and shows iteration progress/ETA; sampling counters
+APPO and native FlashSAC log every learner update and show iteration progress/ETA; sampling counters
 remain separate. Other runs use `budget.log_every` in transitions. Native TensorBoard
 logging keeps slash metrics as-is and prefixes flat metrics with `train/`.
 See [component reuse and validation](docs/migrations/issue-2-simplify.md).

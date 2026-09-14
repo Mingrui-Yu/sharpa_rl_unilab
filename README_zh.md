@@ -42,7 +42,7 @@ uv run sharpa-compare --output logs/comparison --seeds 1 2 3
 teacher 和 student 默认显示 UniLab Rich 终端面板，并在运行目录写入 TensorBoard
 事件与完整的 `metrics.jsonl`。运行 `uv run tensorboard --logdir logs` 查看曲线；
 横轴为实际收到的新 transition 数。`training.logger=none` 只关闭 TensorBoard，
-`training.logger=no_print` 仅保留 JSONL。APPO 每轮记录指标，按更新轮数显示进度和 ETA；
+`training.logger=no_print` 仅保留 JSONL。APPO 和原生 FlashSAC 每轮记录指标，按更新轮数显示进度和 ETA；
 其余训练使用 `budget.log_every` 控制记录间隔。
 
 APPO 默认使用 2048 个环境，训练 305 轮，每 51 轮保存一次；Learner 自动选择
@@ -52,7 +52,12 @@ CUDA、MPS 或 CPU，Collector 默认跟随 Learner，可用 `hardware.collector
 PPO 默认使用 2048 个环境，训练 301 轮，每轮每环境采样 8 步，共 4,931,584 条
 transition；进度和 ETA 按轮数显示，checkpoint 仍按 `budget.save_every` 保存，默认
 间隔为 1,000,000 条 transition。改用采样预算时须显式设置
-`algo.max_iterations=null budget.transitions=N`。FlashSAC 使用采样预算，
+`algo.max_iterations=null budget.transitions=N`。FlashSAC 默认使用 2048 个环境、
+10000 轮更新，复用 UniLab DoubleBuffer 流水线，关闭 AMP，按进程角色自动配置线程。
+checkpoint 仍按 `budget.save_every` 的实际采样阈值保存。显式设置
+`algo.max_iterations=null budget.transitions=N` 才使用同步采样兼容路径，
+详见 [FlashSAC 实现与限制](docs/migrations/issue-2-flashsac-native.md)。
+
 `sharpa-compare` 为各算法显式选择统一采样预算。
 
 ## 正确性说明
