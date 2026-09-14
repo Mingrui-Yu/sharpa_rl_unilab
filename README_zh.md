@@ -50,4 +50,4 @@ uv run sharpa-compare --output logs/comparison --seeds 1 2 3
   衰减外力均为显式 manager terms，仅通过 Entity facade 访问状态。
 
 详见 [架构](docs/ARCHITECTURE.md)、[验证](docs/VALIDATION.md) 与
-[HORA](docs/zh_CN/7-hora.md)。
+[完整训练流程](docs/zh_CN/8-training_pipeline.md)。
