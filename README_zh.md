@@ -15,9 +15,9 @@ FlashSAC 和 HORA student 蒸馏训练入口。
 - 导出 FlashSAC actor ONNX，并录制评估视频。
 - 训练 HORA teacher，并蒸馏只使用 actor 观测的 student。
 
-| APPO | FlashSAC |
-| --- | --- |
-| ![APPO 评估回放](docs/media/sharpa-appo-eval.gif) | ![FlashSAC 评估回放](docs/media/sharpa-flashsac-eval.gif) |
+| 真机 | APPO | FlashSAC |
+| --- | --- | --- |
+| ![真机部署回放](docs/media/sharpa-real-eval.gif) | ![APPO 评估回放](docs/media/sharpa-appo-eval.gif) | ![FlashSAC 评估回放](docs/media/sharpa-flashsac-eval.gif) |
 
 ## 安装
 

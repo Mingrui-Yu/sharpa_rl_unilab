@@ -17,9 +17,9 @@ distillation.
 - Export FlashSAC actors to ONNX and record evaluation videos.
 - Train a HORA teacher and distill an actor-observation student.
 
-| APPO | FlashSAC |
-| --- | --- |
-| ![APPO evaluation rollout](docs/media/sharpa-appo-eval.gif) | ![FlashSAC evaluation rollout](docs/media/sharpa-flashsac-eval.gif) |
+| Real robot | APPO | FlashSAC |
+| --- | --- | --- |
+| ![Real-robot deployment rollout](docs/media/sharpa-real-eval.gif) | ![APPO evaluation rollout](docs/media/sharpa-appo-eval.gif) | ![FlashSAC evaluation rollout](docs/media/sharpa-flashsac-eval.gif) |
 
 ## Installation
 
