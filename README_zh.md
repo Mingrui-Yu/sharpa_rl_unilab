@@ -18,6 +18,12 @@ uv run pytest
 uv run pyright
 ```
 
+`uv run pytest` / `make test` 默认运行快速回归测试。MuJoCo、内置资源编译以及
+每种算法各一条训练 → 保存 → 评估 → 蒸馏冒烟测试，通过
+`uv run pytest -m slow` / `make test-slow` 显式运行。
+FlashSAC 冒烟测试需要 CUDA，不可用时跳过。
+`make test-all` 运行静态检查及两组测试。
+
 开发环境通过兄弟目录 `../UniLab` 作为 `unilab` source；包依赖仍是外部的
 `unilab>=1.2.0,<1.3`，`unilab-rl>=1.2.0,<1.3` 来自发布包。
 

@@ -141,14 +141,8 @@ def test_marked_fields_history_and_explicit_privilege():
     assert obs["priv_info"].shape == (2, 9)
 
 
-@pytest.mark.parametrize(
-    "order",
-    [
-        ("actor", "critic", "priv_info", "proprio_hist"),
-        ("critic", "proprio_hist", "priv_info", "actor"),
-    ],
-)
-def test_clean_critic_ignores_actor_corruption_and_call_order(order):
+def test_clean_critic_ignores_actor_corruption_and_call_order():
+    order = ("critic", "proprio_hist", "priv_info", "actor")
     clean = make_observations()
     noisy = make_observations(
         order=order,
@@ -226,12 +220,12 @@ def test_clean_tactile_uses_vector_norm_and_deterministic_clip():
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("algo", ["ppo", "appo", "flashsac"])
-def test_mujoco_observations_survive_timeout_autoreset(algo, monkeypatch):
+def test_mujoco_autoreset_and_simultaneous_termination(monkeypatch):
     from sharpa_rl_unilab.cli import compose_config
-    from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import SharpaTeacherEnv
+    from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import SharpaTeacherEnv, transition_next
+    from sharpa_rl_unilab.tasks.sharpa_inhand.terms.termination import SharpaDropTermination
 
-    cfg = compose_config(algo, "mujoco", ["+env.max_episode_seconds=0.1"])
+    cfg = compose_config("ppo", "mujoco", ["+env.max_episode_seconds=0.1"])
     env = SharpaTeacherEnv(cfg, num_envs=8)
     terminal = {}
     original_reset = env.env.reset
@@ -266,5 +260,19 @@ def test_mujoco_observations_survive_timeout_autoreset(algo, monkeypatch):
             clean = state.obs["critic"].reshape(8, 3, 58)[:, -1]
             np.testing.assert_array_equal(clean[:, :49], source.frame(env, noisy=False))
             np.testing.assert_array_equal(clean[:, 49:], source.priv_info)
+        # The following episode ends in a drop and timeout on the same step.
+        env.step(np.zeros((8, 22)))
+        original_drop = SharpaDropTermination.__call__
+
+        def force_drop(self, env, **kwargs):
+            original_drop(self, env, **kwargs)
+            self.dropped.fill(True)
+            return self.dropped
+
+        monkeypatch.setattr(SharpaDropTermination, "__call__", force_drop)
+        state = env.step(np.zeros((8, 22)))
+        assert state.terminated.all() and not state.truncated.any()
+        for key, values in transition_next(state).items():
+            np.testing.assert_array_equal(values, state.final_observation[key])
     finally:
         env.close()

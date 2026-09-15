@@ -48,8 +48,8 @@ ignore = ["E501", "E402"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--tb=short"
-markers = ["slow: physics integration tests"]
+addopts = "--tb=short -m 'not slow'"
+markers = ["slow: MuJoCo, asset compilation and training integration tests"]
 
 [tool.mypy]
 ignore_missing_imports = true

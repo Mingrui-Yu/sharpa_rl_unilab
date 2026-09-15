@@ -1,4 +1,4 @@
-.PHONY: check test test-all build
+.PHONY: check test test-slow test-all build
 
 check:
 	uv run ruff check src tests
@@ -9,7 +9,10 @@ check:
 test:
 	uv run pytest
 
-test-all: check test
+test-slow:
+	uv run pytest -m slow
+
+test-all: check test test-slow
 
 build:
 	uv build

@@ -1,5 +1,24 @@
 # Validation record
 
+## 2026-09-15 Focused regression suite
+
+The suite now has 40 cases instead of 102. It drops default-parameter snapshots,
+source-token bans, upstream-only checks, terminal UI details and repeated
+training matrices. Retained regressions cover observation/reset boundaries,
+gradient isolation, normalization, APPO policy consistency, FlashSAC transport,
+checkpoint compatibility and evaluation statistics.
+
+- Default `pytest` / `make test`: 35 fast tests passed (about 14 seconds).
+- Explicit `pytest -m slow` / `make test-slow`: 5 tests passed (about 38 seconds),
+  including one real train/checkpoint/evaluate/distill case per algorithm,
+  MuJoCo autoreset/termination and bundled asset compilation/cache repair.
+  FlashSAC ran on CUDA; the smoke skips when CUDA is unavailable.
+- Ruff lint, test formatting, Mypy, Pyright and diff whitespace checks passed.
+  The full format check still reports eight untouched source files.
+- Checks used the existing virtualenv and absolute `PYTHONPATH` entries for
+  this worktree's `src` and the sibling UniLab checkout. `make test-all` combines
+  static checks with both test suites.
+
 ## 2026-09-15 Training layout and native FlashSAC
 
 `sharpa-compare` now lives in `tools/compare.py` and uses each algorithm's

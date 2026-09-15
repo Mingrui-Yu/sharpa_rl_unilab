@@ -20,6 +20,12 @@ uv run pytest
 uv run pyright
 ```
 
+`uv run pytest` / `make test` runs the fast regression suite. Run
+`uv run pytest -m slow` / `make test-slow` explicitly for MuJoCo, bundled asset
+compilation and one train → checkpoint → evaluate → distill smoke per algorithm.
+The FlashSAC smoke requires CUDA and is skipped when CUDA is unavailable.
+`make test-all` runs static checks and both suites.
+
 Development uses the sibling checkout `../UniLab` as the `unilab` source; the
 package dependency is still external (`unilab>=1.2.0,<1.3`), and
 `unilab-rl>=1.2.0,<1.3` resolves from its release.
