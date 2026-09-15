@@ -4,10 +4,10 @@ defaults:
   - _self_
 algo:
   num_envs: ${training.num_envs}
-  max_iterations: 3000
-  save_interval: 50
+  max_iterations: 2000
+  save_interval: 500
   checkpoint: null
-  use_amp: false
+  use_amp: true
   batch_size: 2048
   replay_buffer_n: 1280
   updates_per_step: 14

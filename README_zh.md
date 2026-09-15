@@ -27,6 +27,14 @@ FlashSAC 冒烟测试需要 CUDA，不可用时跳过。
 开发环境通过兄弟目录 `../UniLab` 作为 `unilab` source；包依赖仍是外部的
 `unilab>=1.2.0,<1.3`，`unilab-rl>=1.2.0,<1.3` 来自发布包。
 
+无显示器的 Linux 机器需要一次性安装离屏渲染运行库。在 Ubuntu/Debian 上，
+NVIDIA GPU 录制需要 `libegl1` 和可用的 NVIDIA 图形驱动；软件录制可安装
+`libosmesa6`。这些是系统依赖，`uv sync` 不会安装。
+`uv run sharpa-train` 默认自动选择 EGL，不可用时尝试 OSMesa，无需手动设置
+`MUJOCO_GL`。训练开始前会验证一帧渲染以及 MP4 编解码，失败则提前报错；
+显式设置的 `MUJOCO_GL` 会被保留。`--cfg` 和关闭录制的训练不会执行此检查。
+正常训练结束后，视频保存为 checkpoint 同目录下的 `play_video.mp4`。
+
 ## 训练、评估与蒸馏
 
 ```bash

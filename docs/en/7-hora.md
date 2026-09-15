@@ -20,9 +20,14 @@ environments and 400 control steps by default. Set `training.no_play=true` or
 `training.play_steps` control its size and duration. MuJoCo's default `auto`
 mode records video. Playback is independent of quantitative evaluation, so
 disabling quantitative evaluation still allows video recording.
-Headless recording requires a working EGL or OSMesa runtime; for software
-rendering, install `libosmesa6` and set `MUJOCO_GL=osmesa`. UniLab reports and
-skips video export when no off-screen renderer is available.
+Headless recording requires a working EGL or OSMesa runtime. On Ubuntu/Debian,
+install `libegl1` with a working NVIDIA graphics driver, or `libosmesa6` for
+software rendering. `sharpa-train` automatically selects the backend and
+checks a rendered frame plus MP4 encoding/decoding before training starts.
+It fails early if recording is enabled but unavailable; no environment-variable
+prefix is required. Explicit `MUJOCO_GL` settings are respected, and `--cfg`
+or disabled recording skip the check. The separate `sharpa-distill` entry
+still uses UniLab's playback-time check and skips export if rendering is unavailable.
 
 Distillation accepts all three teacher algorithms. It freezes the inherited
 policy and base normalization, trains only the 30-frame history encoder by

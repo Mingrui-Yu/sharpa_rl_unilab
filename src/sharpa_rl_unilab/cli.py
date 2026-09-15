@@ -58,6 +58,11 @@ def _main(*, play: bool, argv: list[str] | None = None) -> None:
         print(OmegaConf.to_yaml(cfg))
         return
 
+    if not play:
+        from sharpa_rl_unilab.training.rendering import prepare_recording
+
+        prepare_recording(cfg.training)
+
     from sharpa_rl_unilab.assets import ensure_assets
 
     ensure_assets()

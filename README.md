@@ -30,6 +30,15 @@ Development uses the sibling checkout `../UniLab` as the `unilab` source; the
 package dependency is still external (`unilab>=1.2.0,<1.3`), and
 `unilab-rl>=1.2.0,<1.3` resolves from its release.
 
+Headless Linux recording needs a one-time graphics runtime installation. On
+Ubuntu/Debian, install `libegl1` with a working NVIDIA graphics driver for GPU
+rendering, or `libosmesa6` for software rendering. `uv sync` does not install
+these system libraries. `uv run sharpa-train` automatically tries EGL, then
+OSMesa; no `MUJOCO_GL` prefix is required. Before training, it checks rendering
+and MP4 encoding/decoding and fails early if neither works. Explicit
+`MUJOCO_GL` settings are respected. `--cfg` and runs with recording disabled
+skip this check. The final video is saved beside the checkpoint as `play_video.mp4`.
+
 About 40 MB of robot XML, meshes and grasp caches are bundled in Git and the
 Python package. `uv run sharpa-assets` prepares a writable local cache;
 `SHARPA_RL_UNILAB_ASSET_CACHE` can select its directory.
