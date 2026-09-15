@@ -39,8 +39,8 @@ from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import (
     transition_next,
 )
 
-from .configuration import configure_threads, migrate_checkpoint_config
-from .logging import EpisodeStatistics, TrainingLogger
+from .configuration import configure_threads, migrate_checkpoint_config, resolve_device
+from .logging import EpisodeStatistics, TrainingLogger, write_run_metadata
 
 
 def tensor_obs(obs, device):
@@ -58,20 +58,14 @@ def config_dict(cfg) -> dict[str, Any]:
     return cast(dict[str, Any], OmegaConf.to_container(cfg, resolve=True))
 
 
-def resolve_device(device=None):
-    if device is not None:
-        return str(device)
-    if torch.cuda.is_available():
-        return "cuda:0"
-    if torch.backends.mps.is_available():
-        return "mps"
-    return "cpu"
-
-
 def training_budget(cfg):
     """Exactly one stopping budget; all teacher snapshots use update rounds."""
     iterations = cfg.algo.get("max_iterations")
     transitions = cfg.training.max_transitions
+    if cfg.algo.algo == "flashsac" and (iterations is None or transitions is not None):
+        raise ValueError(
+            "FlashSAC requires algo.max_iterations > 0 and training.max_transitions=null"
+        )
     if (iterations is None) == (transitions is None):
         raise ValueError(
             "Select exactly one budget: algo.max_iterations or training.max_transitions; "
@@ -145,17 +139,8 @@ def collect(env, obs, actor, horizon, device, *, count=None, metrics=None):
         inference_started = time.perf_counter()
         td = policy_td(obs, device)
         with torch.no_grad():
-            if isinstance(actor, TeacherFlashActor):
-                previous_done = (
-                    None
-                    if env.state is None
-                    else torch.as_tensor(env.state.terminated | env.state.truncated, device=device)
-                )
-                actions = actor.explore(td["policy"], dones=previous_done)
-                logp = torch.zeros(env.num_envs, device=device)
-            else:
-                actions = actor(td, stochastic_output=True)
-                logp = actor.get_output_log_prob(actions)
+            actions = actor(td, stochastic_output=True)
+            logp = actor.get_output_log_prob(actions)
         sampled_actions = actions.cpu().numpy().copy()
         inference_seconds = time.perf_counter() - inference_started
         step_started = time.perf_counter()
@@ -171,7 +156,7 @@ def collect(env, obs, actor, horizon, device, *, count=None, metrics=None):
                 totals[f"timing/collector_{key}"] += value
         nxt = transition_next(state)
         row = {key: obs[key].copy() for key in ("obs", "priv_info", "critic")}
-        row.update({"next_" + key: nxt[key] for key in ("obs", "priv_info", "critic")})
+        row["next_critic"] = nxt["critic"]
         row.update(
             actions=sampled_actions,
             actions_log_prob=logp.cpu().numpy().copy(),
@@ -179,9 +164,8 @@ def collect(env, obs, actor, horizon, device, *, count=None, metrics=None):
             terminated=state.terminated.copy(),
             truncated=state.truncated.copy(),
         )
-        if not isinstance(actor, TeacherFlashActor):
-            row["behavior_mean"] = actor.output_mean.cpu().numpy().copy()
-            row["behavior_std"] = actor.output_std.cpu().numpy().copy()
+        row["behavior_mean"] = actor.output_mean.cpu().numpy().copy()
+        row["behavior_std"] = actor.output_std.cpu().numpy().copy()
         rows.append(row)
         obs = state.obs
         if count is not None:
@@ -362,39 +346,6 @@ class AsyncRollouts:
             q.close()
 
 
-class Replay:
-    """Raw fields remain separate in replay, including both privilege vectors."""
-
-    def __init__(self, capacity, device):
-        self.capacity, self.device = capacity, device
-        self.data, self.size, self.cursor = {}, 0, 0
-
-    def add(self, batch):
-        data = {k: v.flatten(0, 1) for k, v in batch.items() if k != "actions_log_prob"}
-        n = data["obs"].shape[0]
-        if n > self.capacity:
-            data = {k: v[-self.capacity :] for k, v in data.items()}
-            n = self.capacity
-        ids = (torch.arange(n, device=self.device) + self.cursor) % self.capacity
-        for key, value in data.items():
-            if key not in self.data:
-                self.data[key] = torch.empty(
-                    (self.capacity, *value.shape[1:]), device=self.device, dtype=value.dtype
-                )
-            self.data[key][ids] = value
-        self.cursor = (self.cursor + n) % self.capacity
-        self.size = min(self.size + n, self.capacity)
-
-    def sample(self, size):
-        ids = torch.randint(self.size, (size,), device=self.device)
-        batch = {key: value[ids] for key, value in self.data.items()}
-        batch["obs"] = torch.cat((batch["obs"], batch["priv_info"]), -1)
-        batch["next_obs"] = torch.cat((batch["next_obs"], batch["next_priv_info"]), -1)
-        batch["dones"] = (batch["terminated"].bool() | batch["truncated"].bool()).float()
-        batch["truncated"] = batch["truncated"] * (1 - batch["terminated"])
-        return batch
-
-
 def optimizer_metadata(learner):
     result = {}
     for name in ("optimizer", "actor_optimizer", "critic_optimizer", "temperature_optimizer"):
@@ -523,20 +474,16 @@ def stage_rollout(stages, raw, last_obs, version, actor, critic, device, capacit
 
 
 def train_teacher(cfg):
-    from .evaluation import write_run_metadata
-
     started = time.monotonic()
     if cfg.algo.checkpoint is not None:
         raise ValueError(
             "algo.checkpoint selects evaluation weights; training resume is not supported"
         )
     progress_key, target = training_budget(cfg)
-    if cfg.algo.algo == "flashsac" and progress_key == "policy_version":
+    if cfg.algo.algo == "flashsac":
         from .flashsac_runtime import train_flashsac
 
         return train_flashsac(cfg)
-    if cfg.algo.algo == "flashsac":
-        print("FlashSAC sampling budget: using the synchronous compatibility runner")
     configure_threads(cfg)
     torch.manual_seed(int(cfg.algo.seed))
     np.random.seed(int(cfg.algo.seed))
@@ -568,11 +515,6 @@ def train_teacher(cfg):
         policy_version=0,
     )
     stages = None
-    replay = (
-        Replay(int(cfg.algo.get("replay_buffer_n", 1280)) * n, device)
-        if algo == "flashsac"
-        else None
-    )
     with ExitStack() as resources:
         if algo == "appo":
             learner = TeacherAPPOLearner(
@@ -608,9 +550,7 @@ def train_teacher(cfg):
                 collector_metrics = packets[-1][4]
                 counters["collected"] = asynchronous.count.value
             else:
-                horizon = int(
-                    cfg.algo.get("num_steps_per_env", cfg.training.get("env_steps_per_sync", 2))
-                )
+                horizon = int(cfg.algo.num_steps_per_env)
                 if progress_key == "received":
                     horizon = min(horizon, (target - counters["received"]) // n)
                 collector_metrics = {}
@@ -683,83 +623,56 @@ def train_teacher(cfg):
                 t = packed.shape[0]
                 counters["received"] += t * n
                 dones = (batch["terminated"].bool() | batch["truncated"].bool()).float()
-                if algo == "flashsac":
-                    assert isinstance(learner, TeacherFlashLearner) and replay is not None
-                    observe_new_samples(actor, critic, packed, batch["critic"])
-                    replay.add(batch)
-                    learner.update_reward_stats(batch["rewards"], dones)
-                    metrics = {}
-                    if counters["received"] >= int(cfg.algo.learning_starts) * n:
-                        for index in range(int(cfg.algo.updates_per_step)):
-                            sampled = replay.sample(int(cfg.algo.batch_size))
-                            metrics.update(learner.update_critic(sampled))
-                            counters["optimizer_updates"] += 1
-                            counters["critic_updates"] += 1
-                            if index % int(cfg.algo.policy_frequency) == 0:
-                                metrics.update(learner.update_actor(sampled))
-                                counters["optimizer_updates"] += 2
-                                counters["actor_updates"] += 1
-                                counters["temperature_updates"] += 1
-                                counters["training_samples"] += int(cfg.algo.batch_size)
-                            learner.soft_update_target()
-                            counters["training_samples"] += int(cfg.algo.batch_size)
-                        metrics.update(learner.saturation_metrics)
-                else:
-                    corrected_reward = timeout_rewards(
-                        batch, critic, float(cfg.algo.algorithm.gamma)
+                corrected_reward = timeout_rewards(batch, critic, float(cfg.algo.algorithm.gamma))
+                td = TensorDict({"policy": packed[0], "critic": batch["critic"][0]}, batch_size=n)
+                storage = (
+                    learner.storage
+                    if isinstance(learner, PPO) and learner.storage.num_transitions_per_env == t
+                    else RolloutStorage("rl", n, t, td, [22], device)
+                )
+                if learner is None:
+                    learner = PPO(
+                        cast(Any, actor),
+                        cast(Any, critic),
+                        storage,
+                        device=device,
+                        **algorithm_options(cfg, PPO),
                     )
-                    td = TensorDict(
-                        {"policy": packed[0], "critic": batch["critic"][0]}, batch_size=n
+                assert isinstance(learner, PPO)
+                learner.storage = storage
+                # Preserve the log-prob generated by the collecting policy.
+                for step in range(t):
+                    tr = RolloutStorage.Transition()
+                    tr.observations = TensorDict(
+                        {"policy": packed[step], "critic": batch["critic"][step]}, batch_size=n
                     )
-                    storage = (
-                        learner.storage
-                        if isinstance(learner, PPO) and learner.storage.num_transitions_per_env == t
-                        else RolloutStorage("rl", n, t, td, [22], device)
-                    )
-                    if learner is None:
-                        learner = PPO(
-                            cast(Any, actor),
-                            cast(Any, critic),
-                            storage,
-                            device=device,
-                            **algorithm_options(cfg, PPO),
-                        )
-                    assert isinstance(learner, PPO)
-                    learner.storage = storage
-                    # Preserve the log-prob generated by the collecting policy.
-                    for step in range(t):
-                        tr = RolloutStorage.Transition()
-                        tr.observations = TensorDict(
-                            {"policy": packed[step], "critic": batch["critic"][step]}, batch_size=n
-                        )
-                        with torch.no_grad():
-                            tr.values = critic(tr.observations)
-                        tr.actions = batch["actions"][step]
-                        tr.actions_log_prob = batch["actions_log_prob"][step]
-                        tr.distribution_params = (
-                            batch["behavior_mean"][step],
-                            batch["behavior_std"][step],
-                        )
-                        tr.rewards, tr.dones = corrected_reward[step], dones[step]
-                        storage.add_transition(tr)
                     with torch.no_grad():
-                        learner.compute_returns(policy_td(last_obs, device))
-                    # Values/returns use the collecting critic's frozen statistics.
-                    # The update may change normalization, but behavior density
-                    # and old values remain exactly those of collection.
-                    observe_new_samples(actor, critic, packed, batch["critic"])
-                    metrics = cast(PPO, learner).update()
-                    updates = int(cfg.algo.algorithm.num_learning_epochs) * int(
-                        cfg.algo.algorithm.num_mini_batches
+                        tr.values = critic(tr.observations)
+                    tr.actions = batch["actions"][step]
+                    tr.actions_log_prob = batch["actions_log_prob"][step]
+                    tr.distribution_params = (
+                        batch["behavior_mean"][step],
+                        batch["behavior_std"][step],
                     )
-                    counters["optimizer_updates"] += updates
-                    counters["actor_updates"] += updates
-                    counters["critic_updates"] += updates
-                    counters["training_samples"] += (
-                        t * n // int(cfg.algo.algorithm.num_mini_batches)
-                    ) * updates
-            if algo != "flashsac" or counters["received"] >= int(cfg.algo.learning_starts) * n:
-                counters["policy_version"] += 1
+                    tr.rewards, tr.dones = corrected_reward[step], dones[step]
+                    storage.add_transition(tr)
+                with torch.no_grad():
+                    learner.compute_returns(policy_td(last_obs, device))
+                # Values/returns use the collecting critic's frozen statistics.
+                # The update may change normalization, but behavior density
+                # and old values remain exactly those of collection.
+                observe_new_samples(actor, critic, packed, batch["critic"])
+                metrics = cast(PPO, learner).update()
+                updates = int(cfg.algo.algorithm.num_learning_epochs) * int(
+                    cfg.algo.algorithm.num_mini_batches
+                )
+                counters["optimizer_updates"] += updates
+                counters["actor_updates"] += updates
+                counters["critic_updates"] += updates
+                counters["training_samples"] += (
+                    t * n // int(cfg.algo.algorithm.num_mini_batches)
+                ) * updates
+            counters["policy_version"] += 1
             finished = counters[progress_key] >= target
             if asynchronous is not None:
                 publish_started = time.perf_counter()

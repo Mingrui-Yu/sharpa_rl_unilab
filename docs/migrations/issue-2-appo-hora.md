@@ -36,7 +36,7 @@ Learner 在接收阶段仅累计每批新数据的 o_t，不累计 o_next，不�
 
 APPO 每轮记录进度和 ETA；TensorBoard 横轴仍为真实 received transitions。
 同时记录 collected、received、training_samples、optimizer_updates、历史池占用和
-策略版本滞后。`sharpa-compare` 显式选择各算法的采样预算；student 优化参数和预算不变。
+策略版本滞后。`sharpa-compare` 使用各算法配置的预算与统一评估场景；student 优化参数和预算不变。
 
 回归验证覆盖配置对比、互斥预算、设备与线程选择、真实多进程策略队列替换、rollout
 边界版本切换、原始行为密度、累计统计分批等价、每次 optimizer step 的统计冻结、

@@ -27,7 +27,7 @@ sharpa-train = "sharpa_rl_unilab.cli:train_main"
 sharpa-eval = "sharpa_rl_unilab.cli:eval_main"
 sharpa-assets = "sharpa_rl_unilab.assets:main"
 sharpa-distill = "sharpa_rl_unilab.training.student_runtime:main"
-sharpa-compare = "sharpa_rl_unilab.training.compare:main"
+sharpa-compare = "sharpa_rl_unilab.tools.compare:main"
 
 [project.entry-points."unilab.tasks"]
 sharpa = "sharpa_rl_unilab.tasks"
@@ -55,19 +55,11 @@ markers = ["slow: physics integration tests"]
 ignore_missing_imports = true
 no_site_packages = true
 
-# The migrated benchmark tool monkeypatches provider methods to A/B init-DR.
-[[tool.mypy.overrides]]
-module = "sharpa_rl_unilab.tools.*"
-disable_error_code = ["method-assign"]
-
 [tool.pyright]
 pythonVersion = "3.10"
 venvPath = "."
 venv = ".venv"
 include = ["src/sharpa_rl_unilab"]
-# The migrated benchmark tool drives native MuJoCo APIs whose installed
-# stubs omit the generated exports. It is exercised by runtime smoke tests.
-exclude = ["src/sharpa_rl_unilab/tools"]
 
 [tool.uv.build-backend]
 module-name = "sharpa_rl_unilab"

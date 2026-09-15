@@ -26,7 +26,7 @@ startup environment context. Both learner and collector default to 4 intra-op
 and 1 inter-op threads; explicit values or `auto` can be used for tuning.
 Compilation remains disabled.
 
-Both FlashSAC paths use `CleanQ` to normalize clean174 observations before every
+FlashSAC uses `CleanQ` to normalize clean174 observations before every
 current/target Q call, including actor updates. Statistics are shared by current
 and target Q, separate from actor statistics, and updated once per fresh current
 observation. Actions and replay storage remain raw; Polyak updates affect only
@@ -38,48 +38,47 @@ snapshot is `teacher_final.pt`. Snapshots retain normalization buffers and nativ
 optimizer/scheduler state. Training does not schedule evaluation; use the separate
 evaluation entry or `sharpa-compare`'s explicit final evaluation.
 
-## Sampling-budget compatibility and dependency gaps
+## Supported budgets and devices
 
-The installed native runner has no exact transition-budget stop/drain API.
-Explicit `algo.max_iterations=null training.max_transitions=N` therefore selects the
-existing synchronous compatibility runner, which rounds only to a complete
-vector environment step. The CLI announces this mode. `sharpa-compare` clears
-`algo.max_iterations` for every algorithm and continues to use equal sampling
-budgets. It does **not** benchmark the native FlashSAC pipeline. CPU-only
-FlashSAC sampling tests also use this path; native device replay requires CUDA
-or MPS.
+FlashSAC requires a positive `algo.max_iterations` and
+`training.max_transitions=null`. The synchronous sampling-budget runner and its
+local replay have been removed. Sampling budgets are rejected before training;
+they are not converted into nominal update rounds. Actual collected/received
+counts remain in logs and checkpoints.
 
-An exact sampling budget in the native pipeline would require a collector
-step limit and a runner stop/drain interface that handles warmup and partial
-final rounds. Dividing a transition budget by nominal samples per round is
-insufficient. These interfaces are not copied or patched into Sharpa.
+Teacher training requires CUDA or MPS for native device replay. Model unit tests,
+checkpoint evaluation and student distillation can still run on CPU.
+Existing supported v2 checkpoints remain loadable for evaluation and distillation,
+including checkpoints created by the former synchronous runner.
 
-The parameter-alignment command from journal 06 section 6 is now:
+`sharpa-compare` uses each algorithm's configured budget and evaluates on shared
+scenes. It records actual sampling and wall time without enforcing equal costs.
+`--smoke` uses two teacher update rounds, reduced batches/replay and 32 student
+transitions; it exercises the native FlashSAC pipeline.
+
+For a 5371-round run:
 
 ```bash
 sharpa-train --algo flashsac \
   training.num_envs=1024 \
-  algo.max_iterations=null \
-  training.max_transitions=10999808 \
+  algo.max_iterations=5371 \
   algo.save_interval=896 \
   algo.use_amp=false
 ```
 
-This explicitly uses the synchronous sampling-budget path. For the native
-pipeline's nominal 5371-round comparison, use
-`training.num_envs=1024 algo.max_iterations=5371 algo.save_interval=896`;
-actual collection can differ. Neither comparison restores main's original
-actor architecture.
+Actual collection depends on the native pipeline; rounds do not specify an exact
+transition count. PPO/APPO retain their optional sampling-budget mode.
 
 ## Validation
 
 `tests/test_flashsac_runtime.py` checks the defaults, inherited native loop,
-terminal actor/privilege/critic transport, budget exclusivity and thread
+terminal actor/privilege/critic transport, unsupported-budget rejection and thread
 resolution. CUDA integration runs three native rounds with eight environments
 for both ordinary startup and extended warmup, checks actual scheduler update
 counts and normalization counters in all saved checkpoints, and loads the
-final model through evaluation and distillation. Existing pipeline tests cover
-non-multiple transition budgets through the synchronous compatibility path.
+final model through evaluation and distillation. PPO/APPO pipeline tests retain
+non-multiple transition-budget coverage. CPU learner tests retain gradient
+isolation, raw privilege encoding, Q normalization and checkpoint round trips.
 
 For the configuration migration and current verification scope, see
 [RL alignment](issue-2-rl-align.md). Earlier smoke reports retain their historical settings.

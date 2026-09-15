@@ -14,7 +14,6 @@ from sharpa_rl_unilab.cli import compose_config
 from sharpa_rl_unilab.training.evaluation import deterministic_actions
 from sharpa_rl_unilab.training.student_runtime import StudentTrainer
 from sharpa_rl_unilab.training.teacher_runtime import (
-    Replay,
     config_dict,
     load_policy,
     make_models,
@@ -55,6 +54,16 @@ def transitions(n=8):
     return data
 
 
+def flash_batch(raw):
+    """Native learner inputs, with raw actor and privileged observations packed together."""
+    batch = {key: value.flatten(0, 1) for key, value in raw.items()}
+    batch["obs"] = torch.cat((batch["obs"], batch["priv_info"]), -1)
+    batch["next_obs"] = torch.cat((batch["next_obs"], batch["next_priv_info"]), -1)
+    batch["dones"] = (batch["terminated"].bool() | batch["truncated"].bool()).float()
+    batch["truncated"] = batch["truncated"] * (1 - batch["terminated"])
+    return batch
+
+
 @pytest.mark.parametrize("algo", ["ppo", "appo", "flashsac"])
 def test_actor_information_and_value_gradient_are_independent(algo):
     cfg = compose_config(algo, "mujoco", [])
@@ -78,18 +87,11 @@ def test_actor_information_and_value_gradient_are_independent(algo):
     assert isinstance(layers[-1], torch.nn.ELU)
 
 
-def test_replay_reencodes_both_raw_privilege_vectors_and_isolates_gradients():
+def test_flash_updates_reencode_raw_privilege_and_isolate_gradients():
     cfg = compose_config("flashsac", "mujoco", [])
     actor, critic, learner = make_models(cfg, "cpu")
-    replay = Replay(8, "cpu")
     raw = transitions()
-    replay.add(raw)
-    assert replay.data["priv_info"].shape == (8, 9)
-    assert replay.data["next_priv_info"].shape == (8, 9)
-    assert not any("latent" in key for key in replay.data)
-    sampled = replay.sample(8)
-    torch.testing.assert_close(sampled["obs"][:, 147:], sampled["priv_info"])
-    torch.testing.assert_close(sampled["next_obs"][:, 147:], sampled["next_priv_info"])
+    sampled = flash_batch(raw)
     seen = []
     handle = actor.shared.priv_encoder.register_forward_pre_hook(
         lambda _module, args: seen.append(args[0].detach().clone())
@@ -156,9 +158,7 @@ def test_flash_q_normalizes_all_paths_without_recounting_and_roundtrips(tmp_path
     torch.testing.assert_close(normalizer.mean, raw["critic"].mean(dim=(0, 1)))
     assert normalizer.count.item() == 8
     before = frozen_weights(normalizer)
-    replay = Replay(8, "cpu")
-    replay.add(raw)
-    torch.testing.assert_close(replay.data["critic"], raw["critic"].flatten(0, 1))
+    batch = flash_batch(raw)
     seen = {"current": [], "target": []}
     handles = [
         module.network.register_forward_pre_hook(
@@ -167,7 +167,6 @@ def test_flash_q_normalizes_all_paths_without_recounting_and_roundtrips(tmp_path
         for key, module in (("current", critic), ("target", learner.target_critic))
     ]
     for _ in range(2):
-        batch = replay.sample(8)
         learner.update_critic(batch)
         expected = normalizer(torch.cat((batch["critic"], batch["next_critic"])))
         torch.testing.assert_close(seen["current"][-1][0], expected)

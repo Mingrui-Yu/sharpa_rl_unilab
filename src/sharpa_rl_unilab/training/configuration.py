@@ -7,6 +7,16 @@ from omegaconf import DictConfig, OmegaConf
 from uni_rl.offpolicy.thread_budget import apply_torch_thread_runtime, resolve_torch_thread_runtime
 
 
+def resolve_device(device=None):
+    if device is not None:
+        return str(device)
+    if torch.cuda.is_available():
+        return "cuda:0"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
 def configure_threads(cfg, *, role="learner"):
     runtime = resolve_torch_thread_runtime(cfg.training.torch_threads)
     apply_torch_thread_runtime(runtime, role=role)

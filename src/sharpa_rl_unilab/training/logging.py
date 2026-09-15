@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import json
+import platform
 import time
 from collections import deque
 from pathlib import Path
 
 import numpy as np
+import torch
+from omegaconf import OmegaConf
 from uni_rl.logging.common import _fmt_time
 from uni_rl.logging.offpolicy import OffPolicyLogger
+from unilab.training.experiment import get_git_info, write_run_config_snapshot
+
+from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import CONTRACT_VERSION
 
 # Native log_step arguments (seconds) and their backend metric names.
 LEARNER_TIMINGS = {
@@ -19,6 +26,70 @@ LEARNER_TIMINGS = {
     "train_time": "timing/learner_train_ms",
     "weight_sync_time": "timing/learner_weight_publish_ms",
 }
+
+
+def write_json(path, data):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, allow_nan=False) + "\n")
+
+
+def write_run_metadata(run, cfg):
+    from uni_rl.offpolicy.thread_budget import resolve_torch_thread_runtime
+
+    algorithm = str(cfg.algo.algo)
+    teacher = cfg.protocol.stage == "teacher"
+    native_flash = teacher and algorithm == "flashsac"
+    async_appo = teacher and algorithm == "appo"
+    resources = {
+        "sampling_architecture": "double_buffer"
+        if native_flash
+        else "async_queue"
+        if async_appo
+        else "synchronous",
+        "learner_device": str(cfg.training.device),
+        "inference_device": str(cfg.algo.collector_device)
+        if async_appo
+        else str(cfg.training.device),
+        "torch_thread_runtime": resolve_torch_thread_runtime(cfg.training.torch_threads),
+        "learner_num_threads": torch.get_num_threads(),
+        "learner_num_interop_threads": torch.get_num_interop_threads(),
+        "independent_collector": native_flash or async_appo,
+    }
+    OmegaConf.save(cfg, run / "config.yaml", resolve=True)
+    root = Path(__file__).resolve().parents[3]
+    git = get_git_info(root)
+    write_run_config_snapshot(
+        run,
+        full_cfg=cfg,
+        run_metadata={"git": git, "stage": str(cfg.protocol.stage)},
+        contract_snapshot={"version": CONTRACT_VERSION},
+    )
+    write_json(
+        run / "run.json",
+        {
+            "contract": CONTRACT_VERSION,
+            "revision": git["commit"],
+            "dirty": git["dirty"],
+            "platform": platform.platform(),
+            "python": platform.python_version(),
+            "dependencies": {
+                name: importlib.metadata.version(name)
+                for name in ("torch", "numpy", "unilab", "unilab-rl", "rsl-rl-lib", "mujoco")
+            },
+            "cuda_devices": [
+                torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())
+            ],
+            "timing": "Includes model/environment initialization, collection, learning and saving; excludes CLI asset verification and separate evaluation.",
+            "runtime": resources,
+            "budget_tolerance": int(cfg.algo.num_envs) - 1
+            if not teacher or cfg.training.max_transitions is not None
+            else None,
+            "training_samples": "Transition uses in actor and critic updates: joint PPO/APPO minibatch counted once; separate SAC actor and critic uses each counted once.",
+            "distributed": False,
+            "global_num_envs": int(cfg.algo.num_envs),
+        },
+    )
 
 
 class EpisodeStatistics:

@@ -71,9 +71,10 @@ KL 设置及 scheduler 曲线；这不是历史 run 的 optimizer state。
 ## 预算、评估和蒸馏
 
 默认 teacher 使用单 Learner、2048 环境、`cuda:0`，各进程 Torch 线程为4/1。
-APPO/PPO 默认501轮，FlashSAC 默认3000轮。按采样量停止时设置
+APPO/PPO 默认501轮，FlashSAC 默认3000轮。PPO/APPO 按采样量停止时设置
 `algo.max_iterations=null training.max_transitions=N`，最多向上取整一个向量步，
-容差为 N-1。FlashSAC 此时使用同步兼容 runner；比较入口显式选择此模式。
+容差为环境数减1。FlashSAC 仅按更新轮数停止，拒绝非空的 `training.max_transitions`。
+比较入口使用各算法配置的预算和统一评估场景，记录实际成本，不保证等采样量。
 APPO 每个向量步更新全局计数，接收端检查重复/缺包。
 日志每轮记录 collected、received、training_samples、optimizer updates 和墙钟时间；
 联合 PPO/APPO minibatch 计一次数据使用，SAC 分开的 Actor/Q 使用各计一次。

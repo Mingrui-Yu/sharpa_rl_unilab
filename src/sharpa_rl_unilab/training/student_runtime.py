@@ -16,9 +16,10 @@ from uni_rl.algos.common.normalization import EmpiricalNormalization
 from sharpa_rl_unilab.algos.hora.teacher import frozen_weights, make_student
 from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import CONTRACT_VERSION, SharpaTeacherEnv
 
-from .evaluation import deterministic_actions, file_digest, write_run_metadata
-from .logging import EpisodeStatistics, TrainingLogger
-from .teacher_runtime import configure_threads, load_policy, resolve_device, tensor_obs
+from .configuration import configure_threads, resolve_device
+from .evaluation import deterministic_actions, file_digest
+from .logging import EpisodeStatistics, TrainingLogger, write_run_metadata
+from .teacher_runtime import load_policy, tensor_obs
 
 
 class StudentTrainer:

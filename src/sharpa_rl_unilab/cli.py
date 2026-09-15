@@ -68,8 +68,8 @@ def _main(*, play: bool, argv: list[str] | None = None) -> None:
                 "Protocol v2 uses explicit teacher/student inputs; --export is only available for grasp playback"
             )
         if play:
+            from sharpa_rl_unilab.training.configuration import resolve_device
             from sharpa_rl_unilab.training.evaluation import evaluate_checkpoint
-            from sharpa_rl_unilab.training.teacher_runtime import resolve_device
 
             checkpoint = args.checkpoint or cfg.algo.checkpoint
             if checkpoint is None:

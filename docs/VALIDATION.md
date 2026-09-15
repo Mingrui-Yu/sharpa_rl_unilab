@@ -1,5 +1,32 @@
 # Validation record
 
+## 2026-09-15 Training layout and native FlashSAC
+
+`sharpa-compare` now lives in `tools/compare.py` and uses each algorithm's
+configured budget. FlashSAC training uses only the native DoubleBuffer runner;
+sampling-budget overrides are rejected before training. PPO/APPO sampling limits
+and student transition budgets remain supported. Device resolution belongs to
+`training/configuration.py`; run metadata and JSON output belong to
+`training/logging.py`. The old `train_hora_distill` forwarding module is removed.
+
+- 102 tests passed in separate non-slow (81) and MuJoCo/CUDA (21) runs, including
+  three native FlashSAC warmup/checkpoint/evaluation/distillation cases.
+- After strengthening the former sampling-budget checkpoint fixtures, all 18
+  configuration-migration and teacher-model tests passed again. CPU student
+  training still accepts those checkpoints.
+- Ruff lint, Mypy, Pyright (including `tools/compare.py`), changed-file format
+  checks and diff whitespace checks passed. The full format check reports the
+  same nine untouched files with existing formatting issues.
+- Lockfile validation, source distribution and wheel builds passed. The wheel
+  includes the new comparison module/entrypoint and excludes both retired paths.
+  Reinstalling the editable package refreshes the `sharpa-compare` command.
+- The installed `sharpa-compare --smoke` completed PPO/APPO/FlashSAC × seeds
+  1/2/3 on CUDA, with one shared scale-1.0 scene. All nine teachers completed two
+  update rounds; all nine students collected 32 transitions. The 18 evaluations,
+  six aggregate groups and plot were produced successfully. FlashSAC used the
+  native DoubleBuffer runner with its `torch_copy_stream` replay transfer.
+  These short runs validate execution, not learning performance.
+
 ## 2026-09-14 Issue 2: common HORA protocol v2
 
 Implementation and checks are confined to Sharpa. UniLab remains at
@@ -49,7 +76,9 @@ The summaries include per-scale and training-seed bootstrap statistics.
 These are **pipeline validation results**, not a ranking: no 5M teacher / 100M
 student performance experiment was run, and old checkpoints require retraining.
 
-Reproduce the short GPU validation with:
+Run the current short GPU validation with the command below. It now uses two
+teacher update rounds and native FlashSAC; the historical 128-transition results
+above describe the earlier sampling-budget implementation.
 
 ```bash
 uv sync --extra mujoco --extra evaluation

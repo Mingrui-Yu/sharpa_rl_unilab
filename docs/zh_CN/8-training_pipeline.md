@@ -44,16 +44,16 @@ uv run sharpa-train --algo appo \
 ```
 
 最终模型为 `$SHARPA_TEACHER_RUN/teacher_final.pt`，保存完整运行配置与归一化统计。
-APPO 默认使用单 learner、2048 个环境，完成 305 轮 Learner 更新后停止，每 51 轮保存
-`teacher_iteration_N.pt`。每个 rollout 为 8 步，历史池最多保留 8 批；一轮可以接收多批。
-可通过 `hardware.num_envs`、`algo.max_iterations` 和 `algo.save_interval` 调整。
-按采样数停止的实验须显式设置 `algo.max_iterations=null budget.transitions=N`；
-该模式可在末尾采集短 rollout，保存频率仍按更新轮数。PPO、FlashSAC 默认使用
-4096 个环境和 1000 万个新 transition。需要关闭域随机化时，在 teacher 命令中添加 `--nodr`，
-student 和评估会继承该配置。
+三个 teacher 默认使用单 learner、2048 个环境，每 50 轮保存 `teacher_iteration_N.pt`。
+APPO/PPO 默认完成 501 轮更新，FlashSAC 默认 3000 轮。
+可通过 `training.num_envs`、`algo.max_iterations` 和 `algo.save_interval` 调整。
+PPO/APPO 按采样数停止时设置 `algo.max_iterations=null training.max_transitions=N`；
+末尾可以采集短 rollout，保存仍按轮数。FlashSAC 仅支持更新轮数预算，
+`training.max_transitions` 必须为 null，teacher 训练需要 CUDA/MPS。
+随机化通过具体配置参数覆盖，student 和评估继承 teacher 的任务配置。
 
-teacher 和 student 共用 UniLab Rich 终端面板，APPO 默认按更新轮数显示进度与 ETA，
-其余模式按 transition 显示进度，同时记录真实吞吐、
+teacher 和 student 使用 UniLab Rich 终端面板，teacher 默认按更新轮数显示进度与 ETA，
+采样预算模式和 student 按 transition 显示进度，同时记录真实吞吐、
 loss、最近 100 个完整 episode 的平均回报与长度。APPO 的 episode 统计只处理新收到的
 rollout，旧数据的重复训练不会重复计数。完整指标保留在运行目录的 `metrics.jsonl`，
 同时默认写入 TensorBoard；使用 `uv run tensorboard --logdir logs` 查看曲线。
@@ -93,10 +93,12 @@ uv run sharpa-eval --checkpoint "$SHARPA_STUDENT_RUN/student_final.pt"
 
 评估从 checkpoint 恢复任务与归一化统计，在八个尺度的固定场景中使用 20 秒窗口，
 提前掉落不补跑。结果分别写入 checkpoint 同目录的 `teacher_final.evaluation.json`
-与 `student_final.evaluation.json`。评估仅接受 `evaluation.*` 与 `hardware.device` 配置覆盖。
+与 `student_final.evaluation.json`。评估仅接受 `evaluation.*` 与 `training.device` 配置覆盖。
 
 需要统一运行三种算法、多训练种子的 teacher、student 与评估时，使用
 `uv run sharpa-compare --output logs/comparison --seeds 1 2 3`，输出目录须尚不存在；
+该工具位于 `tools/compare.py`，默认使用各算法的轮数预算，在相同场景评估，
+不保证等采样量或等计算成本。`--smoke` 使用 2 轮 teacher 更新和 32 条 student 采样。
 绘图依赖通过 `uv sync --extra mujoco --extra evaluation` 安装。验证范围见
 [VALIDATION.md](../VALIDATION.md)。
 

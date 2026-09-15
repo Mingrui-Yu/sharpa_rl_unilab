@@ -9,8 +9,9 @@ from unilab.visualization.playback import camera_cfg_from_training
 
 from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import SharpaTeacherEnv
 
+from .configuration import resolve_device
 from .evaluation import deterministic_actions
-from .teacher_runtime import load_policy, resolve_device
+from .teacher_runtime import load_policy
 
 
 def play_checkpoint(checkpoint, *, device=None):

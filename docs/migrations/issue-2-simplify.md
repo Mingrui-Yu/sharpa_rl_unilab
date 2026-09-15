@@ -4,6 +4,10 @@
 实现位于 `sharpa_rl_unilab-issue-2` / `issue-2-observation-contract`。
 原有未提交日志修改先保存为 `81460f7`，再进行本次简化。
 
+后续更新：FlashSAC 已统一为原生 DoubleBuffer、按更新轮数停止；下文中的本地 replay、
+同步采样预算与性能数据属于此次历史记录。当前行为见
+[FlashSAC 运行说明](issue-2-flashsac-native.md)。
+
 ## 基线与兼容性
 
 [基线快照](issue-2-simplify-baseline.json) 保存三种算法完整合并配置、实际初始

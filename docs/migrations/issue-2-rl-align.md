@@ -15,8 +15,9 @@ APPO/PPO 保留当前501轮，FlashSAC 保留3000轮。三者 `algo.save_interva
 `teacher_iteration_<已完成轮数>.pt`。每轮记录指标，采样计数保留为真实值。
 FlashSAC 的14次 Q更新属于一轮，warmup 不增加更新轮数。
 
-`training.max_transitions` 与 `algo.max_iterations` 恰好启用一个。
-`sharpa-compare` 继续使用采样量停止模式，对 FlashSAC 选择同步兼容 runner。
+PPO/APPO 的 `training.max_transitions` 与 `algo.max_iterations` 恰好启用一个。
+FlashSAC 仅支持正数 `algo.max_iterations`，`training.max_transitions` 必须为 null。
+`sharpa-compare` 使用各算法配置的预算和统一评估场景，不保证等采样量或等计算成本。
 训练不再调度定期或 final 定量评估；独立评估和比较入口的显式评估保留。
 
 ## 配置路径迁移
@@ -47,7 +48,7 @@ FlashSAC 的14次 Q更新属于一轮，warmup 不增加更新轮数。
 梯度更新不累计统计；终止观测与 timeout bootstrap 的处理不变。
 
 统计量包含在模型状态中，当前 Q 和目标 Q 的参数软更新不混合统计量。
-原生与同步兼容 FlashSAC 均支持保存、加载后验证相同 Q 输出。
+FlashSAC 使用原生 DoubleBuffer 训练，支持保存、加载后验证相同 Q 输出。
 
 兼容范围限于当前加载器已支持的 v2 checkpoint。加载时迁移配置路径，保留
 历史环境参数及有效设备/线程配置，不将新默认值强加到旧权重。

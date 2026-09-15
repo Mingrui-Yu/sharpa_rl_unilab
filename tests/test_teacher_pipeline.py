@@ -12,7 +12,7 @@ from sharpa_rl_unilab.training.teacher_runtime import load_policy, train_teacher
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("algo", ["ppo", "appo", "flashsac"])
+@pytest.mark.parametrize("algo", ["ppo", "appo"])
 @pytest.mark.parametrize("budget, expected", [(17, 24), (25, 32)])
 def test_train_save_load_evaluate_distill(algo, budget, expected, tmp_path, monkeypatch):
     if algo == "ppo":
@@ -41,11 +41,8 @@ def test_train_save_load_evaluate_distill(algo, budget, expected, tmp_path, monk
         "evaluation.episodes_per_scale=1",
         f"training.log_dir={tmp_path / 'teacher'}",
     ]
-    if algo == "flashsac":
-        overrides += ["algo.batch_size=16", "algo.updates_per_step=2"]
-    else:
-        overrides += ["algo.algorithm.num_learning_epochs=1", "algo.algorithm.num_mini_batches=1"]
-        overrides += ["algo.steps_per_env=2" if algo == "appo" else "algo.num_steps_per_env=2"]
+    overrides += ["algo.algorithm.num_learning_epochs=1", "algo.algorithm.num_mini_batches=1"]
+    overrides += ["algo.steps_per_env=2" if algo == "appo" else "algo.num_steps_per_env=2"]
     overrides += ["algo.max_iterations=null"]
     cfg = compose_config(algo, "mujoco", overrides)
     path = train_teacher(cfg)

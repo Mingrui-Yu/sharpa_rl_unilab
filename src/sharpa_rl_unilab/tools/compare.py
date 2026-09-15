@@ -1,4 +1,4 @@
-"""Run the same teacher/student protocol across algorithms and training seeds."""
+"""Train each algorithm with its configured budget and evaluate on shared scenes."""
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ import sys
 from pathlib import Path
 
 from sharpa_rl_unilab.cli import compose_config
-
-from .evaluation import (
+from sharpa_rl_unilab.training.evaluation import (
     aggregate_seeds,
     evaluate_checkpoint,
     make_manifest,
     plot_learning_curves,
-    write_json,
 )
+from sharpa_rl_unilab.training.logging import write_json
+from sharpa_rl_unilab.training.teacher_runtime import training_budget
 
 
 def main():
@@ -32,24 +32,20 @@ def main():
     parser.add_argument(
         "--smoke",
         action="store_true",
-        help="Validate the pipeline at 128 teacher / 32 student transitions; no performance ranking",
+        help="Validate two teacher update rounds and 32 student transitions; no performance ranking",
     )
     args, overrides = parser.parse_known_args()
     if len(set(args.seeds)) != len(args.seeds) or len(args.seeds) < 3:
         parser.error("Use at least three distinct training seeds")
-    if any(item.lstrip("+").startswith("algo.max_iterations=") for item in overrides):
-        parser.error("sharpa-compare uses sampling budgets; set training.max_transitions instead")
-    args.output.mkdir(parents=True, exist_ok=False)
     common = [f"training.device={args.device}", *overrides]
     common += [f"evaluation.training_seeds={args.seeds}", f"distillation.seeds={args.seeds}"]
-    # Comparisons explicitly use equal sampling budgets across algorithms.
-    # Standalone teacher defaults instead stop by update rounds.
-    sample_budget = "128" if args.smoke else "10000000"
-    if not any(item.startswith("training.max_transitions=") for item in common):
-        common.append(f"training.max_transitions={sample_budget}")
     if args.smoke:
         common += [
+            "algo.max_iterations=2",
+            "algo.save_interval=0",
+            "training.max_transitions=null",
             "training.num_envs=8",
+            "training.no_play=true",
             "training.torch_threads.learner_num_threads=2",
             "training.torch_threads.collector_num_threads=2",
             "distillation.transitions=32",
@@ -58,6 +54,10 @@ def main():
             "evaluation.seeds=[10001]",
             "evaluation.episodes_per_scale=1",
         ]
+    # Validate every budget before creating output or starting any training.
+    for algorithm in args.algorithms:
+        training_budget(compose_config(algorithm, "mujoco", common))
+    args.output.mkdir(parents=True, exist_ok=False)
     manifest = args.output.resolve() / "scenes.json"
     cfg = compose_config(args.algorithms[0], "mujoco", common)
     make_manifest(cfg, manifest)
@@ -72,12 +72,21 @@ def main():
                 f"training.log_dir={run}",
                 f"evaluation.manifest={manifest}",
             ]
-            if args.smoke and algorithm == "flashsac":
-                specific += ["algo.batch_size=32"]
-            specific += ["algo.max_iterations=null"]
             if args.smoke:
-                specific += ["algo.save_interval=0"]
-            cfg = compose_config(algorithm, "mujoco", [*common, *specific])
+                if algorithm == "flashsac":
+                    specific += [
+                        "algo.batch_size=16",
+                        "algo.replay_buffer_n=16",
+                        "algo.updates_per_step=2",
+                    ]
+                else:
+                    specific += [
+                        "algo.algorithm.num_learning_epochs=1",
+                        "algo.algorithm.num_mini_batches=1",
+                        "algo.steps_per_env=2"
+                        if algorithm == "appo"
+                        else "algo.num_steps_per_env=2",
+                    ]
             # A fresh process per stage keeps CUDA/module initialization from
             # being charged only to the first algorithm or training seed.
             subprocess.run(
@@ -123,8 +132,7 @@ def main():
         {"kind": "pipeline-smoke" if args.smoke else "comparison", "groups": summaries},
     )
     # Explicit final evaluations show teacher and student costs separately.
-    curves = list(args.output.glob("*/seed_*/evaluation_*.json"))
-    plot_learning_curves(curves or evaluations, args.output / "learning_curves.png")
+    plot_learning_curves(evaluations, args.output / "learning_curves.png")
 
 
 if __name__ == "__main__":

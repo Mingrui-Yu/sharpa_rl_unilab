@@ -18,8 +18,9 @@ from unilab.base.np_env import NpEnvState
 from sharpa_rl_unilab.algos.hora.teacher import ACTOR_DIM, CRITIC_DIM, PRIV_DIM, observe_new_samples
 from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import SharpaTeacherEnv
 
-from .evaluation import write_json, write_run_metadata
-from .teacher_runtime import make_models, resolve_device, save_teacher
+from .configuration import resolve_device
+from .logging import write_json, write_run_metadata
+from .teacher_runtime import make_models, save_teacher
 
 
 def transport_obs(obs):

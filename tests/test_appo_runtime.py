@@ -18,6 +18,7 @@ from sharpa_rl_unilab.algos.hora.teacher import (
 )
 from sharpa_rl_unilab.cli import compose_config
 from sharpa_rl_unilab.training import teacher_runtime as runtime
+from sharpa_rl_unilab.training.configuration import configure_threads, resolve_device
 from sharpa_rl_unilab.training.evaluation import deterministic_actions
 from sharpa_rl_unilab.training.logging import TrainingLogger
 
@@ -61,12 +62,12 @@ def test_hora_parameters_and_other_algorithm_defaults():
 def test_exclusive_budgets_and_optional_threads():
     cfg = compose_config("appo", "mujoco", [])
     assert runtime.training_budget(cfg) == ("policy_version", 501)
-    runtime.configure_threads(cfg)
+    configure_threads(cfg)
     assert torch.get_num_threads() == 4
     assert torch.get_num_interop_threads() == 1
     cfg.training.torch_threads.enabled = False
     torch.set_num_threads(2)
-    runtime.configure_threads(cfg)
+    configure_threads(cfg)
     assert torch.get_num_threads() == 2
     cfg.training.max_transitions = 17
     with pytest.raises(ValueError, match="exactly one"):
@@ -85,8 +86,8 @@ def test_exclusive_budgets_and_optional_threads():
 def test_device_priority_and_explicit_cpu(monkeypatch, cuda, mps, expected):
     monkeypatch.setattr(torch.cuda, "is_available", lambda: cuda)
     monkeypatch.setattr(torch.backends.mps, "is_available", lambda: mps)
-    assert runtime.resolve_device() == expected
-    assert runtime.resolve_device("cpu") == "cpu"
+    assert resolve_device() == expected
+    assert resolve_device("cpu") == "cpu"
 
 
 def test_latest_policy_snapshot_replaces_backlog_without_aliasing():
@@ -240,13 +241,15 @@ def test_iteration_progress_keeps_real_sampling_axis(tmp_path, algo):
         logger.close()
 
 
-def test_comparison_smoke_explicitly_selects_sampling_budgets(tmp_path, monkeypatch):
-    from sharpa_rl_unilab.training import compare
+@pytest.mark.parametrize("smoke", [False, True])
+def test_comparison_uses_configured_rounds_and_shared_evaluation(tmp_path, monkeypatch, smoke):
+    from sharpa_rl_unilab.tools import compare
 
     commands = []
-    monkeypatch.setattr(
-        sys, "argv", ["sharpa-compare", "--output", str(tmp_path / "comparison"), "--smoke"]
-    )
+    argv = ["sharpa-compare", "--output", str(tmp_path / "comparison")]
+    if smoke:
+        argv.append("--smoke")
+    monkeypatch.setattr(sys, "argv", argv)
     monkeypatch.setattr(compare, "make_manifest", lambda *_: None)
     monkeypatch.setattr(compare, "evaluate_checkpoint", lambda *args, **kwargs: None)
     monkeypatch.setattr(compare, "aggregate_seeds", lambda *_: {})
@@ -261,10 +264,36 @@ def test_comparison_smoke_explicitly_selects_sampling_budgets(tmp_path, monkeypa
     for command in teacher_commands:
         algo = command[4]
         cfg = compose_config(algo, "mujoco", command[5:])
-        assert runtime.training_budget(cfg) == ("received", 128)
-        assert cfg.training.num_envs == 8
-        assert cfg.algo.max_iterations is None
-        assert cfg.algo.save_interval == 0
+        expected_rounds = 2 if smoke else (3000 if algo == "flashsac" else 501)
+        assert runtime.training_budget(cfg) == ("policy_version", expected_rounds)
+        assert cfg.training.num_envs == (8 if smoke else 2048)
+        assert cfg.training.max_transitions is None
+        assert cfg.algo.save_interval == (0 if smoke else 50)
+        assert cfg.evaluation.manifest == str(tmp_path / "comparison" / "scenes.json")
+        assert cfg.distillation.transitions == (32 if smoke else 100000000)
+        if smoke and algo == "flashsac":
+            assert cfg.algo.batch_size == cfg.algo.replay_buffer_n == 16
+    assert len([command for command in commands if command[2].endswith("student_runtime")]) == 9
+
+
+def test_comparison_rejects_flash_sampling_budget_before_creating_output(tmp_path, monkeypatch):
+    from sharpa_rl_unilab.tools import compare
+
+    output = tmp_path / "invalid"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "sharpa-compare",
+            "--output",
+            str(output),
+            "algo.max_iterations=null",
+            "training.max_transitions=17",
+        ],
+    )
+    with pytest.raises(ValueError, match="FlashSAC requires"):
+        compare.main()
+    assert not output.exists()
 
 
 @pytest.mark.slow

@@ -33,6 +33,9 @@ def legacy_config(algo):
     else:
         training["torch_threads"]["learner_num_threads"] = "auto"
         cfg["model"]["critic_normalization"] = False
+        # Former synchronous FlashSAC checkpoints remain usable for inference/student training.
+        cfg["algo"]["max_iterations"] = None
+        cfg["budget"]["transitions"] = 17
     cfg["algo"].pop("collector_device", None)
     cfg["distillation"].pop("log_every")
     cfg["algo"]["num_envs"] = "${hardware.num_envs}"
@@ -91,6 +94,8 @@ def test_legacy_flash_checkpoint_keeps_unnormalized_q_and_loads_policy(tmp_path)
     restored, migrated, _ = load_policy(path)
     assert "budget" not in migrated and "hardware" not in migrated
     assert migrated.model.critic_normalization is False
+    assert migrated.algo.max_iterations is None
+    assert migrated.training.max_transitions == 17
     for name, value in actor.state_dict().items():
         torch.testing.assert_close(restored.state_dict()[name], value)
     _, old_q, old_learner = make_models(migrated, "cpu")

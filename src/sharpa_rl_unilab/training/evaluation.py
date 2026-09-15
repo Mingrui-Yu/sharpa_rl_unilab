@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.metadata
 import json
-import platform
 import time
 from pathlib import Path
 
@@ -14,12 +12,12 @@ import torch
 from omegaconf import OmegaConf
 from tensordict import TensorDict
 from uni_rl.algos.common.normalization import EmpiricalNormalization
-from unilab.training.experiment import get_git_info, write_run_config_snapshot
 
 from sharpa_rl_unilab.algos.hora.teacher import TeacherFlashActor
 from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import CONTRACT_VERSION, SharpaTeacherEnv
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.cache import resolve_grasp_cache_file
 
+from .logging import write_json
 from .teacher_runtime import load_policy, tensor_obs
 
 METRICS = (
@@ -38,68 +36,6 @@ def file_digest(path):
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def write_json(path, data):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, allow_nan=False) + "\n")
-
-
-def write_run_metadata(run, cfg):
-    from uni_rl.offpolicy.thread_budget import resolve_torch_thread_runtime
-
-    algorithm = str(cfg.algo.algo)
-    teacher = cfg.protocol.stage == "teacher"
-    native_flash = teacher and algorithm == "flashsac" and cfg.algo.max_iterations is not None
-    async_appo = teacher and algorithm == "appo"
-    resources = {
-        "sampling_architecture": "double_buffer"
-        if native_flash
-        else "async_queue"
-        if async_appo
-        else "synchronous",
-        "learner_device": str(cfg.training.device),
-        "inference_device": str(cfg.algo.collector_device)
-        if async_appo
-        else str(cfg.training.device),
-        "torch_thread_runtime": resolve_torch_thread_runtime(cfg.training.torch_threads),
-        "learner_num_threads": torch.get_num_threads(),
-        "learner_num_interop_threads": torch.get_num_interop_threads(),
-        "independent_collector": native_flash or async_appo,
-    }
-    OmegaConf.save(cfg, run / "config.yaml", resolve=True)
-    root = Path(__file__).resolve().parents[3]
-    git = get_git_info(root)
-    write_run_config_snapshot(
-        run,
-        full_cfg=cfg,
-        run_metadata={"git": git, "stage": str(cfg.protocol.stage)},
-        contract_snapshot={"version": CONTRACT_VERSION},
-    )
-    write_json(
-        run / "run.json",
-        {
-            "contract": CONTRACT_VERSION,
-            "revision": git["commit"],
-            "dirty": git["dirty"],
-            "platform": platform.platform(),
-            "python": platform.python_version(),
-            "dependencies": {
-                name: importlib.metadata.version(name)
-                for name in ("torch", "numpy", "unilab", "unilab-rl", "rsl-rl-lib", "mujoco")
-            },
-            "cuda_devices": [
-                torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())
-            ],
-            "timing": "Includes model/environment initialization, collection, learning and saving; excludes CLI asset verification and separate evaluation.",
-            "runtime": resources,
-            "budget_tolerance": int(cfg.algo.num_envs) - 1,
-            "training_samples": "Transition uses in actor and critic updates: joint PPO/APPO minibatch counted once; separate SAC actor and critic uses each counted once.",
-            "distributed": False,
-            "global_num_envs": int(cfg.algo.num_envs),
-        },
-    )
 
 
 def scene_protocol(cfg):

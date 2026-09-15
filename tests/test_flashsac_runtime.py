@@ -29,18 +29,26 @@ def test_flashsac_defaults_and_native_loop():
     assert runtime["learner"] == {"num_threads": 4, "num_interop_threads": 1}
     assert runtime["collector"] == {"num_threads": 4, "num_interop_threads": 1}
     assert runtime["compile_threads"] == 2
-    with pytest.raises(ValueError, match="exactly one budget"):
-        training_budget(compose_config("flashsac", "mujoco", ["training.max_transitions=17"]))
-    cfg = compose_config(
-        "flashsac",
-        "mujoco",
-        [
-            "training.num_envs=8",
-            "algo.max_iterations=null",
-            "training.max_transitions=17",
-        ],
-    )
-    assert training_budget(cfg) == ("received", 24)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        ["training.max_transitions=17"],
+        ["algo.max_iterations=null", "training.max_transitions=17"],
+        ["algo.max_iterations=null"],
+        ["algo.max_iterations=0"],
+        ["algo.max_iterations=-1"],
+    ],
+)
+def test_flashsac_rejects_unsupported_budgets_before_training(overrides, tmp_path):
+    from sharpa_rl_unilab.training.teacher_runtime import train_teacher
+
+    run = tmp_path / "invalid"
+    cfg = compose_config("flashsac", "mujoco", [*overrides, f"training.log_dir={run}"])
+    with pytest.raises(ValueError, match="FlashSAC requires|budget must be positive"):
+        train_teacher(cfg)
+    assert not run.exists()
 
 
 def test_transport_preserves_terminal_privilege_and_clean_critic():
@@ -145,6 +153,9 @@ if __name__ == "__main__":
     summary = json.loads((run / "summary.json").read_text())
     assert summary["last_checkpoint"] == str(run / "teacher_final.pt")
     assert summary["completed_iterations"] == 3
+    metadata = json.loads((run / "run.json").read_text())
+    assert metadata["runtime"]["sampling_architecture"] == "double_buffer"
+    assert metadata["budget_tolerance"] is None
     assert summary["runtime_manifest"]["inference_owner"] == "learner"
     assert summary["runtime_manifest"]["collector_actor"] is False
     assert summary["runtime_manifest"]["use_amp"] is False

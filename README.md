@@ -53,15 +53,17 @@ Use `training.device=null` for automatic CUDA → MPS → CPU selection.
 APPO/PPO default to 501 update rounds, FlashSAC to 3000. Every teacher saves each
 50 rounds (`algo.save_interval`; 0 disables intermediate saves), logs every round
 and writes `teacher_final.pt` on completion. Round counts do not imply equal
-sample counts or compute. For a sampling limit, set
+sample counts or compute. PPO/APPO also accept a sampling limit via
 `algo.max_iterations=null training.max_transitions=N`; saving remains by round.
-`sharpa-compare` explicitly selects sampling limits and evaluates final models.
+FlashSAC requires a positive `algo.max_iterations` and `training.max_transitions=null`.
+`sharpa-compare` uses each algorithm's configured budget and evaluates final models
+on shared scenes; it does not enforce equal sampling or compute costs.
 Training itself does not schedule quantitative evaluation.
 
-FlashSAC uses UniLab's DoubleBuffer runner with AMP disabled. A sampling limit
-selects its synchronous compatibility runner; see
+FlashSAC uses UniLab's DoubleBuffer runner with AMP disabled and requires CUDA
+or MPS for teacher training. Evaluation and distillation can run on CPU; see
 [FlashSAC runtime details](docs/migrations/issue-2-flashsac-native.md).
-Both paths normalize clean174 Q inputs using fresh-sample statistics shared by
+It normalizes clean174 Q inputs using fresh-sample statistics shared by
 current and target Q networks. V/Q architectures and algorithm settings remain distinct.
 
 Tune resources or individual randomization settings with explicit overrides:
@@ -88,7 +90,7 @@ Native TensorBoard logging keeps slash metrics as-is and prefixes flat metrics w
 See [component reuse and validation](docs/migrations/issue-2-simplify.md).
 
 Use `uv sync --extra mujoco --extra evaluation` for comparison figures. Add
-`--smoke` to `sharpa-compare` for a short pipeline check. Supported v2 checkpoints migrate their configuration
+`--smoke` to `sharpa-compare` for two teacher update rounds and 32 student transitions. Supported v2 checkpoints migrate their configuration
 paths on load and retain saved model/environment semantics. Older incompatible
 formats require retraining. The runner supports one learner device and fresh training runs;
 see the [protocol, migration and validation limits](docs/migrations/issue-2.md).

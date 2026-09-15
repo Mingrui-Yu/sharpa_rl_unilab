@@ -41,12 +41,13 @@ APPO 采样推理默认跟随 Learner，可用 `algo.collector_device=cpu` 覆�
 
 APPO/PPO 默认训练 501 轮，FlashSAC 默认 3000 轮。三个 teacher 均每轮记录，
 每 50 轮保存；`algo.save_interval=0` 关闭中间保存，正常结束仍保存 `teacher_final.pt`。
-相同轮数不代表相同采样量或计算量。按采样量停止时，显式设置
+相同轮数不代表相同采样量或计算量。PPO/APPO 按采样量停止时，显式设置
 `algo.max_iterations=null training.max_transitions=N`，保存仍按轮触发。
 训练不再调度定量评估；独立评估入口和 `sharpa-compare` 训练后的显式评估保留。
 
-FlashSAC 默认使用 UniLab DoubleBuffer 流水线并关闭 AMP；按采样量停止时使用
-同步兼容路径。两条路径的 clean174 Q 输入均使用只由新采样更新的经验统计，
+FlashSAC 仅使用 UniLab DoubleBuffer 流水线并关闭 AMP，要求 `algo.max_iterations>0`、
+`training.max_transitions=null`。teacher 训练需要 CUDA/MPS，评估与蒸馏可使用 CPU。
+clean174 Q 输入使用只由新采样更新的经验统计，
 当前 Q 与目标 Q 共用统计量，保留原生 Q 结构。详见
 [FlashSAC 实现与限制](docs/migrations/issue-2-flashsac-native.md)。
 
@@ -62,7 +63,8 @@ teacher 和 student 默认显示 UniLab Rich 面板，并写入 TensorBoard 和 
 `training.logger=none` 关闭 TensorBoard，`training.logger=no_print` 仅保留 JSONL。
 student 仍按 `distillation.log_every`（默认 10000 条采样）记录，停止和保存规则不变。
 
-`sharpa-compare` 显式使用统一采样预算；`--smoke` 执行短流程验证。
+`sharpa-compare` 使用各算法配置的预算，在相同场景评估最终模型，记录实际采样量与耗时，
+不保证等采样量或等计算成本。`--smoke` 执行 2 轮 teacher 更新和 32 条 student 采样。
 绘图需 `uv sync --extra mujoco --extra evaluation`。现有契约内的 v2 checkpoint
 加载时迁移配置路径，保留历史模型与环境语义；更早的不兼容格式仍需重训。
 当前入口支持单 Learner 和从头训练，详见[迁移说明](docs/migrations/issue-2.md)。

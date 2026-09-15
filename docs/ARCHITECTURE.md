@@ -16,8 +16,11 @@ simulation runtime.
 | Hydra owners and entity declarations | `conf/{ppo,appo,flashsac}/task/...` |
 | HORA actor/critic and distillation algorithms | `algos/hora`, `training` |
 | Explicit observation groups and terminal snapshots | `tasks/sharpa_inhand/teacher_env.py` |
-| Native PPO/APPO/FlashSAC loss integration, collection and step budgets | `training/teacher_runtime.py` |
-| Fixed scene manifests, quantitative evaluation and seed aggregation | `training/{evaluation,compare}.py` |
+| Native PPO/APPO loss integration, collection and budgets; shared checkpoints | `training/teacher_runtime.py` |
+| Native FlashSAC DoubleBuffer integration, update-round budgets | `training/flashsac_runtime.py` |
+| Fixed scene manifests, quantitative evaluation and seed aggregation | `training/evaluation.py` |
+| Multi-algorithm and multi-seed experiment orchestration | `tools/compare.py` |
+| Training logs, run metadata and JSON output | `training/logging.py` |
 | Common task, observation, model and experiment definitions | `conf/common/` |
 | Robot meshes, MJCF variants and grasp caches | `assets/` |
 
@@ -46,9 +49,11 @@ MuJoCo's compiled sameframe assumptions.
 `conf/common/sharpa_inhand.yaml` defines the physical task and shared training,
 model, evaluation and distillation settings. Algorithm owners retain their
 optimizer and collection settings. `training/configuration.py` applies common
-Torch thread budgets and migrates supported checkpoint configs without replacing
-saved task/model semantics. Teachers save and log by update round; sampling
-limits remain an independent stopping mode.
+Torch thread budgets, resolves devices and migrates supported checkpoint configs
+without replacing saved task/model semantics. Teachers save and log by update
+round. PPO/APPO also support sampling limits; FlashSAC uses only the native
+DoubleBuffer runner with an update-round budget. `sharpa-compare` preserves each
+algorithm's configured budget and uses shared evaluation scenes.
 
 FlashSAC wraps its native Q with `CleanQ`: current and target Q share clean174
 input statistics, updated only on fresh received transitions. Actor statistics,

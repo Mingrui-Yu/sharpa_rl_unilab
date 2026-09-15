@@ -17,7 +17,9 @@ scenes and a full 20-second window or real drop, without replacement episodes.
   transitions and wall time. Each plotted point belongs to one training seed;
   only final checkpoints were evaluated in this deliberately tiny smoke.
 
-Full local checkpoints and configs are under `dist/issue-2-validated/`. Re-run
-with `sharpa-compare --output NEW_DIRECTORY --device cuda:0 --smoke`.
+Full local checkpoints and configs are under `dist/issue-2-validated/`.
+These are historical sampling-budget results. The current
+`sharpa-compare --output NEW_DIRECTORY --device cuda:0 --smoke` uses two teacher
+update rounds and native FlashSAC, so it does not reproduce these exact budgets.
 Asynchronous APPO staging/reuse and timing can vary with scheduling. Three seeds
 and these tiny budgets cannot support performance conclusions.
