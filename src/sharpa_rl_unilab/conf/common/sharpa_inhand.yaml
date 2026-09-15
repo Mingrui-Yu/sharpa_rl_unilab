@@ -259,6 +259,11 @@ protocol:
   stage: teacher
   appo_baseline: appo-default-790ae32
 model:
+  action_mapping: clip
+  std_mode: state_independent
+  std_parameterization: log
+  initial_std: 1.0
+  log_std_bounds: null
   actor_hidden_dims: [512, 256, 128]
   critic_hidden_dims: [512, 256, 128]
   priv_mlp_hidden_dims: [256, 128, 9]
@@ -293,6 +298,7 @@ training:
   cam_elevation: -25.0
   cam_azimuth: 45.0
 evaluation:
+  diagnostics: false
   seeds: [10001, 10002, 10003]
   training_seeds: [1, 2, 3]
   episodes_per_scale: 10

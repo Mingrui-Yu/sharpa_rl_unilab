@@ -30,6 +30,45 @@ FlashSAC teacher 训练需要 CUDA/MPS，仅支持按更新轮数停止。
 PPO/APPO 也支持采样预算：同时设置 `algo.max_iterations=null training.max_transitions=N`。
 采样数向上取整到一个向量步，最多多采集“环境数减 1”条 transition；保存仍按轮触发。
 
+### 策略分布
+
+PPO、APPO、FlashSAC 共用 HORA Actor 与高斯分布实现。新训练默认
+`model.std_mode=state_independent`：每个关节一个可学习的 log-std，
+`model.initial_std=1.0` 指定实际初始 std。设为 `state_dependent` 时，
+从 Actor 主干特征输出 log-std；输出头权重初始化为零，偏置为 `log(initial_std)`，
+因此两种模式在初始时都具有指定的实际 std。
+
+PPO/APPO 默认 `model.action_mapping=clip`，也支持 `tanh`；FlashSAC 必须使用 `tanh`。
+例如：
+
+```bash
+uv run sharpa-train --algo appo model.action_mapping=tanh \
+  model.std_mode=state_independent model.initial_std=1.0 \
+  algo.algorithm.entropy_coef=0.01
+```
+
+`model.std_parameterization=log` 使用 `std=exp(log_std)`。
+`model.log_std_bounds=null` 表示不约束 log-std；可选用有限递增区间，
+例如 `model.log_std_bounds=[-10,2]`，在 exp 前裁剪。初始 std 必须处于该范围内；
+裁剪会改变区间外的梯度。网络保留各算法原有 AMP 设置，采样、密度、熵和 KL
+使用 FP32 计算。更完整的 AMP 数值审计仍为后续专项 TODO。
+
+tanh 的确定性动作为 `tanh(mean)`，熵奖励使用当前策略新采样估计变换后的动作熵。
+clip 的训练密度、熵和 KL 指潜在高斯分布。PPO/APPO 均保存映射前的原始样本、
+行为 log-prob 和 mean/std。自适应学习率保留原有规则，使用 `KL(old || current)`；
+APPO 在该调度中使用目标策略作为旧分布。公共解析 KL 移除了上游的加性数值偏移：
+相同策略的 KL 为零，不再触发学习率增大；阈值和调整倍数保持原值。
+
+FlashSAC 采集仍按环境保持高斯噪声，由 `algo.exploration.noise_zeta_mu=2.0`
+和 `algo.exploration.noise_zeta_max=16` 控制；最大持续步数为 1 时每步刷新。
+runner 在 Learner 设备上持有噪声状态，Actor/Critic 更新和确定性评估均不推进它，
+原生 IPC、推理及更新调度保持不变。
+
+新默认配置将 FlashSAC 从原有的状态相关、有界 std 改为初始值为 1 的状态无关 log-std，
+因此是新的训练设置，不能视为旧训练轨迹的复现。已有 protocol-v2 teacher/student
+checkpoint 通过明确的兼容路径保留原来的 scalar/tanh std 参数化和动作映射。
+评估与蒸馏不允许覆盖 checkpoint 的模型配置。
+
 ## 3. 蒸馏 student
 
 加载 teacher，训练历史编码器来拟合 teacher 的特权表示。
@@ -74,6 +113,11 @@ uv run sharpa-compare
 输出位于 `logs/compare/seed_<seed>_<时间戳>/<算法>/`，student 位于其 `student/` 子目录。
 所有评估共用第一个 seed 目录下的场景清单；各算法使用自己的预算，不保证等采样量或耗时。
 该命令不自动汇总多 seed 或绘图。比较多 seed 时，以训练 seed 为独立重复，避免把 episode 当作独立训练结果。
+
+可选评估诊断通过 `evaluation.diagnostics=true` 开启，报告实际访问状态的 std、
+动作饱和率（`abs(action)>0.99`）、相邻动作变化 RMS、关节位置二阶差分 RMS 和目标限位率。
+每场独立计算，包含真实终止步，再按尺度权重汇总，避免跨重置边界计算运动差分。
+诊断不采样策略随机数，不改变评估轨迹。
 
 ## 5. 常用设置与兼容性
 

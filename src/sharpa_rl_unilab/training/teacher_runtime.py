@@ -94,6 +94,10 @@ def training_budget(cfg):
 
 def make_models(cfg, device):
     model = config_dict(cfg.model)
+    if model.get("std_parameterization") != "log":
+        raise ValueError(
+            "Legacy std parameterizations are checkpoint-only; new training requires log"
+        )
     if cfg.algo.algo == "flashsac":
         params = config_dict(cfg.algo.algo_params)
         for key in (
@@ -139,12 +143,12 @@ def collect(env, obs, actor, horizon, device, *, count=None, metrics=None):
         inference_started = time.perf_counter()
         td = policy_td(obs, device)
         with torch.no_grad():
-            actions = actor(td, stochastic_output=True)
-            logp = actor.get_output_log_prob(actions)
-        sampled_actions = actions.cpu().numpy().copy()
+            sample = actor.policy(td).sample()
+        sampled_actions = sample.raw.cpu().numpy().copy()
+        executed_actions = sample.action.cpu().numpy()
         inference_seconds = time.perf_counter() - inference_started
         step_started = time.perf_counter()
-        state = env.step(sampled_actions)
+        state = env.step(executed_actions)
         step_seconds = time.perf_counter() - step_started
         if metrics is not None:
             for key, value in state.info.get("log", {}).items():
@@ -159,13 +163,13 @@ def collect(env, obs, actor, horizon, device, *, count=None, metrics=None):
         row["next_critic"] = nxt["critic"]
         row.update(
             actions=sampled_actions,
-            actions_log_prob=logp.cpu().numpy().copy(),
+            actions_log_prob=sample.log_prob.cpu().numpy().copy(),
             rewards=state.reward.copy(),
             terminated=state.terminated.copy(),
             truncated=state.truncated.copy(),
         )
-        row["behavior_mean"] = actor.output_mean.cpu().numpy().copy()
-        row["behavior_std"] = actor.output_std.cpu().numpy().copy()
+        row["behavior_mean"] = sample.mean.cpu().numpy().copy()
+        row["behavior_std"] = sample.std.cpu().numpy().copy()
         rows.append(row)
         obs = state.obs
         if count is not None:
@@ -406,15 +410,12 @@ def load_policy(path, device: str | None = "cpu", *, stage=None, configure_runti
     model = config_dict(cfg.model)
     student = checkpoint["stage"] == "student"
     if checkpoint["algorithm"] == "flashsac":
-        actor = TeacherFlashActor(
-            model,
-            student=student,
-            noise_zeta_mu=float(cfg.algo.algo_params.actor_noise_zeta_mu),
-            noise_zeta_max=int(cfg.algo.algo_params.actor_noise_zeta_max),
-        ).to(device)
+        actor = TeacherFlashActor(model, student=student).to(device)
     else:
         actor = TeacherActor(model, student=student).to(device)
-    actor.load_state_dict(checkpoint["actor"], strict=True)
+    from sharpa_rl_unilab.algos.hora.legacy import migrate_actor_state
+
+    actor.load_state_dict(migrate_actor_state(checkpoint["actor"]), strict=True)
     actor.eval()
     return actor, cfg, checkpoint
 

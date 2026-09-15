@@ -19,6 +19,7 @@ from sharpa_rl_unilab.algos.hora.teacher import ACTOR_DIM, CRITIC_DIM, PRIV_DIM,
 from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import SharpaTeacherEnv
 
 from .configuration import resolve_device
+from .exploration import HeldGaussianNoise
 from .logging import write_json, write_run_metadata
 from .teacher_runtime import make_models, save_teacher
 
@@ -80,6 +81,10 @@ class TeacherDoubleBufferRunner(DoubleBufferOffPolicyRunner):
     def __init__(self, *, cfg, run, started, **kwargs):
         super().__init__(**kwargs)
         self.cfg, self.run, self.started = cfg, run, started
+        self.held_noise = HeldGaussianNoise(
+            float(cfg.algo.exploration.noise_zeta_mu), cfg.algo.exploration.noise_zeta_max
+        )
+        self.learner.actor.exploration_sampler = self._sample_exploration
         self.received = 0
         self.collected = 0
         self.runtime_manifest.update(
@@ -90,6 +95,11 @@ class TeacherDoubleBufferRunner(DoubleBufferOffPolicyRunner):
             learner_torch_interop_threads=torch.get_num_interop_threads(),
             torch_thread_runtime=self.torch_thread_runtime,
         )
+
+    def _sample_exploration(self, obs, dones):
+        distribution = self.learner.actor.policy(obs)
+        noise = self.held_noise.sample(distribution.mean, dones)
+        return distribution.sample(noise, log_prob=False).action
 
     def _update_reward_stats_from_replay(
         self, replay_buffer, start_ptr, end_ptr, replay_source=None

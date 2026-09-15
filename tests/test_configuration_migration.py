@@ -95,3 +95,23 @@ def test_legacy_flash_checkpoint_loads_without_enabling_q_normalization(tmp_path
     torch.testing.assert_close(
         old_q(obs, actions, training=False)[0], critic(obs, actions, training=False)[0]
     )
+
+
+def test_old_noise_config_keeps_custom_duration_distribution():
+    cfg = OmegaConf.to_container(compose_config("flashsac", "mujoco", []), resolve=True)
+    del cfg["algo"]["exploration"]
+    cfg["algo"]["algo_params"].update(actor_noise_zeta_mu=0.0, actor_noise_zeta_max=3)
+    migrated = migrate_checkpoint_config(cfg)
+    assert migrated.algo.exploration.noise_zeta_mu == 0.0
+    assert migrated.algo.exploration.noise_zeta_max == 3
+    assert "actor_noise_zeta_mu" not in migrated.algo.algo_params
+    assert migrate_checkpoint_config(migrated) == migrated
+
+
+@pytest.mark.parametrize(
+    "override", ["model.std_parameterization=legacy_scalar", "~model.std_parameterization"]
+)
+def test_legacy_parameterization_cannot_be_selected_for_new_training(override):
+    cfg = compose_config("ppo", "mujoco", [override])
+    with pytest.raises(ValueError, match="checkpoint-only"):
+        make_models(cfg, "cpu")

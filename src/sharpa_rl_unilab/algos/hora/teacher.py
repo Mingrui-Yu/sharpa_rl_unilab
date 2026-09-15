@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Callable
 from typing import Any, cast
 
 import torch
-from rsl_rl.modules import EmpiricalNormalization, GaussianDistribution
+from rsl_rl.modules import EmpiricalNormalization
 from tensordict import TensorDict
 from torch import nn
-from torch.nn import functional as F
-from uni_rl.algos.appo.learner import APPOLearner, _distribution_std
+from uni_rl.algos.appo.learner import APPOLearner
 from uni_rl.algos.flash_sac.learner import FlashSACLearner
-from uni_rl.algos.flash_sac.network import FlashSACActor, FlashSACDoubleCritic
+from uni_rl.algos.flash_sac.network import FlashSACDoubleCritic
 from uni_rl.algos.flash_sac.update import build_lr_lambda
 
+from .distribution import LogStd, PolicyDistribution
+from .legacy import LegacyScalarStd, LegacyTanhStd
 from .models import _MLP, HoraCoreOutput, ProprioAdaptTConv
 
 ACTOR_DIM = 147
@@ -51,7 +53,6 @@ class TeacherCore(nn.Module):
         self.priv_encoder = _MLP(PRIV_DIM, model["priv_mlp_hidden_dims"], model["activation"])
         self.trunk = _MLP(ACTOR_DIM + PRIV_DIM, model["actor_hidden_dims"], model["activation"])
         self.mu_head = nn.Linear(self.trunk.output_dim, 22)
-        self.distribution = GaussianDistribution(22, init_std=1.0, std_type="scalar")
         self.adapt_tconv = ProprioAdaptTConv(49, PRIV_DIM) if student else None
         for module in self.modules():
             if isinstance(module, nn.Linear) and module.bias is not None:
@@ -86,77 +87,95 @@ class TeacherCore(nn.Module):
         trunk = self.trunk(torch.cat((normalized, latent), dim=-1))
         return self.mu_head(trunk), HoraCoreOutput(normalized, trunk, latent, target)
 
-    def policy_mean_from_tensors(self, packed: torch.Tensor) -> torch.Tensor:
-        actor, priv = split_actor(packed)
-        return self.mu_head(
-            self.trunk(
-                torch.cat((self.obs_normalizer(actor), self.encode_privileged_info(priv)), dim=-1)
-            )
-        )
 
-
-class TeacherActor(nn.Module):
-    is_recurrent = False
+class HoraActor(nn.Module):
+    """Common teacher/student network. Policy results never depend on a past call."""
 
     def __init__(self, model: dict[str, Any], *, student: bool = False):
         super().__init__()
         self.shared = TeacherCore(model, student=student)
         self.prefer_student = student
+        self.action_mapping = str(model.get("action_mapping", "clip"))
+        if self.action_mapping not in {"clip", "tanh"}:
+            raise ValueError("model.action_mapping must be clip or tanh")
+        parameterization = model.get("std_parameterization", "log")
+        width = self.shared.trunk.output_dim
+        self.std_module: nn.Module
+        if parameterization == "log":
+            self.std_module = LogStd(width, 22, model)
+        elif parameterization == "legacy_scalar":
+            self.std_module = LegacyScalarStd(22)
+        elif parameterization == "legacy_tanh":
+            self.std_module = LegacyTanhStd(width, 22)
+        else:
+            raise ValueError(f"Unsupported std parameterization: {parameterization}")
 
-    def forward(
-        self,
-        obs: TensorDict,
-        masks: torch.Tensor | None = None,
-        hidden_state=None,
-        stochastic_output: bool = False,
-    ) -> torch.Tensor:
-        del masks, hidden_state
-        mean, _ = self.shared.policy_mean(obs, prefer_student=self.prefer_student)
-        self.shared.distribution.update(mean)
+    def policy(self, obs: TensorDict | torch.Tensor) -> PolicyDistribution:
+        if isinstance(obs, torch.Tensor):
+            obs = TensorDict({"policy": obs}, batch_size=obs.shape[:-1])
+        mean, core = self.shared.policy_mean(obs, prefer_student=self.prefer_student)
+        return PolicyDistribution(mean, self.std_module(core.trunk_latent), self.action_mapping)
+
+
+class TeacherActor(HoraActor):
+    """Thin RSL-RL/APPO adapter; only the upstream interface needs a call cache."""
+
+    is_recurrent = False
+
+    def __init__(self, model: dict[str, Any], *, student: bool = False):
+        super().__init__(model, student=student)
+        self._distribution: PolicyDistribution | None = None
+
+    def forward(self, obs, masks=None, hidden_state=None, stochastic_output=False):
+        self._distribution = self.policy(obs)
+        # Upstream storage/log_prob use the latent sample, never the mapped action.
         if stochastic_output:
-            return self.shared.distribution.sample()
-        return self.shared.distribution.deterministic_output(mean)
+            return self._distribution.sample(log_prob=False).raw
+        return self._distribution.deterministic()
 
-    def reset(self, dones: torch.Tensor | None = None, hidden_state=None) -> None:
-        del dones, hidden_state
+    @property
+    def distribution(self) -> PolicyDistribution:
+        if self._distribution is None:
+            raise RuntimeError("Call the adapter before reading its distribution")
+        return self._distribution
+
+    @property
+    def output_mean(self):
+        return self.distribution.mean
+
+    @property
+    def output_std(self):
+        return self.distribution.std
+
+    @property
+    def output_entropy(self):
+        return self.distribution.entropy()
+
+    @property
+    def output_distribution_params(self):
+        return self.output_mean, self.output_std
+
+    def get_output_log_prob(self, outputs):
+        return self.distribution.log_prob(outputs)
+
+    def get_kl_divergence(
+        self,
+        old_params: tuple[torch.Tensor, torch.Tensor],
+        new_params: tuple[torch.Tensor, torch.Tensor],
+    ):
+        return PolicyDistribution(*new_params, self.action_mapping).kl_from(*old_params)
+
+    def reset(self, dones=None, hidden_state=None):
+        pass
 
     def get_hidden_state(self):
         return None
 
-    def detach_hidden_state(self, dones: torch.Tensor | None = None) -> None:
-        del dones
+    def detach_hidden_state(self, dones=None):
+        pass
 
-    @property
-    def distribution(self) -> GaussianDistribution:
-        return self.shared.distribution
-
-    @property
-    def output_mean(self) -> torch.Tensor:
-        return self.shared.distribution.mean
-
-    @property
-    def output_std(self) -> torch.Tensor:
-        return self.shared.distribution.std
-
-    @property
-    def output_entropy(self) -> torch.Tensor:
-        return self.shared.distribution.entropy
-
-    @property
-    def output_distribution_params(self) -> tuple[torch.Tensor, ...]:
-        return cast(tuple[torch.Tensor, ...], self.shared.distribution.params)
-
-    def get_output_log_prob(self, outputs: torch.Tensor) -> torch.Tensor:
-        return self.shared.distribution.log_prob(outputs)
-
-    def get_kl_divergence(
-        self, old_params: tuple[torch.Tensor, ...], new_params: tuple[torch.Tensor, ...]
-    ) -> torch.Tensor:
-        return self.shared.distribution.kl_divergence(old_params, new_params)
-
-    def update_normalization(self, obs: TensorDict) -> None:
-        # Only the fresh-data receiver updates statistics. PPO epochs and APPO
-        # process_batch may call this method again on reused data.
+    def update_normalization(self, obs):
+        # Only the fresh-data receiver updates statistics, never replay/epochs.
         pass
 
 
@@ -188,51 +207,79 @@ class CleanValue(nn.Module):
 
 
 class TeacherAPPOLearner(APPOLearner):
+    """Reuse upstream V-trace and PPO losses, replacing only distribution math."""
+
     def _minibatch_policy_value(self, obs_mini, critic_obs_mini):
         actor = cast(TeacherActor, self.actor)
         critic = cast(CleanValue, self.critic)
-        mean = actor.shared.policy_mean_from_tensors(obs_mini)
-        std = _distribution_std(self.actor.distribution, mean)
+        self._loss_distribution = actor.policy(obs_mini)
         value = critic.mlp(critic.obs_normalizer(critic_obs_mini)).squeeze(-1)
-        return mean, std, value
+        return self._loss_distribution.mean, self._loss_distribution.std, value
+
+    def _gaussian_log_prob(self, actions, mean, std):  # pyright: ignore[reportIncompatibleMethodOverride]
+        return PolicyDistribution(
+            mean, std, cast(TeacherActor, self.actor).action_mapping
+        ).log_prob(actions)
+
+    def _gaussian_entropy(self, std):  # pyright: ignore[reportIncompatibleMethodOverride]
+        # The upstream hook accepts only std; the preceding policy/value call
+        # supplies the mean needed for transformed entropy without another MLP.
+        return self._loss_distribution.entropy()
+
+    def _minibatch_loss_tensors(
+        self,
+        obs_mini,
+        critic_obs_mini,
+        actions_mini,
+        target_values_mini,
+        advantages_mini,
+        behavior_logp_mini,
+        old_values_mini,
+        target_logp_mini,
+        old_mu_mini,
+        old_sigma_mini,
+    ):
+        result = super()._minibatch_loss_tensors(
+            obs_mini,
+            critic_obs_mini,
+            actions_mini,
+            target_values_mini,
+            advantages_mini,
+            behavior_logp_mini,
+            old_values_mini,
+            target_logp_mini,
+            old_mu_mini,
+            old_sigma_mini,
+        )
+        kl = self._loss_distribution.kl_from(old_mu_mini, old_sigma_mini).mean()
+        # Upstream adds 1e-5 inside log(sigma / old_sigma); use exact KL instead.
+        return (*result[:4], kl, *result[5:])
 
 
-class TeacherFlashActor(FlashSACActor):
-    """HORA MLP with FlashSAC's bounded std, tanh density and held exploration."""
+class TeacherFlashActor(HoraActor):
+    """Thin FlashSAC return adapter. Exploration is supplied by the runner."""
 
-    def __init__(self, model, *, noise_zeta_mu=2.0, noise_zeta_max=16, student=False):
-        nn.Module.__init__(self)
-        self.shared = TeacherCore(model, student=student)
-        # SAC learns state-dependent std; PPO's Gaussian parameters are unused.
-        self.shared.distribution.requires_grad_(False)
-        self.std_head = nn.Linear(self.shared.trunk.output_dim, 22)
-        nn.init.zeros_(self.std_head.bias)
-        self.noise_zeta_mu, self.noise_zeta_max = noise_zeta_mu, noise_zeta_max
-        ns = torch.arange(1, noise_zeta_max + 1, dtype=torch.float32)
-        pmf = ns.pow(-noise_zeta_mu)
-        self.register_buffer("zeta_cdf", torch.cumsum(pmf / pmf.sum(), dim=0))
-        self.register_buffer("_noise", torch.zeros(0), persistent=False)
-        self.register_buffer("_repeat_count", torch.zeros(0, dtype=torch.int32), persistent=False)
-        self.register_buffer("_repeat_target", torch.zeros(0, dtype=torch.int32), persistent=False)
+    def __init__(self, model, *, student=False):
+        super().__init__(model, student=student)
+        if self.action_mapping != "tanh":
+            raise ValueError("FlashSAC requires model.action_mapping=tanh")
+        self.exploration_sampler: Callable | None = None
 
     def get_mean_and_std(self, observations, training=False):
-        obs = TensorDict({"policy": observations}, batch_size=observations.shape[0])
-        mean, core = self.shared.policy_mean(obs, prefer_student=False)
-        log_std = -10.0 + 6.0 * (1.0 + torch.tanh(self.std_head(core.trunk_latent)))
-        return mean, log_std.exp()
+        dist = self.policy(observations)
+        return dist.mean, dist.std
 
     def forward(self, observations, training=False):
-        mean, std = self.get_mean_and_std(observations, training)
-        dist = torch.distributions.Normal(mean, std)
-        raw = dist.rsample()
-        log_det = 2.0 * (
-            torch.log(torch.tensor(2.0, device=raw.device)) - raw - F.softplus(-2.0 * raw)
-        )
-        return raw.tanh(), {
-            "log_prob": (dist.log_prob(raw) - log_det).sum(-1),
-            "mean": mean,
-            "std": std,
-        }
+        sample = self.policy(observations).sample()
+        return sample.action, {"log_prob": sample.log_prob, "mean": sample.mean, "std": sample.std}
+
+    @torch.no_grad()
+    def explore(self, obs, dones=None, deterministic=False):
+        if deterministic:
+            return self.policy(obs).deterministic()
+        if self.exploration_sampler is None:
+            raise RuntimeError("FlashSAC exploration must be bound by its runner")
+        return self.exploration_sampler(obs, dones)
 
     def normalize_parameters(self):
         # Unit-normalizing HORA weights would change the public MLP contract.
@@ -273,11 +320,7 @@ class TeacherFlashLearner(FlashSACLearner):
             normalizer = EmpiricalNormalization(CRITIC_DIM).to(self.device)
             self.critic = cast(Any, CleanQ(self.critic, normalizer))
             self.target_critic = cast(Any, CleanQ(self.target_critic, normalizer))
-        self.actor = TeacherFlashActor(
-            model,
-            noise_zeta_mu=kwargs.get("actor_noise_zeta_mu", 2.0),
-            noise_zeta_max=kwargs.get("actor_noise_zeta_max", 16),
-        ).to(self.device)
+        self.actor = TeacherFlashActor(model).to(self.device)
         peak = kwargs.get("learning_rate_peak", 3e-4)
         self.actor_optimizer = torch.optim.Adam(
             self.actor.parameters(), lr=peak, fused=self.device.type == "cuda"
@@ -343,8 +386,7 @@ def frozen_weights(module: nn.Module):
 
 def make_student(teacher: TeacherActor | TeacherFlashActor) -> TeacherActor | TeacherFlashActor:
     student = copy.deepcopy(teacher)
-    if isinstance(student, TeacherActor):
-        student.prefer_student = True
+    student.prefer_student = True
     student.shared.adapt_tconv = ProprioAdaptTConv(49, PRIV_DIM).to(
         next(teacher.parameters()).device
     )

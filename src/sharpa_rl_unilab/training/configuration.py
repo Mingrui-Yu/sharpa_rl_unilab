@@ -61,4 +61,22 @@ def migrate_checkpoint_config(config) -> DictConfig:
         elif cfg.algo.algo != "flashsac":
             cfg.training.torch_threads = {"enabled": False}
         # With a null scalar, FlashSAC already used the structured thread config.
+    # Model defaults are versioned by their saved parameterization, never by
+    # the defaults of a newly installed package. Preserve experimental tanh.
+    if "model" in cfg and "std_parameterization" not in cfg.model:
+        flash = cfg.algo.algo == "flashsac"
+        cfg.model.std_parameterization = "legacy_tanh" if flash else "legacy_scalar"
+        cfg.model.std_mode = "state_dependent" if flash else "state_independent"
+        cfg.model.setdefault("action_mapping", "tanh" if flash else "clip")
+        cfg.model.setdefault("initial_std", 1.0)
+        cfg.model.log_std_bounds = (
+            [-10.0, 2.0] if flash else [-13.815510557964274, 13.815510557964274]
+        )
+    if cfg.algo.algo == "flashsac":
+        params = cfg.algo.algo_params
+        old_exploration = {
+            "noise_zeta_mu": params.pop("actor_noise_zeta_mu", 2.0),
+            "noise_zeta_max": params.pop("actor_noise_zeta_max", 16),
+        }
+        cfg.algo.setdefault("exploration", old_exploration)
     return cfg

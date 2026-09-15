@@ -8,13 +8,14 @@ algo:
   tau: 0.01
   num_atoms: 101
   use_amp: true
+  exploration:
+    noise_zeta_mu: 2.0
+    noise_zeta_max: 16
   algo_params:
     normalize_reward: true
     normalized_g_max: 5.0
     critic_num_blocks: 2
     actor_bc_alpha: 0.0
-    actor_noise_zeta_mu: 2.0
-    actor_noise_zeta_max: 16
     critic_min_v: -5.0
     critic_max_v: 5.0
     temp_initial_value: 0.01

@@ -4,6 +4,106 @@ Entries below describe the code and settings at their recorded dates. Current
 usage and implementation contracts are in the [training guide](en/training.md)
 and [architecture](en/architecture.md). Historical commands may no longer be supported.
 
+## 2026-09-16 Common Actor and policy distribution
+
+PPO/APPO and FlashSAC now share `HoraActor`, `PolicyDistribution` and
+`PolicySample`, using thin interfaces to retain the installed RSL-RL/uni_rl
+training loops. New training uses direct log-std, with no default clamp and an
+optional saved `model.log_std_bounds`. Historical scalar and bounded-tanh std
+parameters are isolated in the checkpoint compatibility path.
+
+- `.venv/bin/pytest -q`: 88 passed; slow cases are run separately.
+- `.venv/bin/pytest -q -m slow`: 13 passed. Ten train/save/load/evaluate/distill
+  cases cover both std modes, PPO/APPO clip and tanh, and FlashSAC tanh. The two
+  remaining environment/asset cases check reset/termination and bundled assets.
+  An additional real-environment case verifies that forced zero actions report
+  zero saturation and action differences despite saturated policy requests.
+  Turning diagnostics on preserves the evaluated episode outcomes in all ten
+  policy combinations.
+- Distribution tests cover raw-sample probability ratios, pathwise gradients,
+  current-policy tanh entropy against independent quadrature/finite differences,
+  finite FP32 density math from FP16/BF16 inputs, KL and adaptive learning rate,
+  state-dependent std updates, adapter cache isolation, optional clamp agreement
+  across APPO current/target/sampling paths, and legacy teacher/student loading.
+- Held-noise tests match the installed upstream implementation's noise, duration,
+  counters and actions exactly with fixed seeds and per-environment resets,
+  including maximum duration 1. Learning and deterministic inference cannot
+  advance the runner's noise state. Collection uses one actor forward.
+- CUDA APPO compiled minibatch forward/backward smoke passed for clip and tanh
+  with state-dependent std; the normal training default remains uncompiled.
+- Ruff lint, changed-file formatting, Mypy, Pyright and `git diff --check` passed.
+  Full-repository formatting still reports the same eight untouched task files
+  recorded in the previous validation entry. `uv build` produced the sdist and
+  wheel successfully. Installed dependency code was not edited.
+
+A held-noise inference comparison used identical weights and the original
+FlashSAC std parameterization on an A800, batch size 2048, 12 alternating rounds
+of 200 calls each. Median wall time including one network forward and device
+synchronization was 0.82646 ms before and 0.79469 ms after migration (ratio
+0.9616). This isolates actor/exploration overhead; it does not measure simulator
+or IPC throughput. Native IPC and scheduling code is inherited unchanged.
+
+The original G checkpoint was loaded with the new compatibility path and
+reevaluated on its archived 240-scene manifest. Speed was 0.62808764 rad/s,
+height exits 0/240 and joint-position second-difference RMS 0.007221203495 rad.
+Speed, std, saturation and limit frequency match the archive; the RMS difference
+is about 1.7e-12 rad. The recorded `1/10001/0` scene has bitwise-equal action,
+joint-position, target and angle arrays compared with its archived video trace.
+
+The new G-configuration run used seed 1, 2048 environments, APPO tanh,
+state-independent log-std initialized at 1, no log-std clamp, and entropy
+coefficient 0.01. It completed exactly 8,208,384 collected/received transitions,
+501 policy versions, 10,020 optimizer updates and 326,041,600 training samples,
+matching the original G budgets and update counts. Training took 2043.34 seconds.
+Both checkpoints were evaluated on the same 240-scene manifest.
+
+| Metric | Original G | New log-std G |
+| --- | ---: | ---: |
+| Joint-position second-difference RMS (rad) | 0.00722120 | 0.00671349 |
+| Fixed-window rotation speed (rad/s) | 0.628088 | 0.597009 |
+| Height exits | 0/240 | 8/240 |
+| Mean std | 0.459803 | 0.475110 |
+| Action saturation | 0.0241% | 0.1135% |
+| Adjacent action difference RMS | 0.240156 | 0.219893 |
+| Target at joint limit | 3.2487% | 6.4318% |
+
+Motion RMS is 7.0% lower and speed is 4.9% lower; survival worsened. The early
+exits must be considered when interpreting the motion metrics. This single-seed
+result does not establish cross-seed stability or preserve the original G's
+survival performance. No reward tuning or A–H matrix rerun was used to alter this
+comparison.
+
+Both videos use the preselected scene `1/10001/0`, the same camera, 400 frames
+and 20 fps. A side-by-side recording is saved as
+`logs/actor_distribution/G_comparison.mp4`; individual videos, trajectories,
+checkpoints and evaluation JSON are in the same local run directory.
+[Recorded metrics and dependency versions](validation/actor-distribution-20260916.json)
+include checkpoint/manifest hashes and the isolated noise benchmark. The run
+used Torch 2.8.0+cu128, RSL-RL 5.5.0 and uni_rl/UniLab 1.2.0.
+
+The new run can be reproduced with the same settings (individual training
+trajectories need not be bitwise identical):
+
+```bash
+uv run sharpa-train --algo appo algo.seed=1 \
+  model.action_mapping=tanh model.std_mode=state_independent model.initial_std=1.0 \
+  algo.algorithm.entropy_coef=0.01 training.num_envs=2048 \
+  algo.max_iterations=null training.max_transitions=8208384 algo.save_interval=0 \
+  training.no_play=true training.logger=no_print \
+  training.log_dir=logs/actor_distribution/appo_G_log_std_seed1 training.device=cuda:0
+```
+
+Use a new output directory when repeating the command. Evaluation uses
+`evaluation.diagnostics=true` and the archived manifest copied to
+`logs/actor_distribution/scenes.json`.
+
+AMP TODO: the common distribution promotes critical arithmetic to FP32, while
+MLPs retain native AMP. A broader audit of autocast boundaries, small std and
+large raw samples across FP16/BF16 devices remains separate from this migration.
+The shared KL also removes upstream additive numerical offsets; identical
+policies now have zero KL instead of triggering an artificial learning-rate
+increase. Existing scheduling thresholds and adjustment factors remain intact.
+
 ## 2026-09-15 Optional comparison stages and seed count
 
 `tools/compare_rl_algo.py` replaces `tools/compare.py` and `tools/compare_teacher.py`.

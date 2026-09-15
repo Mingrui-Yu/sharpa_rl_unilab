@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -12,12 +13,53 @@ from sharpa_rl_unilab.training.student_runtime import train_student
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("algo", ["ppo", "appo", "flashsac"])
-def test_train_checkpoint_evaluate_distill(tmp_path, monkeypatch, algo):
+def test_diagnostics_measure_environment_applied_actions(tmp_path):
+    cfg = compose_config(
+        "ppo",
+        "mujoco",
+        [
+            "training.device=cpu",
+            "training.num_envs=1",
+            "+env.actions.hand.zero_action=true",
+            "evaluation.diagnostics=true",
+            "evaluation.scales=[1.0]",
+            "evaluation.scale_weights=[1.0]",
+            "evaluation.seeds=[10001]",
+            "evaluation.episodes_per_scale=1",
+        ],
+    )
+    actor, critic, _ = runtime.make_models(cfg, "cpu")
+    with torch.no_grad():
+        actor.shared.mu_head.weight.zero_()
+        actor.shared.mu_head.bias.fill_(10.0)  # The policy requests saturated actions.
+    path = tmp_path / "zero_action.pt"
+    runtime.save_teacher(
+        path,
+        cfg,
+        actor,
+        critic,
+        SimpleNamespace(optimizer=torch.optim.Adam(actor.parameters())),
+        {"received": 0},
+        0,
+    )
+    result = evaluate_checkpoint(path, device="cpu")
+    assert result["diagnostics"]["summary"]["saturation"] == 0.0
+    assert result["diagnostics"]["summary"]["action_delta_rms"] == 0.0
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("std_mode", ["state_independent", "state_dependent"])
+@pytest.mark.parametrize(
+    "algo,mapping",
+    [("ppo", "clip"), ("ppo", "tanh"), ("appo", "clip"), ("appo", "tanh"), ("flashsac", "tanh")],
+)
+def test_train_checkpoint_evaluate_distill(tmp_path, monkeypatch, algo, mapping, std_mode):
     if algo == "flashsac" and not torch.cuda.is_available():
         pytest.skip("The FlashSAC integration smoke uses CUDA replay")
     run = tmp_path / "teacher"
     overrides = [
+        f"model.action_mapping={mapping}",
+        f"model.std_mode={std_mode}",
         "training.num_envs=8",
         f"training.device={'cuda:0' if algo == 'flashsac' else 'cpu'}",
         "training.torch_threads.learner_num_threads=2",
@@ -84,6 +126,17 @@ def test_train_checkpoint_evaluate_distill(tmp_path, monkeypatch, algo):
     assert len(teacher_result["episodes"]) == 1
     if algo == "ppo":
         assert evaluate_checkpoint(path, device="cpu")["episodes"] == teacher_result["episodes"]
+    diagnosed = evaluate_checkpoint(path, device="cpu", evaluation={"diagnostics": True})
+    assert [
+        {k: v for k, v in row.items() if k != "diagnostics"} for row in diagnosed["episodes"]
+    ] == teacher_result["episodes"]
+    assert set(diagnosed["diagnostics"]["summary"]) == {
+        "std",
+        "saturation",
+        "action_delta_rms",
+        "q_second_difference_rms",
+        "target_at_limit",
+    }
     student_path = train_student(
         path,
         device="cpu",

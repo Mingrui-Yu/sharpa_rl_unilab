@@ -42,11 +42,15 @@ def test_latest_policy_snapshot_replaces_backlog_without_aliasing():
         rollouts.weights.join_thread()
 
 
-def test_collector_switches_complete_policy_only_between_rollouts(monkeypatch):
+@pytest.mark.parametrize("mapping", ["clip", "tanh"])
+@pytest.mark.parametrize("std_mode", ["state_independent", "state_dependent"])
+def test_collector_switches_complete_policy_only_between_rollouts(monkeypatch, mapping, std_mode):
     cfg = compose_config(
         "appo",
         "mujoco",
         [
+            f"model.action_mapping={mapping}",
+            f"model.std_mode={std_mode}",
             "training.num_envs=8",
             "training.device=cuda:0",
             "algo.collector_device=cpu",
@@ -57,10 +61,16 @@ def test_collector_switches_complete_policy_only_between_rollouts(monkeypatch):
     actor, critic, _ = runtime.make_models(cfg, "cpu")
     with torch.no_grad():
         actor.shared.mu_head.bias.fill_(3)
+        if std_mode == "state_dependent":
+            actor.std_module.head.weight.normal_(std=0.01)
     snapshots = {0: frozen_weights(actor)}
     for version in (1, 2):
         with torch.no_grad():
             actor.shared.mu_head.bias.fill_(3 + version)
+            if std_mode == "state_dependent":
+                actor.std_module.head.bias.fill_(version * 0.1)
+            else:
+                actor.std_module.log_std.fill_(version * 0.1)
         observe_new_samples(actor, critic, torch.full((8, 156), float(version)), torch.ones(8, 174))
         snapshots[version] = frozen_weights(actor)
     weights = queue.Queue(maxsize=2)

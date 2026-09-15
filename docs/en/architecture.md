@@ -28,7 +28,7 @@ Paths below are relative to [`src/sharpa_rl_unilab/`](../../src/sharpa_rl_unilab
 | Task registration, fixed scales and time steps | `tasks/sharpa_inhand/{config,rotation_registry,grasp_registry}.py` |
 | Actions, observations, rewards, resets and randomization | `tasks/sharpa_inhand/terms/` |
 | Four observation groups and terminal snapshots | `tasks/sharpa_inhand/teacher_env.py` |
-| HORA models, V/Q networks and algorithm adaptation | `algos/hora/{models,teacher}.py` |
+| HORA models, V/Q networks and algorithm adaptation | `algos/hora/{models,teacher,distribution,legacy}.py` |
 | PPO/APPO training and common checkpoints | `training/teacher_runtime.py` |
 | Native FlashSAC runner adaptation | `training/flashsac_runtime.py` |
 | Student distillation | `training/student_runtime.py` |
@@ -81,6 +81,13 @@ actions, with current normalization statistics and privilege encoding applied
 after sampling. Collection inference and learning share the actor. `CleanQ`
 applies independent critic input normalization before the native Q network.
 
+`HoraActor.policy()` returns a stateless `PolicyDistribution`; its samples carry
+both raw and executed actions. `TeacherActor` and `TeacherFlashActor` are thin
+upstream-interface adapters around this shared implementation. APPO overrides
+only the policy/value forward and distribution hooks, retaining upstream losses.
+`training/exploration.py` holds collection noise for the runner on the learner
+device, without changing native scheduling or moving noise through IPC.
+
 Training reuses `OffPolicyLogger`, with Sharpa adding JSONL, stage information
 and actual sample counts. `sharpa-compare` only orchestrates stage commands;
 evaluation algorithms and statistical functions live in `training/evaluation.py`.
@@ -99,7 +106,7 @@ evaluation algorithms and statistical functions live in `training/evaluation.py`
   Q networks share statistics, and target parameter soft updates do not blend
   statistics.
 - **Behavior policy:** PPO/APPO store raw Gaussian actions and their log
-  probabilities at sampling time; the environment executes clipped actions.
+  probabilities at sampling time; the environment executes clip/tanh mapped actions.
   APPO synchronizes version numbers, weights and statistics together. The
   collector installs new versions only at rollout boundaries. Each rollout
   retains its own final frame to avoid joining different trajectories.

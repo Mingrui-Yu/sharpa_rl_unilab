@@ -77,8 +77,9 @@ def test_actor_information_and_value_gradient_are_independent():
         )
 
 
-def test_flash_updates_reencode_raw_privilege_and_isolate_gradients():
-    cfg = compose_config("flashsac", "mujoco", [])
+@pytest.mark.parametrize("mode", ["state_independent", "state_dependent"])
+def test_flash_updates_reencode_raw_privilege_and_isolate_gradients(mode):
+    cfg = compose_config("flashsac", "mujoco", [f"model.std_mode={mode}"])
     actor, critic, learner = make_models(cfg, "cpu")
     raw = transitions()
     sampled = flash_batch(raw)
@@ -94,7 +95,12 @@ def test_flash_updates_reencode_raw_privilege_and_isolate_gradients():
     )
     torch.testing.assert_close(seen[-1], sampled["next_priv_info"])
     before_critic = frozen_weights(critic)
+    before_std = frozen_weights(actor.std_module)
     learner.update_actor(sampled)
+    assert any(
+        not torch.equal(value, actor.std_module.state_dict()[key])
+        for key, value in before_std.items()
+    )
     assert all(torch.equal(value, critic.state_dict()[key]) for key, value in before_critic.items())
     assert any(
         not torch.equal(value, actor.state_dict()[key])

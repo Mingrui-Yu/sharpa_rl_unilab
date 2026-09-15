@@ -24,7 +24,7 @@ YAML 声明场景实体和 manager terms；Python term 通过 Entity API 访问�
 | 任务注册、固定尺度与时间步 | `tasks/sharpa_inhand/{config,rotation_registry,grasp_registry}.py` |
 | 动作、观测、奖励、重置和随机化 | `tasks/sharpa_inhand/terms/` |
 | 四组观测与终止快照 | `tasks/sharpa_inhand/teacher_env.py` |
-| HORA 模型、V/Q 与算法适配 | `algos/hora/{models,teacher}.py` |
+| HORA 模型、V/Q 与算法适配 | `algos/hora/{models,teacher,distribution,legacy}.py` |
 | PPO/APPO 训练、公共 checkpoint | `training/teacher_runtime.py` |
 | 原生 FlashSAC 运行器适配 | `training/flashsac_runtime.py` |
 | Student 蒸馏 | `training/student_runtime.py` |
@@ -69,6 +69,12 @@ FlashSAC 传输组为 `obs=[actor147,current_priv9]` 和 `critic174`，reset 与
 Replay 保留原始观测和动作，抽样后再应用当前统计与特权编码。
 采样推理与学习共用 Actor，`CleanQ` 在原生 Q 前应用独立的 Critic 输入归一化。
 
+`HoraActor.policy()` 返回无调用缓存的 `PolicyDistribution`，采样结果同时携带原始样本和
+执行动作。`TeacherActor`、`TeacherFlashActor` 是共用此实现的上游接口薄适配层。
+APPO 只覆盖策略/价值前向及分布钩子，保留上游损失实现。
+`training/exploration.py` 为 runner 在 Learner 设备上维护采集噪声，
+不改变原生调度，也不通过 IPC 传输噪声。
+
 训练日志复用 `OffPolicyLogger`，Sharpa 补充 JSONL、阶段和实际采样计数。
 `sharpa-compare` 只编排各阶段命令，评估算法及统计函数位于 `training/evaluation.py`。
 
@@ -80,7 +86,7 @@ Replay 保留原始观测和动作，抽样后再应用当前统计与特权编�
 - **归一化**：每条新接收 transition 的当前观测只累计一次。
   下一观测、重复 epoch、staging 和 replay 重采样不累计；评估冻结全部统计。
   Actor 与 Critic 统计独立；FlashSAC 当前 Q 与目标 Q 共用统计，目标参数软更新不混合统计。
-- **行为策略**：PPO/APPO 保存原始高斯动作及采样时的 log-prob，环境执行限幅动作。
+- **行为策略**：PPO/APPO 保存原始高斯动作及采样时的 log-prob，环境执行 clip/tanh 映射后的动作。
   APPO 的版本号、权重和统计整体同步，collector 只在 rollout 边界安装新版本。
   各 rollout 保留独立末帧，避免跨轨迹拼接。
 - **梯度与蒸馏**：Q 更新不修改 Actor；Actor 更新保留 Q 对动作的梯度，不更新 Q 参数。

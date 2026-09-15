@@ -39,6 +39,56 @@ iteration count. PPO/APPO also support a sampling budget: set both
 up to a vector step, collecting at most one fewer extra transition than the
 number of environments. Checkpoint saves are still triggered by iteration count.
 
+### Policy distribution
+
+PPO, APPO and FlashSAC share the same HORA actor and Gaussian distribution.
+New training defaults to `model.std_mode=state_independent`: one learnable
+log-std per joint, initialized with `model.initial_std=1.0`. Set
+`model.std_mode=state_dependent` to learn log-std from the actor trunk instead.
+The output head initially has zero weights and bias `log(initial_std)`, so both
+modes start with the specified actual standard deviation.
+
+PPO/APPO default to `model.action_mapping=clip`; `tanh` is also supported.
+FlashSAC requires `tanh`. For example:
+
+```bash
+uv run sharpa-train --algo appo model.action_mapping=tanh \
+  model.std_mode=state_independent model.initial_std=1.0 \
+  algo.algorithm.entropy_coef=0.01
+```
+
+`model.std_parameterization=log` uses `std=exp(log_std)`.
+`model.log_std_bounds=null` leaves log-std unconstrained; optionally set a finite
+increasing pair such as `model.log_std_bounds=[-10,2]` to clamp it before exp.
+The initial std must lie within those bounds. Clamping changes gradients outside
+the interval. Network computation retains the algorithm's AMP settings; sampling
+and density, entropy and KL calculations use FP32. A broader AMP numerical audit
+remains a separate TODO.
+
+For tanh, deterministic actions are `tanh(mean)` and the entropy bonus estimates
+transformed action entropy using fresh current-policy samples. For clip, the
+training density, entropy and KL refer to the latent Gaussian. PPO/APPO always
+store the raw sample before mapping, together with its behavior log-prob and
+mean/std. Existing learning-rate schedules use `KL(old || current)`; APPO's old
+distribution for this schedule is its target policy. The shared analytic KL
+removes the upstream additive numerical offsets: identical policies now have
+zero KL and do not trigger a learning-rate increase. Thresholds and adjustment
+factors are unchanged.
+
+FlashSAC collection keeps its per-environment Gaussian noise for a sampled
+number of steps, controlled by `algo.exploration.noise_zeta_mu=2.0` and
+`algo.exploration.noise_zeta_max=16`. A maximum of 1 refreshes every step.
+The runner owns this state on the learner device; actor/critic updates and
+deterministic evaluation do not advance it. Collection keeps the native IPC and
+inference/update schedule.
+
+The new defaults change FlashSAC from its former state-dependent bounded std
+to state-independent log-std initialized at 1. These are new training settings,
+not a reproduction of the old training trajectory. Existing protocol-v2 teacher
+and student checkpoints load through an explicit compatibility path that keeps
+their original scalar/tanh std parameterization and action mapping. Evaluation
+and distillation cannot override the checkpoint's model configuration.
+
 ## 3. Distill a student
 
 Load a teacher and train a history encoder to match its privileged representation.
@@ -98,6 +148,14 @@ first seed directory. Each algorithm uses its own budget; equal sample counts
 or elapsed time are not guaranteed. The command does not aggregate multiple
 seeds or create plots. For comparisons across seeds, treat training seeds as
 independent replicates, rather than treating episodes as independent training runs.
+
+Optional evaluation diagnostics are enabled with `evaluation.diagnostics=true`.
+They report visited-state std, action saturation (`abs(action)>0.99`), adjacent
+action RMS differences, joint-position second-difference RMS, and target-limit
+frequency. Each episode is measured separately, including its terminal step;
+scale-weighted summaries average episode metrics without joining reset boundaries.
+The diagnostics use no policy random samples and leave evaluation trajectories
+unchanged.
 
 ## 5. Common settings and compatibility
 

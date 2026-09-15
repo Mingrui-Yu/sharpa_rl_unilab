@@ -14,10 +14,10 @@ from omegaconf import OmegaConf
 from tensordict import TensorDict
 from uni_rl.algos.common.normalization import EmpiricalNormalization
 
-from sharpa_rl_unilab.algos.hora.teacher import TeacherFlashActor
 from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import CONTRACT_VERSION, SharpaTeacherEnv
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.cache import resolve_grasp_cache_file
 
+from .action_diagnostics import DIAGNOSTIC_METRICS, EpisodeActionDiagnostics
 from .logging import write_json
 from .teacher_runtime import load_policy, tensor_obs
 
@@ -141,7 +141,7 @@ def set_step_rng(env, episode_seed, step):
 
 
 @torch.no_grad()
-def deterministic_actions(actor, obs, device, history_normalizer=None):
+def evaluation_distribution(actor, obs, device, history_normalizer=None):
     keys = ("obs", "priv_info") if history_normalizer is None else ("obs", "proprio_hist")
     data = tensor_obs({key: obs[key] for key in keys}, device)
     inputs = {"actor": data["obs"]}
@@ -149,12 +149,17 @@ def deterministic_actions(actor, obs, device, history_normalizer=None):
         inputs["priv_info"] = data["priv_info"]
     else:
         inputs["proprio_hist"] = history_normalizer(data["proprio_hist"], update=False)
-    mean, _ = actor.shared.policy_mean(
-        TensorDict(inputs, batch_size=data["obs"].shape[0]),
-        prefer_student=history_normalizer is not None,
+    return actor.policy(TensorDict(inputs, batch_size=data["obs"].shape[0]))
+
+
+@torch.no_grad()
+def deterministic_actions(actor, obs, device, history_normalizer=None):
+    return (
+        evaluation_distribution(actor, obs, device, history_normalizer)
+        .deterministic()
+        .cpu()
+        .numpy()
     )
-    actions = mean.tanh() if isinstance(actor, TeacherFlashActor) else mean
-    return actions.clamp(-1, 1).cpu().numpy()
 
 
 def evaluate_checkpoint(checkpoint, *, output=None, device: str | None = "cpu", evaluation=None):
@@ -184,6 +189,7 @@ def evaluate_checkpoint(checkpoint, *, output=None, device: str | None = "cpu", 
         hist_norm = EmpiricalNormalization((30, 49), device).eval()
         hist_norm.load_state_dict(snapshot["history_normalizer"], strict=True)
     results = []
+    diagnostics_enabled = bool(OmegaConf.select(cfg, "evaluation.diagnostics", default=False))
     total = len(manifest["episodes"])
     print(
         f"[eval] Starting {total} episodes across {len(cfg.evaluation.scales)} scales",
@@ -208,9 +214,29 @@ def evaluate_checkpoint(checkpoint, *, output=None, device: str | None = "cpu", 
                 angle = reward = 0.0
                 dropped = False
                 survival = 0.0
+                diagnostics = None
+                term = None
+                if diagnostics_enabled:
+                    term = env.action_manager.get_term("hand")
+                    diagnostics = EpisodeActionDiagnostics(
+                        term._entity.data.joint_pos[:, term.joint_ids]
+                    )
                 for step in range(400):
                     set_step_rng(env, episode["perturbation_seed"], step)
-                    state = env.step(deterministic_actions(actor, obs, device, hist_norm))
+                    distribution = evaluation_distribution(actor, obs, device, hist_norm)
+                    actions = distribution.deterministic().cpu().numpy()
+                    state = env.step(actions)
+                    if diagnostics is not None:
+                        assert term is not None
+                        # Evaluation disables autoreset, so terminal q/target are real.
+                        diagnostics.record(
+                            term._clipped_action,
+                            distribution.std.cpu().numpy(),
+                            term._entity.data.joint_pos[:, term.joint_ids],
+                            term.target,
+                            term._target_lower,
+                            term._target_upper,
+                        )
                     obs = state.obs
                     angle += float(env.signed_angle_delta[0])
                     reward += float(state.reward[0])
@@ -228,6 +254,9 @@ def evaluate_checkpoint(checkpoint, *, output=None, device: str | None = "cpu", 
                         "signed_angle": angle,
                         "speed_fixed_window": angle / 20.0,
                         "speed_alive": angle / survival,
+                        **(
+                            {"diagnostics": diagnostics.result()} if diagnostics is not None else {}
+                        ),
                     }
                 )
                 done = len(results)
@@ -276,6 +305,28 @@ def evaluate_checkpoint(checkpoint, *, output=None, device: str | None = "cpu", 
         "per_scale": per_scale,
         "episodes": results,
     }
+    if diagnostics_enabled:
+        by_scale = {
+            str(scale): {
+                metric: float(
+                    np.mean(
+                        [row["diagnostics"][metric] for row in results if row["scale"] == scale]
+                    )
+                )
+                for metric in DIAGNOSTIC_METRICS
+            }
+            for scale in cfg.evaluation.scales
+        }
+        result["diagnostics"] = {
+            "per_scale": by_scale,
+            "summary": {
+                metric: sum(
+                    float(weight) * by_scale[str(scale)][metric]
+                    for scale, weight in zip(cfg.evaluation.scales, cfg.evaluation.scale_weights)
+                )
+                for metric in DIAGNOSTIC_METRICS
+            },
+        }
     write_json(output, result)
     print(f"[eval] Saved: {output.resolve()}", file=sys.stderr, flush=True)
     return result

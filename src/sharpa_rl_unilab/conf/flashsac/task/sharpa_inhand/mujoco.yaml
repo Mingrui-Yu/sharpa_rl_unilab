@@ -16,3 +16,5 @@ algo:
   critic_hidden_dim: 512
 training:
   env_steps_per_sync: 2
+model:
+  action_mapping: tanh
