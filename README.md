@@ -1,5 +1,28 @@
 # Sharpa in-hand manipulation and HORA for UniLab
 
+[中文](README_zh.md) | [Documentation](docs/README.md)
+
+## Task overview
+
+An independent UniLab task package for Sharpa Wave in-hand manipulation. It
+provides a MuJoCo-ready hand/object task, bundled robot assets, grasp caches,
+and training entrypoints for PPO, APPO, HORA APPO, FlashSAC, and HORA student
+distillation.
+
+## Highlights and demonstration
+
+- Train policies that rotate a free cylinder inside a 22-DoF Sharpa Wave hand.
+- Use tactile history, privileged critic information, and object-scale
+  randomization.
+- Export FlashSAC actors to ONNX and record evaluation videos.
+- Train a HORA teacher and distill an actor-observation student.
+
+| Real robot | APPO | FlashSAC |
+| --- | --- | --- |
+| ![Real-robot deployment rollout](docs/media/sharpa-real-eval.gif) | ![APPO evaluation rollout](docs/media/sharpa-appo-eval.gif) | ![FlashSAC evaluation rollout](docs/media/sharpa-flashsac-eval.gif) |
+
+## Manager-Based API
+
 Sharpa Wave dexterous in-hand rotation now uses UniLab's current
 **Manager-Based API**. The task owns action, observation, reset, event,
 termination and reward terms while UniLab remains an external dependency and
