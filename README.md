@@ -11,7 +11,7 @@ Supported teacher entrypoints are PPO, APPO and FlashSAC. All three algorithms
 share the default HORA policy and student distillation pipeline; critics retain
 the V/Q structure required by each algorithm.
 
-## Install and validation
+## Installation and validation
 
 ```bash
 git clone https://github.com/unilabsim/sharpa_rl_unilab.git
@@ -60,11 +60,11 @@ and evaluation across multiple seeds. Each algorithm uses its own training budge
 equal sample counts or compute costs are not guaranteed.
 Use `uv run tensorboard --logdir logs` to view training curves.
 
-See the [training guide](docs/zh_CN/training.md) for detailed steps,
-checkpoint compatibility and runtime limitations, and the
-[architecture](docs/ARCHITECTURE.md) for implementation contracts.
+See [in-hand rotation](docs/en/task.md) for task background and the
+[training guide](docs/en/training.md) for detailed steps, runtime limitations
+and checkpoint compatibility.
 
-## Manager-Based correctness notes
+## Correctness notes
 
 - Object size DR uses UniLab's fixed model-variant catalog
   (`scene_scale_0.8.xml` … `scene_scale_1.5.xml`), not mutable geom-size DR.
@@ -76,4 +76,4 @@ checkpoint compatibility and runtime limitations, and the
   randomized actuator gains, object mass/CoM/friction/gravity and decaying
   object forces are explicit manager terms accessing state only through the Entity facade.
 
-See [architecture](docs/ARCHITECTURE.md) and [validation](docs/VALIDATION.md).
+See [architecture](docs/en/architecture.md) and [validation](docs/VALIDATION.md).

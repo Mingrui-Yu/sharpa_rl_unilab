@@ -1,8 +1,8 @@
 # Validation record
 
 Entries below describe the code and settings at their recorded dates. Current
-usage and implementation contracts are in the [training guide](zh_CN/training.md)
-and [architecture](ARCHITECTURE.md). Historical commands may no longer be supported.
+usage and implementation contracts are in the [training guide](en/training.md)
+and [architecture](en/architecture.md). Historical commands may no longer be supported.
 
 ## 2026-09-15 Optional comparison stages and seed count
 
@@ -71,7 +71,7 @@ and student transition budgets remain supported. Device resolution belongs to
 
 Implementation and checks are confined to Sharpa. UniLab remains at
 `b4e6b58fe0861a435fd19c0f0206bd84f4427a9c`, with a clean working tree.
-The [architecture](ARCHITECTURE.md) describes current interfaces; the original
+The [architecture](en/architecture.md) describes current interfaces; the original
 optimizer baselines remain in the historical snapshot linked below.
 
 - **39 tests passed**, including real MuJoCo timeout/autoreset, simultaneous
