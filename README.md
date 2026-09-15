@@ -7,8 +7,9 @@ owns the manager lifecycle and simulation backends. The former task-owned
 legacy/direct `NpEnv` implementation and its compatibility factory have been
 removed.
 
-PPO, APPO and FlashSAC share the default HORA teacher setup and support the same
-student distillation pipeline. Independent critics retain their V/Q structure.
+Supported teacher entrypoints are PPO, APPO and FlashSAC. All three algorithms
+share the default HORA policy and student distillation pipeline; critics retain
+the V/Q structure required by each algorithm.
 
 ## Install and validation
 
@@ -20,37 +21,15 @@ uv run pytest
 uv run pyright
 ```
 
-`uv run pytest` / `make test` runs the fast regression suite. Run
-`uv run pytest -m slow` / `make test-slow` explicitly for MuJoCo, bundled asset
-compilation and one train → checkpoint → evaluate → distill smoke per algorithm.
-The FlashSAC smoke requires CUDA and is skipped when CUDA is unavailable.
-`make test-all` runs static checks and both suites.
-
 Development uses the sibling checkout `../UniLab` as the `unilab` source; the
 package dependency is still external (`unilab>=1.2.0,<1.3`), and
 `unilab-rl>=1.2.0,<1.3` resolves from its release.
 
-Headless Linux recording needs a one-time graphics runtime installation. On
-Ubuntu/Debian, install `libegl1` with a working NVIDIA graphics driver for GPU
-rendering, or `libosmesa6` for software rendering. `uv sync` does not install
-these system libraries. `uv run sharpa-train` automatically tries EGL, then
-OSMesa; no `MUJOCO_GL` prefix is required. Before training, it checks rendering
-and MP4 encoding/decoding and fails early if neither works. Explicit
-`MUJOCO_GL` settings are respected. `--cfg` and runs with recording disabled
-skip this check. The final video is saved beside the checkpoint as `play_video.mp4`.
+`uv run pytest` runs fast regression tests by default; use
+`uv run pytest -m slow` for simulation and training smoke tests.
+The FlashSAC smoke test requires CUDA.
 
-About 40 MB of robot XML, meshes and grasp caches are bundled in Git and the
-Python package. `uv run sharpa-assets` prepares a writable local cache;
-`SHARPA_RL_UNILAB_ASSET_CACHE` can select its directory.
-
-## Train and evaluate
-
-| Algorithm | Owner |
-| --- | --- |
-| PPO | `ppo/task/sharpa_inhand/mujoco.yaml` |
-| APPO | `appo/task/sharpa_inhand/mujoco.yaml` |
-| FlashSAC | `flashsac/task/sharpa_inhand/mujoco.yaml` |
-| Grasp generation | `ppo/task/sharpa_inhand_grasp/mujoco.yaml` |
+## Train, evaluate and distill
 
 ```bash
 uv run sharpa-train --algo appo
@@ -58,69 +37,32 @@ uv run sharpa-train --algo flashsac
 uv run sharpa-train --algo ppo
 ```
 
-Append Hydra overrides for tuning; `--cfg` prints the composed configuration.
-`conf/common/sharpa_inhand.yaml` defines the shared task, model and runtime settings.
-All three teachers use 2048 environments, `training.device=cuda:0`, and 4 Torch
-intra-op / 1 inter-op threads per learner or independent collector process.
-APPO's collector follows the learner unless `algo.collector_device` is set.
-Use `training.device=null` for automatic CUDA → MPS → CPU selection.
+`--cfg` prints the composed Manager-Based configuration. Append Hydra overrides
+to the command for tuning.
 
-APPO/PPO default to 501 update rounds, FlashSAC to 3000. Every teacher saves each
-50 rounds (`algo.save_interval`; 0 disables intermediate saves), logs every round
-and writes `teacher_final.pt` on completion. Round counts do not imply equal
-sample counts or compute. PPO/APPO also accept a sampling limit via
-`algo.max_iterations=null training.max_transitions=N`; saving remains by round.
-FlashSAC requires a positive `algo.max_iterations` and `training.max_transitions=null`.
-`sharpa-compare` uses each algorithm's configured budget and optionally evaluates final
-models on shared scenes with `--eval`; it does not enforce equal sampling or compute costs.
-Training itself does not schedule quantitative evaluation.
+Training saves `teacher_final.pt` on completion and records `play_video.mp4`
+in the same directory. Headless Linux machines use EGL or OSMesa for offscreen
+rendering; on Ubuntu/Debian, install `libegl1` with a working NVIDIA graphics
+driver, or `libosmesa6` for software rendering. `uv sync` does not install these
+system dependencies; set `training.no_play=true` if recording is not needed.
 
-FlashSAC uses UniLab's DoubleBuffer runner with AMP disabled and requires CUDA
-or MPS for teacher training. Evaluation and distillation can run on CPU; see
-[FlashSAC runtime details](docs/migrations/issue-2-flashsac-native.md).
-It normalizes clean174 Q inputs using fresh-sample statistics shared by
-current and target Q networks. V/Q architectures and algorithm settings remain distinct.
-
-Tune resources or individual randomization settings with explicit overrides:
-
-```bash
-uv run sharpa-train --algo flashsac training.num_envs=1024 training.torch_threads.learner_num_threads=8
-uv run sharpa-train --algo appo training.device=cuda:0 algo.collector_device=cpu
-```
+For evaluation and distillation, specify the checkpoint file directly:
 
 ```bash
 uv run sharpa-eval --checkpoint /absolute/path/to/teacher_final.pt
 uv run sharpa-distill --checkpoint /absolute/path/to/teacher_final.pt
 uv run sharpa-eval --checkpoint /absolute/path/to/student_final.pt
-uv run sharpa-compare
-uv run sharpa-compare --eval --num-seeds 3
-uv run sharpa-compare --distill --eval --num-seeds 3
 ```
 
-Teacher and student runs show a UniLab Rich terminal panel and save TensorBoard
-events alongside the full `metrics.jsonl`. Run `uv run tensorboard --logdir logs`
-to view curves indexed by newly received transitions. Set `training.logger=none`
-for the panel and JSONL only, or `training.logger=no_print` for JSONL only.
-Teachers log every round; iteration-limited runs show iteration progress/ETA.
-Student logs use `distillation.log_every` (default 10,000 transitions).
-Native TensorBoard logging keeps slash metrics as-is and prefixes flat metrics with `train/`.
-See [component reuse and validation](docs/migrations/issue-2-simplify.md).
+`uv run sharpa-compare` trains the three algorithms sequentially using their
+default configurations; append `--distill --eval --num-seeds 3` to run distillation
+and evaluation across multiple seeds. Each algorithm uses its own training budget;
+equal sample counts or compute costs are not guaranteed.
+Use `uv run tensorboard --logdir logs` to view training curves.
 
-`sharpa-compare` runs PPO, APPO and FlashSAC serially using Hydra defaults. It trains
-one seed by default; `--num-seeds N` uses N consecutive seeds starting at each
-algorithm's configured seed (currently 1). `--distill` trains one student per teacher
-only after all teachers across all seeds finish. `--eval` invokes the `sharpa-eval`
-entry point after training, evaluating teachers and, with `--distill`, students.
-Logs go to `logs/compare/seed_<seed>_<timestamp>/<algorithm>/`, with students under
-`student/`. All runs share a timestamp and, when evaluating, one `scenes.json` in the
-first seed's directory. Evaluation JSON files are saved beside their checkpoints.
-This entry point does not aggregate seeds or generate plots, and replaces the old
-`--output`, `--seeds` and `--smoke` interface. Default post-training video recording remains enabled.
-
-Supported v2 checkpoints migrate their configuration
-paths on load and retain saved model/environment semantics. Older incompatible
-formats require retraining. The runner supports one learner device and fresh training runs;
-see the [protocol, migration and validation limits](docs/migrations/issue-2.md).
+See the [training guide](docs/zh_CN/training.md) for detailed steps,
+checkpoint compatibility and runtime limitations, and the
+[architecture](docs/ARCHITECTURE.md) for implementation contracts.
 
 ## Manager-Based correctness notes
 
@@ -129,10 +71,9 @@ see the [protocol, migration and validation limits](docs/migrations/issue-2.md).
 - Every fixed-variant body geom has a unique name, which is required by
   `mjbatch.VariantPack`.
 - Each variant retains `simple="false"` on the free object. This avoids the
-  earlier reset-time mass/CoM `mj_setConst` sameframe crash.
+  reset-time mass/CoM `mj_setConst` sameframe crash.
 - Tactile smoothing/latency, privileged state, incremental position targets,
   randomized actuator gains, object mass/CoM/friction/gravity and decaying
-  object forces are explicit manager terms using the Entity facade.
+  object forces are explicit manager terms accessing state only through the Entity facade.
 
-See [architecture](docs/ARCHITECTURE.md), [validation](docs/VALIDATION.md) and
-[HORA](docs/en/7-hora.md).
+See [architecture](docs/ARCHITECTURE.md) and [validation](docs/VALIDATION.md).

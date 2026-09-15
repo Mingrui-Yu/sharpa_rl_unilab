@@ -39,4 +39,5 @@ Old shared HORA, flat PPO and native FlashSAC checkpoints require retraining.
 Evaluation uses fixed scenes and complete 20-second windows; video replay is
 not a quantitative evaluation.
 
-See the [protocol and migration record](../migrations/issue-2.md).
+See the [architecture](../ARCHITECTURE.md) and
+[checkpoint compatibility](../zh_CN/training.md#5-常用设置与兼容性).

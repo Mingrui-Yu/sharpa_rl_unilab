@@ -5,8 +5,8 @@ Sharpa Wave 手内旋转任务已迁移到 UniLab 当前 **Manager-Based API**�
 UniLab 保持外部依赖，负责 manager 生命周期与仿真后端。此前任务自有的
 legacy/direct `NpEnv` 实现和 compatibility factory 已移除。
 
-PPO、APPO、FlashSAC 默认使用同一 HORA teacher setup，均支持统一 student
-蒸馏；Critic 独立建模，保留算法所需的 V/Q 差异。
+支持 PPO、APPO、FlashSAC teacher，三种算法默认共用 HORA 策略与 student
+蒸馏流程；Critic 保留各算法所需的 V/Q 结构。
 
 ## 安装与校验
 
@@ -18,22 +18,11 @@ uv run pytest
 uv run pyright
 ```
 
-`uv run pytest` / `make test` 默认运行快速回归测试。MuJoCo、内置资源编译以及
-每种算法各一条训练 → 保存 → 评估 → 蒸馏冒烟测试，通过
-`uv run pytest -m slow` / `make test-slow` 显式运行。
-FlashSAC 冒烟测试需要 CUDA，不可用时跳过。
-`make test-all` 运行静态检查及两组测试。
-
 开发环境通过兄弟目录 `../UniLab` 作为 `unilab` source；包依赖仍是外部的
 `unilab>=1.2.0,<1.3`，`unilab-rl>=1.2.0,<1.3` 来自发布包。
 
-无显示器的 Linux 机器需要一次性安装离屏渲染运行库。在 Ubuntu/Debian 上，
-NVIDIA GPU 录制需要 `libegl1` 和可用的 NVIDIA 图形驱动；软件录制可安装
-`libosmesa6`。这些是系统依赖，`uv sync` 不会安装。
-`uv run sharpa-train` 默认自动选择 EGL，不可用时尝试 OSMesa，无需手动设置
-`MUJOCO_GL`。训练开始前会验证一帧渲染以及 MP4 编解码，失败则提前报错；
-显式设置的 `MUJOCO_GL` 会被保留。`--cfg` 和关闭录制的训练不会执行此检查。
-正常训练结束后，视频保存为 checkpoint 同目录下的 `play_video.mp4`。
+`uv run pytest` 默认运行快速回归测试；仿真与训练冒烟测试使用
+`uv run pytest -m slow`，其中 FlashSAC 冒烟测试需要 CUDA。
 
 ## 训练、评估与蒸馏
 
@@ -41,55 +30,30 @@ NVIDIA GPU 录制需要 `libegl1` 和可用的 NVIDIA 图形驱动；软件录�
 uv run sharpa-train --algo appo
 uv run sharpa-train --algo flashsac
 uv run sharpa-train --algo ppo
+```
+
+`--cfg` 可打印合成后的 Manager-Based 配置。可在命令末尾追加 Hydra 参数覆盖。
+
+训练结束后保存 `teacher_final.pt`，并在同目录录制 `play_video.mp4`。
+无显示器的 Linux 机器使用 EGL 或 OSMesa 离屏渲染；Ubuntu/Debian 需要安装
+`libegl1` 并使用可用的 NVIDIA 图形驱动，或安装 `libosmesa6` 使用软件渲染。
+`uv sync` 不会安装这些系统依赖；无需录制时可设置 `training.no_play=true`。
+
+评估与蒸馏直接指定 checkpoint 文件：
+
+```bash
 uv run sharpa-eval --checkpoint /absolute/path/to/teacher_final.pt
 uv run sharpa-distill --checkpoint /absolute/path/to/teacher_final.pt
 uv run sharpa-eval --checkpoint /absolute/path/to/student_final.pt
-uv run sharpa-compare
-uv run sharpa-compare --eval --num-seeds 3
-uv run sharpa-compare --distill --eval --num-seeds 3
 ```
 
-`--cfg` 打印合并配置。三个算法通过 `conf/common/sharpa_inhand.yaml` 共用任务、
-观测预处理、模型和运行设置。teacher 默认 2048 个环境，Learner 使用 `cuda:0`，
-Learner 与独立 Collector 均为 4 个 Torch intra-op 线程、1 个 inter-op 线程。
-APPO 采样推理默认跟随 Learner，可用 `algo.collector_device=cpu` 覆盖。
-`training.device=null` 自动选择 CUDA、MPS 或 CPU。
+`uv run sharpa-compare` 按默认配置依次训练三种算法；追加
+`--distill --eval --num-seeds 3` 可运行多 seed 蒸馏与评估。
+各算法使用各自的训练预算，不保证等采样量或等计算成本。
+使用 `uv run tensorboard --logdir logs` 查看训练曲线。
 
-APPO/PPO 默认训练 501 轮，FlashSAC 默认 3000 轮。三个 teacher 均每轮记录，
-每 50 轮保存；`algo.save_interval=0` 关闭中间保存，正常结束仍保存 `teacher_final.pt`。
-相同轮数不代表相同采样量或计算量。PPO/APPO 按采样量停止时，显式设置
-`algo.max_iterations=null training.max_transitions=N`，保存仍按轮触发。
-训练不再调度定量评估；独立评估入口和 `sharpa-compare` 训练后的显式评估保留。
-
-FlashSAC 仅使用 UniLab DoubleBuffer 流水线并关闭 AMP，要求 `algo.max_iterations>0`、
-`training.max_transitions=null`。teacher 训练需要 CUDA/MPS，评估与蒸馏可使用 CPU。
-clean174 Q 输入使用只由新采样更新的经验统计，
-当前 Q 与目标 Q 共用统计量，保留原生 Q 结构。详见
-[FlashSAC 实现与限制](docs/migrations/issue-2-flashsac-native.md)。
-
-运行资源与各项随机化使用显式参数调节，例如：
-
-```bash
-uv run sharpa-train --algo flashsac training.num_envs=1024 training.torch_threads.learner_num_threads=8
-uv run sharpa-train --algo appo training.device=cuda:0 algo.collector_device=cpu
-```
-
-teacher 和 student 默认显示 UniLab Rich 面板，并写入 TensorBoard 和 `metrics.jsonl`。
-`uv run tensorboard --logdir logs` 查看曲线，横轴为实际收到的新 transition 数。
-`training.logger=none` 关闭 TensorBoard，`training.logger=no_print` 仅保留 JSONL。
-student 仍按 `distillation.log_every`（默认 10000 条采样）记录，停止和保存规则不变。
-
-`sharpa-compare` 按 Hydra 默认配置串行训练 PPO、APPO、FlashSAC，不保证等采样量或等计算成本。
-默认每种算法训练一个 seed；`--num-seeds N` 从各算法配置的 seed（当前为 1）开始连续取 N 个。
-`--distill` 在所有 seed 的 teacher 都完成后，为每个 teacher 训练一个 student。
-`--eval` 在全部训练完成后调用 `sharpa-eval` 入口评估 teacher；同时开启 `--distill` 时也评估 student。
-日志目录为 `logs/compare/seed_<seed>_<timestamp>/<algorithm>/`，student 位于其 `student/` 子目录。
-一次调用共用时间戳，所有评估共用第一个 seed 目录下的 `scenes.json`，评估 JSON 保存在各 checkpoint 旁。
-默认训练后的视频录制保持开启。新入口不自动汇总多 seed 或绘图，替代旧的 `--output`、`--seeds`、`--smoke` 接口。
-
-现有契约内的 v2 checkpoint
-加载时迁移配置路径，保留历史模型与环境语义；更早的不兼容格式仍需重训。
-当前入口支持单 Learner 和从头训练，详见[迁移说明](docs/migrations/issue-2.md)。
+任务背景见[手内旋转](docs/zh_CN/task.md)，操作步骤、运行限制和 checkpoint 兼容范围
+见[训练指南](docs/zh_CN/training.md)。
 
 ## 正确性说明
 
@@ -101,8 +65,4 @@ student 仍按 `distillation.log_every`（默认 10000 条采样）记录，停�
 - 触觉平滑/延迟、特权信息、位置目标、执行器增益、物体质量/质心/摩擦/重力与
   衰减外力均为显式 manager terms，仅通过 Entity facade 访问状态。
 
-详见 [架构](docs/ARCHITECTURE.md)、[验证](docs/VALIDATION.md) 与
-[完整训练流程](docs/zh_CN/8-training_pipeline.md)。
-
-原生 TensorBoard 日志保留含 `/` 的指标名，其余指标位于 `train/` 下；完整原始字段
-保存在 JSONL。组件复用与验证范围见[训练代码简化结果](docs/migrations/issue-2-simplify.md)。
+详见 [架构](docs/ARCHITECTURE.md) 与 [验证](docs/VALIDATION.md)。

@@ -1,5 +1,9 @@
 # Validation record
 
+Entries below describe the code and settings at their recorded dates. Current
+usage and implementation contracts are in the [training guide](zh_CN/training.md)
+and [architecture](ARCHITECTURE.md). Historical commands may no longer be supported.
+
 ## 2026-09-15 Optional comparison stages and seed count
 
 `tools/compare_rl_algo.py` replaces `tools/compare.py` and `tools/compare_teacher.py`.
@@ -67,8 +71,8 @@ and student transition budgets remain supported. Device resolution belongs to
 
 Implementation and checks are confined to Sharpa. UniLab remains at
 `b4e6b58fe0861a435fd19c0f0206bd84f4427a9c`, with a clean working tree.
-The [migration record](migrations/issue-2.md) describes supported interfaces and
-the selected optimizer baselines.
+The [architecture](ARCHITECTURE.md) describes current interfaces; the original
+optimizer baselines remain in the historical snapshot linked below.
 
 - **39 tests passed**, including real MuJoCo timeout/autoreset, simultaneous
   drop/timeout, partial reset, independent gradients, raw replay privilege,
@@ -103,18 +107,19 @@ the selected optimizer baselines.
 The common privilege encoder has 36,617 parameters. Target Q parameters are
 additional copies; FlashSAC also retains its native learned temperature.
 
-Committed artifacts: [run/seed summaries](migrations/issue-2-smoke/summary.json),
-[all episode measurements](migrations/issue-2-smoke/episodes.csv),
-[fixed scenes](migrations/issue-2-smoke/scenes.json), and
-[step/time plots](migrations/issue-2-smoke/learning_curves.png).
+Committed artifacts: [run/seed summaries](validation/issue-2-smoke/summary.json),
+[all episode measurements](validation/issue-2-smoke/episodes.csv),
+[fixed scenes](validation/issue-2-smoke/scenes.json), and
+[step/time plots](validation/issue-2-smoke/learning_curves.png).
 Full checkpoints/configs remain locally under `dist/issue-2-validated/`.
 The summaries include per-scale and training-seed bootstrap statistics.
 These are **pipeline validation results**, not a ranking: no 5M teacher / 100M
 student performance experiment was run, and old checkpoints require retraining.
 
-Run the current short GPU validation with the command below. It now uses two
-teacher update rounds and native FlashSAC; the historical 128-transition results
-above describe the earlier sampling-budget implementation.
+The later native-runner smoke at commit `61a5fd7` used the command below with
+two teacher update rounds. This historical command is no longer supported;
+current commands are in the training guide. The 128-transition results above
+describe the earlier sampling-budget implementation.
 
 ```bash
 uv sync --extra mujoco --extra evaluation
@@ -125,12 +130,29 @@ For this development worktree, checks used the existing virtualenv interpreter
 and absolute `PYTHONPATH` entries for this worktree's `src` and UniLab's `src`.
 Neither dependency sources nor the original worktree's user edits were changed.
 
+## Issue 2 implementation history
+
+The [snapshot at 61a5fd7](https://github.com/unilabsim/sharpa_rl_unilab/tree/61a5fd73b5675dd6db750157354aa1dd65df3c7a/docs/migrations)
+retains the implementation notes, original YAML/optimizer baselines and raw
+before/after measurements. Locally, inspect it with
+`git show 61a5fd7:docs/migrations/issue-2-simplify.md`.
+
+- The component simplification reused native logging and rollout storage;
+  50 tests passed at that revision. Later APPO and native FlashSAC changes have
+  separate validation entries above.
+- Single-run comparisons over 256 and 4096 transitions checked execution and
+  normalization counts. The longer run measured post-warmup throughput over only
+  8–14 seconds; it does not establish production throughput or learning quality.
+- The [archived smoke artifacts](validation/issue-2-smoke/README.md) retain the
+  three-seed pipeline evidence. Full training checkpoints were local artifacts,
+  not committed files. These runs do not rank the algorithms.
+
 ## Historical protocols
 
 The runs below use the pre-issue-2 observation and training protocols. Their
 Actor inputs, sample budgets and evaluation procedures differ. They are
 historical execution records, not an algorithm ranking or evidence of relative
-sample efficiency. See [the issue 2 migration record](migrations/issue-2.md).
+sample efficiency. See [implementation history](#issue-2-implementation-history).
 
 ## 2026-09-14 Manager-Based migration
 
