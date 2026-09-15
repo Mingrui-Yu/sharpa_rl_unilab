@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import math
 import time
+from collections import defaultdict
 from contextlib import ExitStack
 from pathlib import Path
 
@@ -143,9 +144,20 @@ def train_student(checkpoint, *, overrides=(), device=None):
         resources.callback(logger.close)
         logger.start(status="Initializing student rollouts...")
         obs, _ = env.reset(seed=seed)
+        metric_sums = defaultdict(float)
+        log_steps = 0
         while counters["collected"] < target:
             actions, loss = trainer.update_and_act(obs)
+            step_started = time.perf_counter()
             state = env.step(actions)
+            metric_sums["timing/collector_env_step_ms"] += (
+                time.perf_counter() - step_started
+            ) * 1000
+            metric_sums["latent_mse"] += loss
+            for key, value in state.info.get("log", {}).items():
+                if key.startswith("reward/"):
+                    metric_sums[key] += float(value)
+            log_steps += 1
             episodes.update(state.reward[None], state.terminated[None], state.truncated[None])
             obs = state.obs
             for key in ("collected", "received", "training_samples"):
@@ -155,11 +167,14 @@ def train_student(checkpoint, *, overrides=(), device=None):
             if counters["collected"] >= next_log or counters["collected"] == target:
                 metrics = {
                     **counters,
-                    "latent_mse": loss,
+                    **{key: value / log_steps for key, value in metric_sums.items()},
+                    "learning_rate": trainer.optimizer.param_groups[0]["lr"],
                     "wall_seconds": time.monotonic() - started,
                     **episodes.metrics(),
                 }
                 logger.log(metrics)
+                metric_sums.clear()
+                log_steps = 0
                 next_log = counters["collected"] + max(int(cfg.distillation.log_every), 1)
             if save_every > 0 and counters["collected"] >= next_save:
                 logger.log_save(str(save(f"student_{counters['collected']}.pt")))
