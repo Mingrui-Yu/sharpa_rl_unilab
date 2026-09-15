@@ -114,4 +114,4 @@ uv run sharpa-train --algo appo training.num_envs=1024
 旧版共享 HORA、flat PPO 和原生 FlashSAC 的不兼容格式需要重训。
 当前入口仅支持单 learner 和从头训练，不支持训练断点恢复或 v2 的 JIT/ONNX 导出。
 
-实现约定见[架构说明](../ARCHITECTURE.md)，验证范围见[验证记录](../VALIDATION.md)。
+实现约定见[架构说明](architecture.md)，验证范围见[验证记录](../VALIDATION.md)。

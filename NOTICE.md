@@ -6,7 +6,7 @@ HORA teacher/student method ("In-Hand Object Rotation via Rapid Motor
 Adaptation", Haozhi Qi et al., https://github.com/HaozhiQi/hora); any original
 license headers carried by the extracted files are preserved in place.
 `MIGRATION_MANIFEST.json` records source commits and pre-migration file hashes.
-See [the extraction record](docs/ARCHITECTURE.md) for the ownership boundary.
+See [the extraction record](docs/en/architecture.md) for the ownership boundary.
 
 Robot meshes, the Sharpa Wave XML scene and the grasp caches are bundled from
 the pinned `unilabsim/unilab-robots` and `unilabsim/unilab-caches` datasets.

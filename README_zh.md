@@ -65,4 +65,4 @@ uv run sharpa-eval --checkpoint /absolute/path/to/student_final.pt
 - 触觉平滑/延迟、特权信息、位置目标、执行器增益、物体质量/质心/摩擦/重力与
   衰减外力均为显式 manager terms，仅通过 Entity facade 访问状态。
 
-详见 [架构](docs/ARCHITECTURE.md) 与 [验证](docs/VALIDATION.md)。
+详见 [架构](docs/zh_CN/architecture.md) 与 [验证](docs/VALIDATION.md)。

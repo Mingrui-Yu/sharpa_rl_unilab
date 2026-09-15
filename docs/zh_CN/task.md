@@ -29,4 +29,4 @@ PPO、APPO、FlashSAC 共用 HORA teacher/student 流程：
 Student 推理只需要可测观测及其历史，不需要仿真特权信息。
 三种算法使用各自的训练预算，比较结果时需同时考虑实际采样量和耗时。
 
-操作步骤见[训练指南](training.md)，输入形状与代码职责见[架构说明](../ARCHITECTURE.md)。
+操作步骤见[训练指南](training.md)，输入形状与代码职责见[架构说明](architecture.md)。

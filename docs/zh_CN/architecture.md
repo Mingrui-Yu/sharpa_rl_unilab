@@ -1,6 +1,6 @@
 # 架构说明
 
-本文面向代码修改；任务背景见[手内旋转](zh_CN/task.md)，操作步骤见[训练指南](zh_CN/training.md)。
+本文面向代码修改；任务背景见[手内旋转](task.md)，操作步骤见[训练指南](training.md)。
 
 ## 职责边界
 
@@ -14,7 +14,7 @@ YAML 声明场景实体和 manager terms；Python term 通过 Entity API 访问�
 
 ## 代码导航
 
-以下路径相对于 [`src/sharpa_rl_unilab/`](../src/sharpa_rl_unilab)：
+以下路径相对于 [`src/sharpa_rl_unilab/`](../../src/sharpa_rl_unilab)：
 
 | 修改内容 | 位置 |
 | --- | --- |
@@ -63,7 +63,7 @@ PPO/APPO 使用独立的 V 网络，FlashSAC 使用分布式双 Q 和目标 Q。
 
 PPO/APPO 保留本地采样调度，以处理终止观测和采样预算的末尾短批次。
 FlashSAC 继承原生 `learn()`，由其管理 collector、推理、replay、预取和优化循环；
-warmup 不计入更新轮数。设备和预算限制见[训练指南](zh_CN/training.md#2-训练-teacher)。
+warmup 不计入更新轮数。设备和预算限制见[训练指南](training.md#2-训练-teacher)。
 
 FlashSAC 传输组为 `obs=[actor147,current_priv9]` 和 `critic174`，reset 与终止快照布局一致。
 Replay 保留原始观测和动作，抽样后再应用当前统计与特权编码。
@@ -92,5 +92,5 @@ Replay 保留原始观测和动作，抽样后再应用当前统计与特权编�
   每个 variant 的 geom 名唯一，自由物体保留 `simple="false"`，避免 reset 修改质量或重心时
   触发 MuJoCo `sameframe` 错误。Task term 使用 Entity API，不访问 backend 内部对象。
 
-Checkpoint 使用范围见[兼容性说明](zh_CN/training.md#5-常用设置与兼容性)，
-历史测试与实验结果见[验证记录](VALIDATION.md)。
+Checkpoint 使用范围见[兼容性说明](training.md#5-常用设置与兼容性)，
+历史测试与实验结果见[验证记录](../VALIDATION.md)。
