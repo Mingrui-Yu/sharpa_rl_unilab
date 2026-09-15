@@ -257,9 +257,8 @@ protocol:
   comparison_mode: fixed-hardware
   version: sharpa-hora-v2
   stage: teacher
-  appo_baseline: appo-default-790ae32
 model:
-  action_mapping: clip
+  action_mapping: tanh
   std_mode: state_independent
   std_parameterization: log
   initial_std: 1.0

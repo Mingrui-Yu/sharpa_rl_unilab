@@ -24,5 +24,3 @@ algo:
     lam: 0.95
     adaptive_kl_factor: 1.2
     adaptive_lr_factor: 1.1
-protocol:
-  appo_baseline: appo-hora-790ae32

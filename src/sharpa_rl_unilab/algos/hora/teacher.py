@@ -95,7 +95,7 @@ class HoraActor(nn.Module):
         super().__init__()
         self.shared = TeacherCore(model, student=student)
         self.prefer_student = student
-        self.action_mapping = str(model.get("action_mapping", "clip"))
+        self.action_mapping = str(model.get("action_mapping", "tanh"))
         if self.action_mapping not in {"clip", "tanh"}:
             raise ValueError("model.action_mapping must be clip or tanh")
         parameterization = model.get("std_parameterization", "log")

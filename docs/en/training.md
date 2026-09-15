@@ -48,8 +48,8 @@ log-std per joint, initialized with `model.initial_std=1.0`. Set
 The output head initially has zero weights and bias `log(initial_std)`, so both
 modes start with the specified actual standard deviation.
 
-PPO/APPO default to `model.action_mapping=clip`; `tanh` is also supported.
-FlashSAC requires `tanh`. For example:
+All three algorithms default to `model.action_mapping=tanh`.
+PPO/APPO also support `clip`; FlashSAC requires `tanh`. For example:
 
 ```bash
 uv run sharpa-train --algo appo model.action_mapping=tanh \

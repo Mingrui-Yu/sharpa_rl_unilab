@@ -282,6 +282,7 @@ def test_legacy_checkpoint_restores_distribution(tmp_path, algo, student):
     OmegaConf.set_struct(cfg, False)
     # Build an old-format fixture independently of the state migration function.
     flash = algo == "flashsac"
+    cfg.model.action_mapping = "tanh" if flash else "clip"
     cfg.model.std_parameterization = "legacy_tanh" if flash else "legacy_scalar"
     cfg.model.std_mode = "state_dependent" if flash else "state_independent"
     cls = TeacherFlashActor if flash else TeacherActor

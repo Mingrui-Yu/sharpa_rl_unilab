@@ -38,7 +38,7 @@ PPO、APPO、FlashSAC 共用 HORA Actor 与高斯分布实现。新训练默认
 从 Actor 主干特征输出 log-std；输出头权重初始化为零，偏置为 `log(initial_std)`，
 因此两种模式在初始时都具有指定的实际 std。
 
-PPO/APPO 默认 `model.action_mapping=clip`，也支持 `tanh`；FlashSAC 必须使用 `tanh`。
+三种算法均默认 `model.action_mapping=tanh`；PPO/APPO 也支持 `clip`，FlashSAC 必须使用 `tanh`。
 例如：
 
 ```bash
