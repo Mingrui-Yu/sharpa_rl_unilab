@@ -71,8 +71,8 @@ and writes `teacher_final.pt` on completion. Round counts do not imply equal
 sample counts or compute. PPO/APPO also accept a sampling limit via
 `algo.max_iterations=null training.max_transitions=N`; saving remains by round.
 FlashSAC requires a positive `algo.max_iterations` and `training.max_transitions=null`.
-`sharpa-compare` uses each algorithm's configured budget and evaluates final models
-on shared scenes; it does not enforce equal sampling or compute costs.
+`sharpa-compare` uses each algorithm's configured budget and optionally evaluates final
+models on shared scenes with `--eval`; it does not enforce equal sampling or compute costs.
 Training itself does not schedule quantitative evaluation.
 
 FlashSAC uses UniLab's DoubleBuffer runner with AMP disabled and requires CUDA
@@ -92,7 +92,9 @@ uv run sharpa-train --algo appo training.device=cuda:0 algo.collector_device=cpu
 uv run sharpa-eval --checkpoint /absolute/path/to/teacher_final.pt
 uv run sharpa-distill --checkpoint /absolute/path/to/teacher_final.pt
 uv run sharpa-eval --checkpoint /absolute/path/to/student_final.pt
-uv run sharpa-compare --output logs/comparison --seeds 1 2 3
+uv run sharpa-compare
+uv run sharpa-compare --eval --num-seeds 3
+uv run sharpa-compare --distill --eval --num-seeds 3
 ```
 
 Teacher and student runs show a UniLab Rich terminal panel and save TensorBoard
@@ -104,8 +106,18 @@ Student logs use `distillation.log_every` (default 10,000 transitions).
 Native TensorBoard logging keeps slash metrics as-is and prefixes flat metrics with `train/`.
 See [component reuse and validation](docs/migrations/issue-2-simplify.md).
 
-Use `uv sync --extra mujoco --extra evaluation` for comparison figures. Add
-`--smoke` to `sharpa-compare` for two teacher update rounds and 32 student transitions. Supported v2 checkpoints migrate their configuration
+`sharpa-compare` runs PPO, APPO and FlashSAC serially using Hydra defaults. It trains
+one seed by default; `--num-seeds N` uses N consecutive seeds starting at each
+algorithm's configured seed (currently 1). `--distill` trains one student per teacher
+only after all teachers across all seeds finish. `--eval` invokes the `sharpa-eval`
+entry point after training, evaluating teachers and, with `--distill`, students.
+Logs go to `logs/compare/seed_<seed>_<timestamp>/<algorithm>/`, with students under
+`student/`. All runs share a timestamp and, when evaluating, one `scenes.json` in the
+first seed's directory. Evaluation JSON files are saved beside their checkpoints.
+This entry point does not aggregate seeds or generate plots, and replaces the old
+`--output`, `--seeds` and `--smoke` interface. Default post-training video recording remains enabled.
+
+Supported v2 checkpoints migrate their configuration
 paths on load and retain saved model/environment semantics. Older incompatible
 formats require retraining. The runner supports one learner device and fresh training runs;
 see the [protocol, migration and validation limits](docs/migrations/issue-2.md).

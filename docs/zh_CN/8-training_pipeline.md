@@ -95,12 +95,23 @@ uv run sharpa-eval --checkpoint "$SHARPA_STUDENT_RUN/student_final.pt"
 提前掉落不补跑。结果分别写入 checkpoint 同目录的 `teacher_final.evaluation.json`
 与 `student_final.evaluation.json`。评估仅接受 `evaluation.*` 与 `training.device` 配置覆盖。
 
-需要统一运行三种算法、多训练种子的 teacher、student 与评估时，使用
-`uv run sharpa-compare --output logs/comparison --seeds 1 2 3`，输出目录须尚不存在；
-该工具位于 `tools/compare.py`，默认使用各算法的轮数预算，在相同场景评估，
-不保证等采样量或等计算成本。`--smoke` 使用 2 轮 teacher 更新和 32 条 student 采样。
-绘图依赖通过 `uv sync --extra mujoco --extra evaluation` 安装。验证范围见
-[VALIDATION.md](../VALIDATION.md)。
+统一运行三种算法时，使用 `uv run sharpa-compare`，默认仅训练三个 teacher。
+该工具位于 `tools/compare_rl_algo.py`，使用各算法的 Hydra 默认配置，仅设置训练 seed 和日志路径。
+`--num-seeds N` 从各算法的默认 seed（当前为 1）起连续运行 N 个 seed，默认 N=1。
+开启 `--distill` 后，先完成所有 seed 的 teacher，再串行训练对应的 student。
+开启 `--eval` 后，在全部训练完成后调用 `sharpa-eval` 入口；未开启蒸馏时仅评估 teacher，
+开启蒸馏时同时评估 teacher 和 student。例如：
+
+```bash
+uv run sharpa-compare --distill --eval --num-seeds 3
+```
+
+日志使用 `logs/compare/seed_<seed>_<timestamp>/<algorithm>/`，student 放在 `student/` 子目录。
+所有运行共用时间戳；所有评估共用第一个 seed 目录下的 `scenes.json`，由第一次评估生成。
+评估结果为 checkpoint 旁的 `teacher_final.evaluation.json` 或 `student_final.evaluation.json`。
+默认训练后录制视频的行为保持不变，不保证等采样量或等计算成本。
+新入口不自动汇总或绘图，旧的 `--output`、`--seeds`、`--smoke` 参数不再支持。
+验证范围见 [VALIDATION.md](../VALIDATION.md)。
 
 原生 TensorBoard 日志保留含 `/` 的指标名，其余指标位于 `train/` 下；完整原始字段
 保存在 JSONL。组件复用与验证范围见[训练代码简化结果](../migrations/issue-2-simplify.md)。

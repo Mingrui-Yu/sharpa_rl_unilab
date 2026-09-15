@@ -19,7 +19,7 @@ simulation runtime.
 | Native PPO/APPO loss integration, collection and budgets; shared checkpoints | `training/teacher_runtime.py` |
 | Native FlashSAC DoubleBuffer integration, update-round budgets | `training/flashsac_runtime.py` |
 | Fixed scene manifests, quantitative evaluation and seed aggregation | `training/evaluation.py` |
-| Multi-algorithm and multi-seed experiment orchestration | `tools/compare.py` |
+| Multi-algorithm and multi-seed experiment orchestration | `tools/compare_rl_algo.py` |
 | Training logs, run metadata and JSON output | `training/logging.py` |
 | Common task, observation, model and experiment definitions | `conf/common/` |
 | Robot meshes, MJCF variants and grasp caches | `assets/` |
@@ -53,7 +53,8 @@ Torch thread budgets, resolves devices and migrates supported checkpoint configs
 without replacing saved task/model semantics. Teachers save and log by update
 round. PPO/APPO also support sampling limits; FlashSAC uses only the native
 DoubleBuffer runner with an update-round budget. `sharpa-compare` preserves each
-algorithm's configured budget and uses shared evaluation scenes.
+algorithm's configured budget. Optional distillation starts after all teachers finish;
+optional evaluation uses the `sharpa-eval` entry point and shared evaluation scenes.
 
 FlashSAC wraps its native Q with `CleanQ`: current and target Q share clean174
 input statistics, updated only on fresh received transitions. Actor statistics,

@@ -1,5 +1,22 @@
 # Validation record
 
+## 2026-09-15 Optional comparison stages and seed count
+
+`tools/compare_rl_algo.py` replaces `tools/compare.py` and `tools/compare_teacher.py`.
+`sharpa-compare` uses Hydra defaults with optional `--distill`, `--eval` and
+`--num-seeds N` (default 1). All teachers finish before any student starts;
+evaluation follows training and invokes the `sharpa-eval` entry point with a shared
+scene manifest. Per-checkpoint JSON results remain available; the new launcher
+does not aggregate or plot results. Earlier comparison commands below are historical.
+
+- 17 focused tests passed, with one slow asset test deselected. Nine launcher tests
+  mock subprocesses to cover stage combinations, multiple seeds, default arguments,
+  shared manifests, invalid seed counts and stopping on teacher failure.
+- Ruff lint and format checks for changed Python files, Mypy and Pyright for the
+  new launcher, and diff whitespace checks passed.
+- Reinstalled the editable package without dependencies to refresh `sharpa-compare`.
+  This change did not run full teacher/student training or physical evaluations.
+
 ## 2026-09-15 Focused regression suite
 
 The suite now has 40 cases instead of 102. It drops default-parameter snapshots,

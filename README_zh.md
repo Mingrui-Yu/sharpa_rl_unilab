@@ -44,7 +44,9 @@ uv run sharpa-train --algo ppo
 uv run sharpa-eval --checkpoint /absolute/path/to/teacher_final.pt
 uv run sharpa-distill --checkpoint /absolute/path/to/teacher_final.pt
 uv run sharpa-eval --checkpoint /absolute/path/to/student_final.pt
-uv run sharpa-compare --output logs/comparison --seeds 1 2 3
+uv run sharpa-compare
+uv run sharpa-compare --eval --num-seeds 3
+uv run sharpa-compare --distill --eval --num-seeds 3
 ```
 
 `--cfg` 打印合并配置。三个算法通过 `conf/common/sharpa_inhand.yaml` 共用任务、
@@ -77,9 +79,15 @@ teacher 和 student 默认显示 UniLab Rich 面板，并写入 TensorBoard 和 
 `training.logger=none` 关闭 TensorBoard，`training.logger=no_print` 仅保留 JSONL。
 student 仍按 `distillation.log_every`（默认 10000 条采样）记录，停止和保存规则不变。
 
-`sharpa-compare` 使用各算法配置的预算，在相同场景评估最终模型，记录实际采样量与耗时，
-不保证等采样量或等计算成本。`--smoke` 执行 2 轮 teacher 更新和 32 条 student 采样。
-绘图需 `uv sync --extra mujoco --extra evaluation`。现有契约内的 v2 checkpoint
+`sharpa-compare` 按 Hydra 默认配置串行训练 PPO、APPO、FlashSAC，不保证等采样量或等计算成本。
+默认每种算法训练一个 seed；`--num-seeds N` 从各算法配置的 seed（当前为 1）开始连续取 N 个。
+`--distill` 在所有 seed 的 teacher 都完成后，为每个 teacher 训练一个 student。
+`--eval` 在全部训练完成后调用 `sharpa-eval` 入口评估 teacher；同时开启 `--distill` 时也评估 student。
+日志目录为 `logs/compare/seed_<seed>_<timestamp>/<algorithm>/`，student 位于其 `student/` 子目录。
+一次调用共用时间戳，所有评估共用第一个 seed 目录下的 `scenes.json`，评估 JSON 保存在各 checkpoint 旁。
+默认训练后的视频录制保持开启。新入口不自动汇总多 seed 或绘图，替代旧的 `--output`、`--seeds`、`--smoke` 接口。
+
+现有契约内的 v2 checkpoint
 加载时迁移配置路径，保留历史模型与环境语义；更早的不兼容格式仍需重训。
 当前入口支持单 Learner 和从头训练，详见[迁移说明](docs/migrations/issue-2.md)。
 
