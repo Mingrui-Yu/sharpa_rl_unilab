@@ -6,8 +6,8 @@
 ## 输入与模型
 
 三个旋转入口现在都默认训练 HORA teacher，每个算法只有 `mujoco.yaml`。
-`conf/common/task.yaml` 定义物理任务、奖励与观测，`common/protocol.yaml`
-定义公共模型、硬件、预算和评估，`--nodr` 应用同一份公共覆盖。
+`conf/common/sharpa_inhand.yaml` 集中定义物理任务、奖励、观测、公共模型、
+运行资源、停止条件、评估和蒸馏参数。各项随机化仍可显式覆盖。
 
 | 输入 | 布局 |
 | --- | --- |
@@ -38,7 +38,7 @@ FlashSAC 保留有界 log-std、重参数化 tanh 及 Jacobian 修正、持久�
 
 ## 数据与归一化
 
-APPO 使用独立 spawn collector、有限队列和三批 staging；读取当时可用的
+APPO 使用独立 spawn collector、容量为4的队列和8批 staging；读取当时可用的
 rollout，由原生 RolloutStagingPool 在环境轴提供批次视图，避免跨轨迹连接。权重和统计一起带版本同步，
 实际行为 log-prob 随数据保存。最后不足一个 rollout 时缩短采样；不同长度
 的旧 staging 不拼接到最后短批次。
@@ -49,7 +49,8 @@ Q 更新不修改 Actor；Actor 更新保留 Q 对动作的梯度而不更新 Q 
 
 Actor 基础历史的经验统计只累计新接收的 o_t，每条 transition 一次，
 不额外累计最后一个 o_next，也不累计 epochs、staging 或 replay 复用。
-PPO/APPO 的 clean V 使用独立统计；FlashSAC Q 沿用不做经验输入归一化的基线。
+PPO/APPO 的 clean V 使用独立统计；FlashSAC 的当前 Q 与目标 Q 共用独立的
+Critic 输入统计，仅由新收到的当前观测更新，不参与目标 Q 参数软更新。
 评估冻结全部统计。旧的 critic 尾部推断、info 输入、共享价值主干与
 APPO 专用 teacher/student 运行器已经删除。
 
@@ -61,27 +62,25 @@ APPO 专用 teacher/student 运行器已经删除。
 KL 设置及 scheduler 曲线；这不是历史 run 的 optimizer state。
 
 - PPO/APPO：gamma=.99、lr=.001、5 epochs、4 minibatches，保留各自 KL 调度。
-- APPO 选择旧普通 APPO 基线：desired KL=.02、staging=3。旧 HORA 的 .04/8
-  只作为迁移来源保留，不混入新默认值。
+- APPO 使用 HORA 基线：desired KL=.04、staging=8；PPO desired KL=.02。
 - FlashSAC：gamma=.97、每轮14次 Q/7次 Actor/7次温度更新，
-  实际 LR 从3e-4线性衰减到1.5e-4。原未生效 alpha_lr 不启用。
+  实际 LR 从3e-4按余弦衰减到1.5e-4。原未生效 alpha_lr 不启用。
 - 本地实现继续调用 RSL-RL PPO、uni_rl APPO/V-trace 与 FlashSAC 原生损失；
-  不复制损失公式。FlashSAC 保留 AMP；编译/CUDA graph 路径不在本适配器内启用。
+  不复制损失公式。FlashSAC 默认关闭 AMP；编译/CUDA graph 路径不在本适配器内启用。
 
 ## 预算、评估和蒸馏
 
-默认固定硬件实验为单 learner、全局4096环境、5M新 transition。
-各方法保留自己的 rollout/update 频率。最终预算最多向上取整一个向量步，
-容差为 N-1；APPO 每个实际向量步更新独立全局计数，接收端检查重复/缺包。
-日志分别记录 collected、received、training_samples、各类 optimizer updates、
-复用比、策略版本延迟和墙钟时间。联合 PPO/APPO minibatch 计一次数据使用，
-SAC 分开的 Actor/Q 使用各计一次。
+默认 teacher 使用单 Learner、2048 环境、`cuda:0`，各进程 Torch 线程为4/1。
+APPO/PPO 默认501轮，FlashSAC 默认3000轮。按采样量停止时设置
+`algo.max_iterations=null training.max_transitions=N`，最多向上取整一个向量步，
+容差为 N-1。FlashSAC 此时使用同步兼容 runner；比较入口显式选择此模式。
+APPO 每个向量步更新全局计数，接收端检查重复/缺包。
+日志每轮记录 collected、received、training_samples、optimizer updates 和墙钟时间；
+联合 PPO/APPO minibatch 计一次数据使用，SAC 分开的 Actor/Q 使用各计一次。
 
-保存与评估由实际 collected 步数触发；冻结 checkpoint 同时绑定已接收数、
-更新计数、策略版本和时间。默认同步评估期间 APPO collector 可继续采样；
-评估图使用 checkpoint 计数，不使用评估完成时计数。最终额外保存并评估
-`teacher_final.pt`。墙钟包含模型/环境初始化、训练、保存、训练内同步评估，
-不包含 CLI 的资产校验；checkpoint 时间不包含该快照后才进行的评估。
+三个 teacher 均使用 `algo.save_interval` 按轮保存，默认50，0关闭中间保存；
+正常结束保存 `teacher_final.pt`。训练不再自动评估；独立评估及比较入口的显式评估保留。
+墙钟包含初始化、训练和保存，不包含 CLI 资产校验和训练后的独立评估。
 
 评估固定20秒窗口，默认8尺度等权、每尺度3个评估 seed × 10 episode。
 清单记录 episode ID、尺度、缓存文件 hash/行号、reset seed 和实际 PD、
@@ -93,7 +92,7 @@ SAC 分开的 Actor/Q 使用各计一次。
 在 reset 前累计，未经旋转奖励裁剪。先按预定尺度权重聚合每个训练 seed，
 再跨至少3个训练 seed 报均值、样本标准差和 seed 级 bootstrap 95%区间
 （10000次，固定seed）；不能把 episode 当作独立训练重复。
-训练内评估用 validation，默认选择 final；测试清单应使用不同评估种子，
+独立评估默认用 validation，默认选择 final；测试清单应使用不同评估种子，
 仅在最终测试时使用，不根据测试成绩选 checkpoint。
 
 所有 teacher 均使用相同 student 流程：冻结 teacher 编码器、基础统计、
@@ -107,8 +106,8 @@ student 推理只需要 obs 与 proprio_hist。
 
 ```bash
 uv run sharpa-train --algo ppo
-uv run sharpa-train --algo appo --nodr
-uv run sharpa-train --algo flashsac +preset=throughput
+uv run sharpa-train --algo appo algo.collector_device=cpu
+uv run sharpa-train --algo flashsac training.num_envs=1024
 uv run sharpa-eval --checkpoint /path/to/teacher_final.pt
 uv run sharpa-distill --checkpoint /path/to/teacher_final.pt
 uv run sharpa-eval --checkpoint /path/to/student_final.pt
@@ -117,10 +116,11 @@ uv run sharpa-compare --output logs/smoke --smoke
 ```
 
 绘图需要 `uv sync --extra mujoco --extra evaluation`。
-`--cfg` 打印实际合并配置；`+preset=throughput` 是独立吞吐实验标记，
-默认使用4096个环境，可显式调整硬件。这里的环境数始终是全局数；当前入口明确拒绝多 learner
-设备配置，避免把未实现的多 rank 统计当作已支持。旧 checkpoint 必须重训，
-不做静默结构迁移；训练断点恢复和旧视频/JIT/ONNX 导出入口不在 v2 支持范围。
+`--cfg` 打印合并配置；通过 `training.num_envs`、`training.device` 和
+`training.torch_threads.*` 调整资源。当前入口拒绝多 Learner 设备配置。
+现有契约内的旧 checkpoint 自动迁移配置路径，保留历史模型和环境设置；
+不兼容的旧格式仍需重训。训练断点恢复和旧 JIT/ONNX 导出入口不在 v2 支持范围。
+配置迁移及兼容规则详见 [RL 对齐说明](issue-2-rl-align.md)。
 抓取缓存生成继续保留独立的旧 flat 观测与原 UniLab PPO 工具入口。
 
 验证结果见 [VALIDATION.md](../VALIDATION.md)。短预算 pipeline smoke 只证明

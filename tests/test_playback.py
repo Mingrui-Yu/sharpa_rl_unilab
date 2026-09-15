@@ -17,7 +17,7 @@ def save_checkpoint(tmp_path, *, algo="ppo", student=False, overrides=()):
     cfg = compose_config(
         algo,
         "mujoco",
-        ["hardware.device=cpu", "training.play_env_num=2", "training.play_steps=3", *overrides],
+        ["training.device=cpu", "training.play_env_num=2", "training.play_steps=3", *overrides],
     )
     actor_cls = TeacherFlashActor if algo == "flashsac" else TeacherActor
     actor = actor_cls(OmegaConf.to_container(cfg.model, resolve=True), student=student).eval()
@@ -69,7 +69,7 @@ def test_checkpoint_policy_and_normalization_in_playback(tmp_path, monkeypatch, 
             return SimpleNamespace(obs=self.obs)
 
         def run_playback_mode(self, **kwargs):
-            assert kwargs["play_render_mode"] == "auto"
+            assert kwargs["play_render_mode"] == "record"
             assert kwargs["output_video"] == checkpoint.parent / "play_video.mp4"
             obs = kwargs["initialize"]()
             for _ in range(kwargs["play_steps"]):
@@ -151,5 +151,5 @@ def test_cli_replays_returned_checkpoint_after_training(tmp_path, monkeypatch, s
     else:
         monkeypatch.setattr(assets, "ensure_assets", lambda: None)
         monkeypatch.setattr(teacher_runtime, "train_teacher", train)
-        cli._main(play=False, argv=["hardware.device=cpu", "budget.evaluate_every=0"])
+        cli._main(play=False, argv=["training.device=cpu"])
     assert calls == ["train", "play"]

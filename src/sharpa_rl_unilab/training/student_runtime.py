@@ -18,7 +18,7 @@ from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import CONTRACT_VERSION, S
 
 from .evaluation import deterministic_actions, file_digest, write_run_metadata
 from .logging import EpisodeStatistics, TrainingLogger
-from .teacher_runtime import configure_threads, load_policy, tensor_obs
+from .teacher_runtime import configure_threads, load_policy, resolve_device, tensor_obs
 
 
 class StudentTrainer:
@@ -50,11 +50,12 @@ class StudentTrainer:
 
 def train_student(checkpoint, *, overrides=(), device=None):
     started = time.monotonic()
-    teacher, cfg, source = load_policy(checkpoint, device or "cpu", stage="teacher")
+    teacher, cfg, source = load_policy(checkpoint, "cpu", stage="teacher", configure_runtime=False)
     allowed = (
         "distillation.",
         "evaluation.",
-        "hardware.",
+        "training.device",
+        "training.torch_threads.",
         "training.log_dir",
         "training.logger",
         "training.no_play",
@@ -66,14 +67,14 @@ def train_student(checkpoint, *, overrides=(), device=None):
     )
     if any(not override.split("=", 1)[0].startswith(allowed) for override in overrides):
         raise ValueError(
-            "Distillation overrides may set distillation/evaluation/hardware fields, "
+            "Distillation overrides may set distillation/evaluation fields, training.device, training.torch_threads, "
             "training.log_dir, training.logger and playback settings"
         )
     cfg = OmegaConf.merge(cfg, OmegaConf.from_dotlist(list(overrides)))
     assert isinstance(cfg, DictConfig)
     cfg.protocol.stage = "student"
-    device = device or str(cfg.hardware.device)
-    cfg.hardware.device = device
+    device = resolve_device(device if device is not None else cfg.training.device)
+    cfg.training.device = device
     teacher.to(device)
     configure_threads(cfg)
     seed = int(cfg.distillation.seed)
@@ -133,7 +134,7 @@ def train_student(checkpoint, *, overrides=(), device=None):
         env = SharpaTeacherEnv(cfg, n)
         resources.callback(env.close)
         save_every = int(cfg.distillation.save_every)
-        next_save, next_log = save_every, int(cfg.budget.log_every)
+        next_save, next_log = save_every, int(cfg.distillation.log_every)
         episodes = EpisodeStatistics(n)
         logger = TrainingLogger(run, cfg, target)
         resources.callback(logger.close)
@@ -156,7 +157,7 @@ def train_student(checkpoint, *, overrides=(), device=None):
                     **episodes.metrics(),
                 }
                 logger.log(metrics)
-                next_log = counters["collected"] + max(int(cfg.budget.log_every), 1)
+                next_log = counters["collected"] + max(int(cfg.distillation.log_every), 1)
             if save_every > 0 and counters["collected"] >= next_save:
                 logger.log_save(str(save(f"student_{counters['collected']}.pt")))
                 next_save = (counters["collected"] // save_every + 1) * save_every

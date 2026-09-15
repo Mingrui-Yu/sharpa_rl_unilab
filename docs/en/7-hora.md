@@ -18,7 +18,7 @@ and save `play_video.mp4` in that checkpoint's directory. Playback uses 16
 environments and 400 control steps by default. Set `training.no_play=true` or
 `training.play_render_mode=none` to skip it; `training.play_env_num` and
 `training.play_steps` control its size and duration. MuJoCo's default `auto`
-mode records video. Playback is independent of `budget.evaluate_every`, so
+mode records video. Playback is independent of quantitative evaluation, so
 disabling quantitative evaluation still allows video recording.
 Headless recording requires a working EGL or OSMesa runtime; for software
 rendering, install `libosmesa6` and set `MUJOCO_GL=osmesa`. UniLab reports and

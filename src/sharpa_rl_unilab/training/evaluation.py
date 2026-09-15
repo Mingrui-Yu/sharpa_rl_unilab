@@ -47,6 +47,27 @@ def write_json(path, data):
 
 
 def write_run_metadata(run, cfg):
+    from uni_rl.offpolicy.thread_budget import resolve_torch_thread_runtime
+
+    algorithm = str(cfg.algo.algo)
+    teacher = cfg.protocol.stage == "teacher"
+    native_flash = teacher and algorithm == "flashsac" and cfg.algo.max_iterations is not None
+    async_appo = teacher and algorithm == "appo"
+    resources = {
+        "sampling_architecture": "double_buffer"
+        if native_flash
+        else "async_queue"
+        if async_appo
+        else "synchronous",
+        "learner_device": str(cfg.training.device),
+        "inference_device": str(cfg.algo.collector_device)
+        if async_appo
+        else str(cfg.training.device),
+        "torch_thread_runtime": resolve_torch_thread_runtime(cfg.training.torch_threads),
+        "learner_num_threads": torch.get_num_threads(),
+        "learner_num_interop_threads": torch.get_num_interop_threads(),
+        "independent_collector": native_flash or async_appo,
+    }
     OmegaConf.save(cfg, run / "config.yaml", resolve=True)
     root = Path(__file__).resolve().parents[3]
     git = get_git_info(root)
@@ -71,7 +92,8 @@ def write_run_metadata(run, cfg):
             "cuda_devices": [
                 torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())
             ],
-            "timing": "Includes model/environment initialization, collection, learning, saving and synchronous evaluation; excludes CLI asset verification.",
+            "timing": "Includes model/environment initialization, collection, learning and saving; excludes CLI asset verification and separate evaluation.",
+            "runtime": resources,
             "budget_tolerance": int(cfg.algo.num_envs) - 1,
             "training_samples": "Transition uses in actor and critic updates: joint PPO/APPO minibatch counted once; separate SAC actor and critic uses each counted once.",
             "distributed": False,
@@ -198,7 +220,7 @@ def deterministic_actions(actor, obs, device, history_normalizer=None):
     return actions.clamp(-1, 1).cpu().numpy()
 
 
-def evaluate_checkpoint(checkpoint, *, output=None, device="cpu", evaluation=None):
+def evaluate_checkpoint(checkpoint, *, output=None, device: str | None = "cpu", evaluation=None):
     actor, cfg, snapshot = load_policy(checkpoint, device)
     device = str(next(actor.parameters()).device)
     if evaluation is not None:

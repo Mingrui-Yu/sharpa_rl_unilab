@@ -12,7 +12,7 @@ from torch import nn
 from torch.nn import functional as F
 from uni_rl.algos.appo.learner import APPOLearner, _distribution_std
 from uni_rl.algos.flash_sac.learner import FlashSACLearner
-from uni_rl.algos.flash_sac.network import FlashSACActor
+from uni_rl.algos.flash_sac.network import FlashSACActor, FlashSACDoubleCritic
 from uni_rl.algos.flash_sac.update import build_lr_lambda
 
 from .models import _MLP, HoraCoreOutput, ProprioAdaptTConv
@@ -239,10 +239,27 @@ class TeacherFlashActor(FlashSACActor):
         pass
 
 
+class CleanQ(nn.Module):
+    """Native Q network with observation-only, fresh-sample normalization."""
+
+    def __init__(self, network: FlashSACDoubleCritic, normalizer: EmpiricalNormalization):
+        super().__init__()
+        self.network = network
+        self.obs_normalizer = normalizer
+
+    @property
+    def predictor(self):
+        return self.network.predictor
+
+    def normalize_parameters(self):
+        self.network.normalize_parameters()
+
+    def forward(self, observations, actions, training):
+        return self.network(self.obs_normalizer(observations), actions, training=training)
+
+
 class TeacherFlashLearner(FlashSACLearner):
     def __init__(self, model, **kwargs):
-        if model["critic_normalization"]:
-            raise ValueError("The FlashSAC clean Q retains its native unnormalized input")
         super().__init__(
             obs_dim=ACTOR_DIM + PRIV_DIM,
             action_dim=22,
@@ -250,6 +267,12 @@ class TeacherFlashLearner(FlashSACLearner):
             obs_normalization=False,
             **kwargs,
         )
+        if model["critic_normalization"]:
+            # Share only statistics. Native optimizers retain the same network
+            # parameters, and Polyak updates never touch normalization buffers.
+            normalizer = EmpiricalNormalization(CRITIC_DIM).to(self.device)
+            self.critic = cast(Any, CleanQ(self.critic, normalizer))
+            self.target_critic = cast(Any, CleanQ(self.target_critic, normalizer))
         self.actor = TeacherFlashActor(
             model,
             noise_zeta_mu=kwargs.get("actor_noise_zeta_mu", 2.0),
@@ -310,7 +333,7 @@ class TeacherFlashLearner(FlashSACLearner):
 def observe_new_samples(actor, critic, packed: torch.Tensor, clean: torch.Tensor) -> None:
     base, _ = split_actor(packed)
     actor.shared.obs_normalizer.update(base.reshape(-1, ACTOR_DIM))
-    if isinstance(critic, CleanValue):
+    if isinstance(critic, (CleanValue, CleanQ)):
         critic.obs_normalizer.update(clean.reshape(-1, CRITIC_DIM))
 
 

@@ -24,7 +24,7 @@ def play_checkpoint(checkpoint, *, device=None):
     steps = int(training.play_steps)
     if num_envs < 1 or steps < 1:
         raise ValueError("Playback requires positive training.play_env_num and training.play_steps")
-    device = resolve_device(device or cfg.hardware.device)
+    device = resolve_device(device or cfg.training.device)
     actor.to(device)
     history_normalizer = None
     if snapshot["stage"] == "student":

@@ -18,26 +18,26 @@ from sharpa_rl_unilab.training.teacher_runtime import load_policy, training_budg
 
 def test_flashsac_defaults_and_native_loop():
     cfg = compose_config("flashsac", "mujoco", [])
-    assert cfg.algo.num_envs == cfg.hardware.num_envs == 2048
-    assert cfg.algo.max_iterations == 10000
-    assert cfg.budget.transitions is None
+    assert cfg.algo.num_envs == cfg.training.num_envs == 2048
+    assert cfg.algo.max_iterations == 3000
+    assert cfg.training.max_transitions is None
     assert cfg.algo.use_amp is False
-    assert cfg.hardware.torch_threads is None
-    assert training_budget(cfg) == ("policy_version", 10000)
+    assert cfg.training.torch_threads.learner_num_threads == 4
+    assert training_budget(cfg) == ("policy_version", 3000)
     assert TeacherDoubleBufferRunner.learn is DoubleBufferOffPolicyRunner.learn
     runtime = resolve_torch_thread_runtime(cfg.training.torch_threads, cpu_count=64)
-    assert runtime["learner"] == {"num_threads": 8, "num_interop_threads": 1}
+    assert runtime["learner"] == {"num_threads": 4, "num_interop_threads": 1}
     assert runtime["collector"] == {"num_threads": 4, "num_interop_threads": 1}
     assert runtime["compile_threads"] == 2
     with pytest.raises(ValueError, match="exactly one budget"):
-        training_budget(compose_config("flashsac", "mujoco", ["budget.transitions=17"]))
+        training_budget(compose_config("flashsac", "mujoco", ["training.max_transitions=17"]))
     cfg = compose_config(
         "flashsac",
         "mujoco",
         [
-            "hardware.num_envs=8",
+            "training.num_envs=8",
             "algo.max_iterations=null",
-            "budget.transitions=17",
+            "training.max_transitions=17",
         ],
     )
     assert training_budget(cfg) == ("received", 24)
@@ -73,11 +73,23 @@ def test_transport_preserves_terminal_privilege_and_clean_critic():
 @pytest.mark.skipif(
     not torch.cuda.is_available(), reason="Native device replay requires CUDA or MPS"
 )
-@pytest.mark.parametrize("learning_starts", [1, 5])
-def test_native_warmup_checkpoints_evaluation_and_distillation(tmp_path, learning_starts):
+@pytest.mark.parametrize(
+    "learning_starts, save_interval, horizon", [(1, 1, 2), (5, 1, 2), (1, 0, 3)]
+)
+def test_native_warmup_checkpoints_evaluation_and_distillation(
+    tmp_path, learning_starts, save_interval, horizon
+):
     from sharpa_rl_unilab.training.evaluation import evaluate_checkpoint
     from sharpa_rl_unilab.training.student_runtime import train_student
 
+    thread_overrides = (
+        []
+        if save_interval
+        else [
+            "training.torch_threads.learner_num_threads=3",
+            "training.torch_threads.collector_num_threads=2",
+        ]
+    )
     run = tmp_path / "teacher"
     script = tmp_path / "train_checked.py"
     script.write_text("""
@@ -109,12 +121,14 @@ if __name__ == "__main__":
             str(script),
             "--algo",
             "flashsac",
-            "hardware.num_envs=8",
+            "training.num_envs=8",
             "algo.max_iterations=3",
             "algo.batch_size=16",
             "algo.replay_buffer_n=16",
             f"algo.learning_starts={learning_starts}",
-            "budget.save_every=16",
+            f"algo.save_interval={save_interval}",
+            f"training.env_steps_per_sync={horizon}",
+            *thread_overrides,
             "training.no_play=true",
             "training.logger=no_print",
             f"training.log_dir={run}",
@@ -129,11 +143,12 @@ if __name__ == "__main__":
     )
     assert result.returncode == 0, result.stdout + result.stderr
     summary = json.loads((run / "summary.json").read_text())
+    assert summary["last_checkpoint"] == str(run / "teacher_final.pt")
     assert summary["completed_iterations"] == 3
     assert summary["runtime_manifest"]["inference_owner"] == "learner"
     assert summary["runtime_manifest"]["collector_actor"] is False
     assert summary["runtime_manifest"]["use_amp"] is False
-    cfg = compose_config("flashsac", "mujoco", [])
+    cfg = compose_config("flashsac", "mujoco", thread_overrides)
     threads = resolve_torch_thread_runtime(cfg.training.torch_threads)
     collector = json.loads((run / "collector_threads.json").read_text())
     assert collector["num_threads"] == threads["collector"]["num_threads"]
@@ -151,6 +166,10 @@ if __name__ == "__main__":
     for path in run.glob("teacher_*.pt"):
         actor, _, checkpoint = load_policy(path)
         assert actor.shared.obs_normalizer.count.item() == checkpoint["counters"]["received"]
+        assert (
+            checkpoint["critic"]["obs_normalizer.count"].item()
+            == checkpoint["counters"]["received"]
+        )
         assert checkpoint["learner"]["update_count"] == checkpoint["counters"]["policy_version"]
         assert (
             checkpoint["learner"]["critic_scheduler"]["last_epoch"]
@@ -160,6 +179,9 @@ if __name__ == "__main__":
             checkpoint["learner"]["actor_scheduler"]["last_epoch"]
             == checkpoint["counters"]["actor_updates"]
         )
+    expected_saves = {f"teacher_iteration_{i}.pt" for i in range(1, 4)} if save_interval else set()
+    assert {p.name for p in run.glob("teacher_iteration_*.pt")} == expected_saves
+    assert not list(run.glob("evaluation_*.json"))
     final = run / "teacher_final.pt"
     evaluation = evaluate_checkpoint(final, device="cpu")
     assert len(evaluation["episodes"]) == 1

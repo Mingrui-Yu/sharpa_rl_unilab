@@ -34,25 +34,24 @@ def main():
         action="store_true",
         help="Validate the pipeline at 128 teacher / 32 student transitions; no performance ranking",
     )
-    parser.add_argument("--nodr", action="store_true")
     args, overrides = parser.parse_known_args()
     if len(set(args.seeds)) != len(args.seeds) or len(args.seeds) < 3:
         parser.error("Use at least three distinct training seeds")
     if any(item.lstrip("+").startswith("algo.max_iterations=") for item in overrides):
-        parser.error("sharpa-compare uses sampling budgets; set budget.transitions instead")
+        parser.error("sharpa-compare uses sampling budgets; set training.max_transitions instead")
     args.output.mkdir(parents=True, exist_ok=False)
-    common = [f"hardware.device={args.device}", *overrides]
+    common = [f"training.device={args.device}", *overrides]
     common += [f"evaluation.training_seeds={args.seeds}", f"distillation.seeds={args.seeds}"]
     # Comparisons explicitly use equal sampling budgets across algorithms.
     # Standalone teacher defaults instead stop by update rounds.
     sample_budget = "128" if args.smoke else "10000000"
-    if not any(item.startswith("budget.transitions=") for item in common):
-        common.append(f"budget.transitions={sample_budget}")
+    if not any(item.startswith("training.max_transitions=") for item in common):
+        common.append(f"training.max_transitions={sample_budget}")
     if args.smoke:
         common += [
-            "hardware.num_envs=8",
-            "hardware.torch_threads=2",
-            "budget.evaluate_every=0",
+            "training.num_envs=8",
+            "training.torch_threads.learner_num_threads=2",
+            "training.torch_threads.collector_num_threads=2",
             "distillation.transitions=32",
             "distillation.num_envs=8",
             "distillation.save_every=0",
@@ -60,7 +59,7 @@ def main():
             "evaluation.episodes_per_scale=1",
         ]
     manifest = args.output.resolve() / "scenes.json"
-    cfg = compose_config(args.algorithms[0], "mujoco", common, nodr=args.nodr)
+    cfg = compose_config(args.algorithms[0], "mujoco", common)
     make_manifest(cfg, manifest)
     evaluations = []
     summaries = []
@@ -76,13 +75,9 @@ def main():
             if args.smoke and algorithm == "flashsac":
                 specific += ["algo.batch_size=32"]
             specific += ["algo.max_iterations=null"]
-            if algorithm == "appo":
-                specific += ["budget.save_every=null"]
-                if args.smoke:
-                    specific += ["algo.save_interval=0"]
-            elif args.smoke:
-                specific += ["budget.save_every=0"]
-            cfg = compose_config(algorithm, "mujoco", [*common, *specific], nodr=args.nodr)
+            if args.smoke:
+                specific += ["algo.save_interval=0"]
+            cfg = compose_config(algorithm, "mujoco", [*common, *specific])
             # A fresh process per stage keeps CUDA/module initialization from
             # being charged only to the first algorithm or training seed.
             subprocess.run(
@@ -92,7 +87,6 @@ def main():
                     "sharpa_rl_unilab.cli",
                     "--algo",
                     algorithm,
-                    *(["--nodr"] if args.nodr else []),
                     *common,
                     *specific,
                 ],
@@ -128,8 +122,7 @@ def main():
         args.output / "summary.json",
         {"kind": "pipeline-smoke" if args.smoke else "comparison", "groups": summaries},
     )
-    # Full runs include intermediate teacher snapshots; final student points show
-    # its distillation cost separately from the teacher cost stored in each JSON.
+    # Explicit final evaluations show teacher and student costs separately.
     curves = list(args.output.glob("*/seed_*/evaluation_*.json"))
     plot_learning_curves(curves or evaluations, args.output / "learning_curves.png")
 

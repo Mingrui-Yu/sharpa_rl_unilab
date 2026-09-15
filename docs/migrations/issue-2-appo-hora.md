@@ -1,22 +1,23 @@
 # APPO HORA 参数与归一化约定
 
-APPO teacher 的默认采样、优化和更新预算对齐 `main@790ae32` 的 HORA 配置。
+APPO teacher 的采样和优化基线来自 `main@790ae32` 的 HORA 配置。
 基线标识为 `appo-hora-790ae32`。保留当前分支的显式 9 维特权输入、独立 clean
 Critic、观测/reset 修正、行为 log-prob 和 checkpoint 格式，不代表完整复现 main。
 
 - 2048 个环境，每批 8 步；历史池 8 批，填满后每轮训练 131072 个样本。
 - 每轮 5 epochs × 4 minibatches，即 20 次 optimizer step。
 - Adam 初始学习率 0.001，desired KL 0.04；保留原生 KL 调度阈值、上下限和执行时机。
-- 默认完成 305 轮更新，每 51 轮保存 `teacher_iteration_N.pt`，结束保存 `teacher_final.pt`。
+- 默认完成 501 轮更新，每 50 轮保存 `teacher_iteration_N.pt`，结束保存 `teacher_final.pt`。
 - 不默认限制新 transition 数。采样预算实验必须同时设置
-  `algo.max_iterations=null budget.transitions=N`；两种预算同时非空会报错。
-- APPO 保存始终使用 `algo.save_interval`（0 表示关闭中间保存），不接受
-  `budget.save_every`。定量评估默认关闭；训练后录像沿用现有配置。
-- 默认自动选择 CUDA、MPS、CPU，Collector 跟随 Learner，可显式覆盖；
-  Torch 线程数为 null 时不覆盖进程设置。Collector seed 默认为 Learner seed + 1。
+  `algo.max_iterations=null training.max_transitions=N`；两种预算同时非空会报错。
+- APPO 保存始终使用 `algo.save_interval`（0 关闭中间保存）。训练不调度定量评估；
+  独立评估和训练后录像保留。
+- 默认 Learner 使用 `training.device=cuda:0`，Collector 跟随 Learner，
+  可用 `algo.collector_device` 显式覆盖。两进程默认均使用 4/1 个 Torch intra-op/inter-op
+  线程，通过 `training.torch_threads.*` 调整。Collector seed 默认为 Learner seed + 1。
   checkpoint 和运行配置记录生效设备和 seed。
 
-待接收队列容量 `budget.async_queue_size=4` 与历史池
+待接收队列容量 `algo.async_queue_size=4` 与历史池
 `algo.staging_pool_size=8` 独立。main 的 4 槽传输 ring 会覆盖旧数据；本分支保留
 有界队列背压：最多 4 批待接收，加上 Collector 正在采集或等待提交的 1 批。
 每轮最多读取 4 批已就绪数据，队列数据不丢弃。结束时停止 Collector 并排空队列，

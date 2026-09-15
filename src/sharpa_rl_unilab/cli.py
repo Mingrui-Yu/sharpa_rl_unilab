@@ -23,7 +23,6 @@ def compose_config(
     overrides: list[str],
     *,
     task: str = "sharpa_inhand",
-    nodr: bool = False,
 ) -> DictConfig:
     owner = f"{task}/{sim}"
     if not (CONF_ROOT / algo / "task" / f"{owner}.yaml").is_file():
@@ -34,11 +33,6 @@ def compose_config(
             raise ValueError("Use CLI flags to select task, backend and train/eval mode")
     with initialize_config_dir(config_dir=str(CONF_ROOT / algo), version_base="1.3"):
         cfg = compose(config_name="config", overrides=[f"task={owner}", *overrides])
-    if nodr:
-        if task != "sharpa_inhand":
-            raise ValueError("--nodr is a rotation comparison override")
-        cfg = OmegaConf.merge(cfg, OmegaConf.load(CONF_ROOT / "common/nodr.yaml"))
-        assert isinstance(cfg, DictConfig)
     if cfg.training.task_name != TASK_NAMES[task] or cfg.training.sim_backend != sim:
         raise ValueError("Overrides must preserve the selected task owner identity")
     return cfg
@@ -50,11 +44,6 @@ def _main(*, play: bool, argv: list[str] | None = None) -> None:
     parser.add_argument("--sim", choices=["mujoco"], default="mujoco")
     parser.add_argument("--task", choices=sorted(TASK_NAMES), default="sharpa_inhand")
     parser.add_argument(
-        "--nodr",
-        action="store_true",
-        help="Disable physical DR, observation noise and external forces",
-    )
-    parser.add_argument(
         "--checkpoint", help="Versioned teacher/student checkpoint for quantitative evaluation"
     )
     parser.add_argument("--output", help="Evaluation JSON output path")
@@ -63,7 +52,7 @@ def _main(*, play: bool, argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--export", action="store_true", help="Export checkpoint during eval")
     args, overrides = parser.parse_known_args(argv)
-    cfg = compose_config(args.algo, args.sim, overrides, task=args.task, nodr=args.nodr)
+    cfg = compose_config(args.algo, args.sim, overrides, task=args.task)
     cfg.training.play_only = play
     if args.cfg:
         print(OmegaConf.to_yaml(cfg))
@@ -80,17 +69,19 @@ def _main(*, play: bool, argv: list[str] | None = None) -> None:
             )
         if play:
             from sharpa_rl_unilab.training.evaluation import evaluate_checkpoint
+            from sharpa_rl_unilab.training.teacher_runtime import resolve_device
 
-            checkpoint = args.checkpoint or cfg.budget.checkpoint
+            checkpoint = args.checkpoint or cfg.algo.checkpoint
             if checkpoint is None:
                 raise ValueError("sharpa-eval requires --checkpoint PATH")
             # The checkpoint owns model, physical task and normalization settings.
             # Only explicit evaluation overrides replace its saved evaluator config.
-            if args.nodr or any(
-                not item.startswith(("evaluation.", "hardware.device=")) for item in overrides
+            if any(
+                not item.startswith(("evaluation.", "training.device=", "algo.checkpoint="))
+                for item in overrides
             ):
                 raise ValueError(
-                    "Evaluation restores the checkpoint task; only evaluation.* and hardware.device overrides are accepted"
+                    "Evaluation restores the checkpoint task; only evaluation.*, training.device and algo.checkpoint overrides are accepted"
                 )
             evaluation = OmegaConf.from_dotlist(
                 [item for item in overrides if item.startswith("evaluation.")]
@@ -98,7 +89,9 @@ def _main(*, play: bool, argv: list[str] | None = None) -> None:
             result = evaluate_checkpoint(
                 checkpoint,
                 output=args.output,
-                device=cfg.hardware.device,
+                device=resolve_device(cfg.training.device)
+                if any(item.startswith("training.device=") for item in overrides)
+                else None,
                 evaluation=evaluation,
             )
             print(result["summary"])
@@ -111,7 +104,7 @@ def _main(*, play: bool, argv: list[str] | None = None) -> None:
                     "--checkpoint is an evaluation argument; training resume is not supported"
                 )
             checkpoint = train_teacher(cfg)
-            play_checkpoint(checkpoint, device=str(cfg.hardware.device))
+            play_checkpoint(checkpoint, device=cfg.training.device)
     else:
         from unilab.scripts import train_rsl_rl
 

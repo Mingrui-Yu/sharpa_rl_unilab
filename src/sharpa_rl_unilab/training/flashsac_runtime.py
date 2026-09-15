@@ -18,7 +18,7 @@ from unilab.base.np_env import NpEnvState
 from sharpa_rl_unilab.algos.hora.teacher import ACTOR_DIM, CRITIC_DIM, PRIV_DIM, observe_new_samples
 from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import SharpaTeacherEnv
 
-from .evaluation import evaluate_checkpoint, write_json, write_run_metadata
+from .evaluation import write_json, write_run_metadata
 from .teacher_runtime import make_models, resolve_device, save_teacher
 
 
@@ -81,9 +81,6 @@ class TeacherDoubleBufferRunner(DoubleBufferOffPolicyRunner):
         self.cfg, self.run, self.started = cfg, run, started
         self.received = 0
         self.collected = 0
-        self.next_save = int(cfg.budget.save_every or 0)
-        self.next_eval = int(cfg.budget.evaluate_every or 0)
-        self.evaluations = {}
         self.runtime_manifest.update(
             teacher_contract=str(cfg.protocol.version),
             stopping_budget="update_rounds",
@@ -173,23 +170,15 @@ class TeacherDoubleBufferRunner(DoubleBufferOffPolicyRunner):
         return payload
 
     def _save_checkpoint(self, *, log_dir, iteration, logger):
-        # Native runner calls once per update round. Public save/eval intervals
-        # remain transition thresholds; never pass them as iteration counts.
-        save_due = self.next_save > 0 and self.collected >= self.next_save
-        eval_due = self.next_eval > 0 and self.collected >= self.next_eval
-        final = iteration == int(self.cfg.algo.max_iterations)
-        if not (save_due or eval_due or final):
+        # The native runner also calls this at finalization. Keep intermediate
+        # names iteration-based; the drained final snapshot is written below.
+        interval = int(self.cfg.algo.save_interval)
+        if interval == 0 or iteration % interval:
             return None
-        path = self.run / ("teacher_final.pt" if final else f"teacher_iteration_{iteration}.pt")
-        self.save(path)
-        logger.log_save(str(path))
-        if save_due:
-            interval = int(self.cfg.budget.save_every)
-            self.next_save = (self.collected // interval + 1) * interval
-        if eval_due:
-            interval = int(self.cfg.budget.evaluate_every)
-            self.next_eval = (self.collected // interval + 1) * interval
-            self.evaluations[path] = self.run / f"evaluation_{self.collected}.json"
+        path = self.run / f"teacher_iteration_{iteration}.pt"
+        if not path.exists():
+            self.save(path)
+            logger.log_save(str(path))
         return str(path)
 
 
@@ -197,10 +186,6 @@ def train_flashsac(cfg):
     started = time.monotonic()
     if cfg.training.get("devices"):
         raise ValueError("The HORA FlashSAC runner uses one learner device")
-    if cfg.hardware.torch_threads is not None:
-        raise ValueError(
-            "Native FlashSAC uses training.torch_threads; set hardware.torch_threads=null"
-        )
     for name in (
         "num_envs",
         "batch_size",
@@ -215,10 +200,10 @@ def train_flashsac(cfg):
         int(cfg.algo.learning_starts) * int(cfg.algo.num_envs),
     ):
         raise ValueError("Replay capacity cannot satisfy the learning_starts/batch_size threshold")
-    if any(int(cfg.budget[key] or 0) < 0 for key in ("save_every", "evaluate_every")):
-        raise ValueError("Save and evaluation intervals must be nonnegative")
-    device = resolve_device(cfg.training.get("device") or cfg.hardware.device)
-    cfg.hardware.device = device
+    if int(cfg.algo.save_interval) < 0:
+        raise ValueError("algo.save_interval must be nonnegative")
+    device = resolve_device(cfg.training.device)
+    cfg.training.device = device
     runtime = resolve_torch_thread_runtime(cfg.training.torch_threads)
     apply_torch_thread_runtime(runtime, role="learner")
     torch.manual_seed(int(cfg.algo.seed))
@@ -251,20 +236,14 @@ def train_flashsac(cfg):
     try:
         runner.learn(
             max_iterations=int(cfg.algo.max_iterations),
-            save_interval=1,
+            save_interval=int(cfg.algo.save_interval),
             log_dir=str(run),
             logger_type=str(cfg.training.logger),
         )
         final = run / "teacher_final.pt"
         runner.collected = int(runner.last_run_summary["total_env_steps"])
-        runner.save(final)
+        runner.last_run_summary["last_checkpoint"] = runner.save(final)
         write_json(run / "summary.json", {**runner.last_run_summary, "counters": runner.counters()})
     finally:
         runner.close()
-    # Evaluate saved snapshots after closing the pipeline so evaluation cannot
-    # stall the collector or exceed its inference-request timeout.
-    if int(cfg.budget.evaluate_every or 0) > 0:
-        runner.evaluations[final] = run / "evaluation_final.json"
-    for checkpoint, output in runner.evaluations.items():
-        evaluate_checkpoint(checkpoint, output=output, device=device)
     return final

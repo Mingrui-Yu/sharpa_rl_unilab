@@ -33,32 +33,39 @@ uv run sharpa-eval --checkpoint /absolute/path/to/student_final.pt
 uv run sharpa-compare --output logs/comparison --seeds 1 2 3
 ```
 
-`--cfg` 打印合并配置。三个算法共用任务、观测预处理与
-固定场景定量评估；`--nodr` 使用同一覆盖，`+preset=throughput` 标记独立吞吐实验。
-绘图需 `uv sync --extra mujoco --extra evaluation`；`sharpa-compare --smoke`
-执行短预算流程验证。旧 checkpoint 必须重训。当前 v2 入口支持单 learner
-设备和从头训练，详见[协议、迁移和验证范围](docs/migrations/issue-2.md)。
+`--cfg` 打印合并配置。三个算法通过 `conf/common/sharpa_inhand.yaml` 共用任务、
+观测预处理、模型和运行设置。teacher 默认 2048 个环境，Learner 使用 `cuda:0`，
+Learner 与独立 Collector 均为 4 个 Torch intra-op 线程、1 个 inter-op 线程。
+APPO 采样推理默认跟随 Learner，可用 `algo.collector_device=cpu` 覆盖。
+`training.device=null` 自动选择 CUDA、MPS 或 CPU。
 
-teacher 和 student 默认显示 UniLab Rich 终端面板，并在运行目录写入 TensorBoard
-事件与完整的 `metrics.jsonl`。运行 `uv run tensorboard --logdir logs` 查看曲线；
-横轴为实际收到的新 transition 数。`training.logger=none` 只关闭 TensorBoard，
-`training.logger=no_print` 仅保留 JSONL。APPO 和原生 FlashSAC 每轮记录指标，按更新轮数显示进度和 ETA；
-其余训练使用 `budget.log_every` 控制记录间隔。
+APPO/PPO 默认训练 501 轮，FlashSAC 默认 3000 轮。三个 teacher 均每轮记录，
+每 50 轮保存；`algo.save_interval=0` 关闭中间保存，正常结束仍保存 `teacher_final.pt`。
+相同轮数不代表相同采样量或计算量。按采样量停止时，显式设置
+`algo.max_iterations=null training.max_transitions=N`，保存仍按轮触发。
+训练不再调度定量评估；独立评估入口和 `sharpa-compare` 训练后的显式评估保留。
 
-APPO 默认使用 2048 个环境，训练 305 轮，每 51 轮保存一次；Learner 自动选择
-CUDA、MPS 或 CPU，Collector 默认跟随 Learner，可用 `hardware.collector_device=cpu`
-覆盖。历史池为 8 批，待接收队列为 4 批。采样预算实验须显式设置
-`algo.max_iterations=null budget.transitions=N`，保存间隔仍使用 `algo.save_interval`。
-PPO 默认使用 2048 个环境，训练 301 轮，每轮每环境采样 8 步，共 4,931,584 条
-transition；进度和 ETA 按轮数显示，checkpoint 仍按 `budget.save_every` 保存，默认
-间隔为 1,000,000 条 transition。改用采样预算时须显式设置
-`algo.max_iterations=null budget.transitions=N`。FlashSAC 默认使用 2048 个环境、
-10000 轮更新，复用 UniLab DoubleBuffer 流水线，关闭 AMP，按进程角色自动配置线程。
-checkpoint 仍按 `budget.save_every` 的实际采样阈值保存。显式设置
-`algo.max_iterations=null budget.transitions=N` 才使用同步采样兼容路径，
-详见 [FlashSAC 实现与限制](docs/migrations/issue-2-flashsac-native.md)。
+FlashSAC 默认使用 UniLab DoubleBuffer 流水线并关闭 AMP；按采样量停止时使用
+同步兼容路径。两条路径的 clean174 Q 输入均使用只由新采样更新的经验统计，
+当前 Q 与目标 Q 共用统计量，保留原生 Q 结构。详见
+[FlashSAC 实现与限制](docs/migrations/issue-2-flashsac-native.md)。
 
-`sharpa-compare` 为各算法显式选择统一采样预算。
+运行资源与各项随机化使用显式参数调节，例如：
+
+```bash
+uv run sharpa-train --algo flashsac training.num_envs=1024 training.torch_threads.learner_num_threads=8
+uv run sharpa-train --algo appo training.device=cuda:0 algo.collector_device=cpu
+```
+
+teacher 和 student 默认显示 UniLab Rich 面板，并写入 TensorBoard 和 `metrics.jsonl`。
+`uv run tensorboard --logdir logs` 查看曲线，横轴为实际收到的新 transition 数。
+`training.logger=none` 关闭 TensorBoard，`training.logger=no_print` 仅保留 JSONL。
+student 仍按 `distillation.log_every`（默认 10000 条采样）记录，停止和保存规则不变。
+
+`sharpa-compare` 显式使用统一采样预算；`--smoke` 执行短流程验证。
+绘图需 `uv sync --extra mujoco --extra evaluation`。现有契约内的 v2 checkpoint
+加载时迁移配置路径，保留历史模型与环境语义；更早的不兼容格式仍需重训。
+当前入口支持单 Learner 和从头训练，详见[迁移说明](docs/migrations/issue-2.md)。
 
 ## 正确性说明
 

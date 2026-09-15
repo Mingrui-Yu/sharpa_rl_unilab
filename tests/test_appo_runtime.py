@@ -37,39 +37,44 @@ def test_hora_parameters_and_other_algorithm_defaults():
         Path(__file__).parents[1] / "docs/migrations/issue-2-baseline/appo_hora.yaml"
     )
     assert cfg.algo.algorithm == baseline.algo.algorithm
-    for key in ("num_envs", "steps_per_env", "max_iterations", "save_interval", "seed"):
+    for key in ("num_envs", "steps_per_env", "seed"):
         assert cfg.algo[key] == baseline.algo[key]
     assert cfg.algo.staging_pool_size == 8
-    assert cfg.budget.async_queue_size == 4
-    assert cfg.budget.transitions is cfg.budget.save_every is None
-    assert cfg.budget.evaluate_every == 0
-    assert (
-        cfg.hardware.device is cfg.hardware.collector_device is cfg.hardware.torch_threads is None
-    )
+    assert cfg.algo.async_queue_size == 4
+    assert cfg.training.max_transitions is None
+    assert cfg.algo.max_iterations == 501
+    assert cfg.algo.save_interval == 50
+    assert cfg.training.device == "cuda:0"
+    assert cfg.algo.collector_device is None
     assert cfg.protocol.appo_baseline == "appo-hora-790ae32"
     for algo in ("ppo", "flashsac"):
         other = compose_config(algo, "mujoco", [])
-        assert other.hardware.num_envs == 2048
-        assert other.hardware.device == "cuda:0"
-        assert other.hardware.collector_device == "cpu"
-        assert other.hardware.torch_threads == (4 if algo == "ppo" else None)
-        assert other.budget.transitions is None
-        assert other.budget.save_every == 1000000
+        assert other.training.num_envs == 2048
+        assert other.training.device == "cuda:0"
+        assert "collector_device" not in other.algo
+        assert other.training.torch_threads == cfg.training.torch_threads
+        assert other.training.max_transitions is None
+        assert other.algo.save_interval == 50
         assert other.distillation == cfg.distillation
 
 
 def test_exclusive_budgets_and_optional_threads():
     cfg = compose_config("appo", "mujoco", [])
-    assert runtime.training_budget(cfg) == ("policy_version", 305)
+    assert runtime.training_budget(cfg) == ("policy_version", 501)
+    runtime.configure_threads(cfg)
+    assert torch.get_num_threads() == 4
+    assert torch.get_num_interop_threads() == 1
+    cfg.training.torch_threads.enabled = False
+    torch.set_num_threads(2)
     runtime.configure_threads(cfg)
     assert torch.get_num_threads() == 2
-    cfg.budget.transitions = 17
+    cfg.training.max_transitions = 17
     with pytest.raises(ValueError, match="exactly one"):
         runtime.training_budget(cfg)
     cfg.algo.max_iterations = None
-    cfg.hardware.num_envs = 8
+    cfg.training.num_envs = 8
     assert runtime.training_budget(cfg) == ("received", 24)
-    cfg.budget.save_every = 10
+    cfg.algo.save_interval = -1
     with pytest.raises(ValueError, match="save_interval"):
         runtime.training_budget(cfg)
 
@@ -132,9 +137,9 @@ def test_collector_switches_complete_policy_only_between_rollouts(monkeypatch):
         "appo",
         "mujoco",
         [
-            "hardware.num_envs=8",
-            "hardware.device=cuda:0",
-            "hardware.collector_device=cpu",
+            "training.num_envs=8",
+            "training.device=cuda:0",
+            "algo.collector_device=cpu",
             "algo.collector_seed=2",
         ],
     )
@@ -195,7 +200,7 @@ def test_collector_switches_complete_policy_only_between_rollouts(monkeypatch):
     assert [packet[2] for packet in packets] == [0, 2]
     assert [packet[3] for packet in packets] == [64, 128]
     assert count.value == 128
-    assert torch.get_num_threads() == 2  # null leaves this process's setting alone
+    assert torch.get_num_threads() == 4  # Collector applies its own role budget.
     verifier, _, _ = runtime.make_models(cfg, "cpu")
     verifier.eval()
     pool = None
@@ -257,12 +262,9 @@ def test_comparison_smoke_explicitly_selects_sampling_budgets(tmp_path, monkeypa
         algo = command[4]
         cfg = compose_config(algo, "mujoco", command[5:])
         assert runtime.training_budget(cfg) == ("received", 128)
-        assert cfg.hardware.num_envs == 8
-        if algo == "appo":
-            assert cfg.algo.max_iterations is cfg.budget.save_every is None
-            assert cfg.algo.save_interval == 0
-        else:
-            assert cfg.budget.save_every == 0
+        assert cfg.training.num_envs == 8
+        assert cfg.algo.max_iterations is None
+        assert cfg.algo.save_interval == 0
 
 
 @pytest.mark.slow
@@ -271,9 +273,9 @@ def test_iteration_training_freezes_statistics_and_roundtrips_checkpoint(tmp_pat
         "appo",
         "mujoco",
         [
-            "hardware.num_envs=8",
-            "hardware.device=cpu",
-            "hardware.torch_threads=2",
+            "training.num_envs=8",
+            "training.device=cpu",
+            "training.torch_threads.learner_num_threads=2",
             "algo.max_iterations=10",
             "algo.save_interval=3",
             "training.logger=no_print",
@@ -332,7 +334,7 @@ def test_iteration_training_freezes_statistics_and_roundtrips_checkpoint(tmp_pat
     monkeypatch.setattr(runtime.AsyncRollouts, "close", close)
     path = runtime.train_teacher(cfg)
     actor, effective, snapshot = runtime.load_policy(path)
-    assert effective.hardware.device == effective.hardware.collector_device == "cpu"
+    assert effective.training.device == effective.algo.collector_device == "cpu"
     assert effective.algo.collector_seed == 2
     counters = snapshot["counters"]
     assert counters["policy_version"] == 10
@@ -356,6 +358,12 @@ def test_iteration_training_freezes_statistics_and_roundtrips_checkpoint(tmp_pat
     assert rows[-1]["staging_rollouts"] == rows[-1]["staging_pool_capacity"] == 8
     assert rows[-1]["training_samples"] == sum(row["staging_rollouts"] * 64 * 5 for row in rows)
     assert rows[-1]["collected"] == counters["collected"]
+    assert rows[-1]["runtime/collector_num_threads"] == 4
+    assert rows[-1]["runtime/collector_num_interop_threads"] == 1
+    metadata = json.loads((path.parent / "run.json").read_text())["runtime"]
+    assert metadata["learner_num_threads"] == 2
+    assert metadata["learner_num_interop_threads"] == 1
+    assert metadata["sampling_architecture"] == "async_queue"
     assert not list(path.parent.glob("evaluation_*.json"))
     adam = snapshot["optimizer_parameters"]["optimizer"][0]
     assert adam["betas"] == (0.9, 0.999) and adam["eps"] == 1e-8 and adam["weight_decay"] == 0

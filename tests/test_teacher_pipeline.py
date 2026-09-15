@@ -30,12 +30,11 @@ def test_train_save_load_evaluate_distill(algo, budget, expected, tmp_path, monk
 
         monkeypatch.setattr(PPO, "update", check_behavior_density)
     overrides = [
-        "hardware.num_envs=8",
-        "hardware.device=cpu",
-        "hardware.torch_threads=2",
-        f"budget.transitions={budget}",
-        "budget.save_every=16",
-        "budget.evaluate_every=16",
+        "training.num_envs=8",
+        "training.device=cpu",
+        "training.torch_threads.learner_num_threads=2",
+        f"training.max_transitions={budget}",
+        "algo.save_interval=1",
         "evaluation.scales=[1.0]",
         "evaluation.scale_weights=[1.0]",
         "evaluation.seeds=[10001]",
@@ -48,8 +47,6 @@ def test_train_save_load_evaluate_distill(algo, budget, expected, tmp_path, monk
         overrides += ["algo.algorithm.num_learning_epochs=1", "algo.algorithm.num_mini_batches=1"]
         overrides += ["algo.steps_per_env=2" if algo == "appo" else "algo.num_steps_per_env=2"]
     overrides += ["algo.max_iterations=null"]
-    if algo == "appo":
-        overrides += ["budget.save_every=null", "algo.save_interval=1"]
     cfg = compose_config(algo, "mujoco", overrides)
     path = train_teacher(cfg)
     metrics = [
@@ -71,13 +68,13 @@ def test_train_save_load_evaluate_distill(algo, budget, expected, tmp_path, monk
     actor, _, checkpoint = load_policy(path, stage="teacher")
     assert checkpoint["counters"]["collected"] == checkpoint["counters"]["received"] == expected
     assert actor.shared.obs_normalizer.count.item() == expected
-    periodic = list(
-        path.parent.glob("teacher_iteration_*.pt" if algo == "appo" else "teacher_[0-9]*.pt")
-    )
+    periodic = list(path.parent.glob("teacher_iteration_*.pt"))
     assert periodic
     for saved in periodic:
         policy, _, snapshot = load_policy(saved)
         assert policy.shared.obs_normalizer.count.item() == snapshot["counters"]["received"]
+    assert not list(path.parent.glob("evaluation_*.json"))
+    assert checkpoint["critic"]["obs_normalizer.count"].item() == expected
     result = evaluate_checkpoint(path)
     repeated = evaluate_checkpoint(path)
     assert result["episodes"] == repeated["episodes"]
@@ -192,7 +189,7 @@ def test_reset_failure_closes_environment(tmp_path, monkeypatch):
     cfg = compose_config(
         "ppo",
         "mujoco",
-        ["hardware.num_envs=8", "hardware.device=cpu", f"training.log_dir={tmp_path / 'run'}"],
+        ["training.num_envs=8", "training.device=cpu", f"training.log_dir={tmp_path / 'run'}"],
     )
     with pytest.raises(RuntimeError, match="reset failed"):
         train_teacher(cfg)
@@ -250,13 +247,11 @@ def test_appo_drains_multiple_packets_and_closes(tmp_path, monkeypatch, fail_upd
         "appo",
         "mujoco",
         [
-            "hardware.num_envs=8",
-            "hardware.device=cpu",
-            "budget.transitions=24",
+            "training.num_envs=8",
+            "training.device=cpu",
+            "training.max_transitions=24",
             "algo.max_iterations=null",
-            "budget.save_every=null",
             "algo.save_interval=0",
-            "budget.evaluate_every=0",
             "algo.algorithm.num_learning_epochs=1",
             "algo.algorithm.num_mini_batches=1",
             "training.logger=no_print",

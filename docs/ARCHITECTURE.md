@@ -40,3 +40,17 @@ Object scales are immutable fixed model variants. The manager XML gives every
 body geom a unique name for `mjbatch.VariantPack`, and every variant marks the
 free object body `simple="false"` so reset-time mass/CoM writes do not invalidate
 MuJoCo's compiled sameframe assumptions.
+
+## Shared rotation runtime
+
+`conf/common/sharpa_inhand.yaml` defines the physical task and shared training,
+model, evaluation and distillation settings. Algorithm owners retain their
+optimizer and collection settings. `training/configuration.py` applies common
+Torch thread budgets and migrates supported checkpoint configs without replacing
+saved task/model semantics. Teachers save and log by update round; sampling
+limits remain an independent stopping mode.
+
+FlashSAC wraps its native Q with `CleanQ`: current and target Q share clean174
+input statistics, updated only on fresh received transitions. Actor statistics,
+replay storage, native Q losses and target parameter updates remain independent.
+See [RL alignment](migrations/issue-2-rl-align.md) for paths and validation scope.

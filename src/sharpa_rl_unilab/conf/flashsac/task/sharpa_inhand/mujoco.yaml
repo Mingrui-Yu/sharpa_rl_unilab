@@ -1,11 +1,12 @@
 # @package _global_
 defaults:
-  - /common/task
-  - /common/protocol
+  - /common/sharpa_inhand
   - _self_
 algo:
-  num_envs: ${hardware.num_envs}
-  max_iterations: 10000
+  num_envs: ${training.num_envs}
+  max_iterations: 3000
+  save_interval: 50
+  checkpoint: null
   use_amp: false
   batch_size: 2048
   replay_buffer_n: 1280
@@ -15,18 +16,3 @@ algo:
   critic_hidden_dim: 512
 training:
   env_steps_per_sync: 2
-  torch_threads:
-    enabled: true
-    learner_num_threads: auto
-    collector_num_threads: auto
-    learner_num_interop_threads: 1
-    collector_num_interop_threads: 1
-    compile_threads: auto
-    set_env_vars: true
-hardware:
-  num_envs: 2048
-  torch_threads: null
-budget:
-  transitions: null
-model:
-  critic_normalization: false

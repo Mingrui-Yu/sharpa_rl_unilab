@@ -32,22 +32,20 @@ def test_owner_composition_and_identity(algo, sim, task):
         compose_config(algo, sim, ["training={sim_backend:unknown}"], task=task)
 
 
-def test_common_task_and_nodr_are_identical_for_all_algorithms():
+def test_common_task_is_identical_for_all_algorithms():
     from omegaconf import OmegaConf
 
-    for nodr in (False, True):
-        configs = [
-            compose_config(algo, "mujoco", [], nodr=nodr) for algo in ("ppo", "appo", "flashsac")
-        ]
-        for key in ("env", "reward", "distillation", "evaluation"):
-            values = [OmegaConf.to_container(cfg[key], resolve=True) for cfg in configs]
-            assert values[0] == values[1] == values[2]
-        if nodr:
-            cfg = configs[0]
-            assert cfg.env.events.persistent_force is None
-            assert not cfg.env.events.domain_randomization.params.randomize_pd_gains
-            assert cfg.env.observations.actor.terms.frame.params.contact_smoothing == 1
-            assert cfg.env.observations.actor.terms.frame.params.joint_noise == 0
+    configs = [compose_config(algo, "mujoco", []) for algo in ("ppo", "appo", "flashsac")]
+    for key in ("env", "reward", "distillation", "evaluation"):
+        values = [OmegaConf.to_container(cfg[key], resolve=True) for cfg in configs]
+        assert values[0] == values[1] == values[2]
+    for cfg in configs:
+        assert "budget" not in cfg and "hardware" not in cfg
+        assert cfg.model.critic_normalization is True
+        assert cfg.algo.num_envs == cfg.training.num_envs == 2048
+        assert cfg.training.device == "cuda:0"
+        assert cfg.training.torch_threads.learner_num_threads == 4
+        assert cfg.training.torch_threads.collector_num_threads == 4
 
 
 def test_reserved_overrides_are_rejected():
@@ -55,6 +53,28 @@ def test_reserved_overrides_are_rejected():
         compose_config("ppo", "mujoco", ["task=sharpa_inhand/motrix"])
     with pytest.raises(ValueError, match="CLI flags"):
         compose_config("ppo", "mujoco", ["training.play_only=true"])
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_eval_checkpoint_path_and_device_overrides(monkeypatch, explicit):
+    from sharpa_rl_unilab import cli
+    from sharpa_rl_unilab.training import evaluation
+
+    calls = []
+    monkeypatch.setattr(assets, "ensure_assets", lambda: None)
+
+    def evaluate(path, **kwargs):
+        calls.append((path, kwargs))
+        return {"summary": {}}
+
+    monkeypatch.setattr(evaluation, "evaluate_checkpoint", evaluate)
+    argv = ["algo.checkpoint=config.pt", "evaluation.episodes_per_scale=1"]
+    if explicit:
+        argv += ["--checkpoint", "explicit.pt", "training.device=cpu"]
+    cli._main(play=True, argv=argv)
+    assert calls[0][0] == ("explicit.pt" if explicit else "config.pt")
+    assert calls[0][1]["device"] == ("cpu" if explicit else None)
+    assert calls[0][1]["evaluation"].episodes_per_scale == 1
 
 
 def test_installed_registration_in_spawn(tmp_path):

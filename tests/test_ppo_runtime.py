@@ -10,33 +10,33 @@ from sharpa_rl_unilab.training.teacher_runtime import load_policy, train_teacher
 
 def test_ppo_default_scale_and_model():
     cfg = compose_config("ppo", "mujoco", [])
-    assert cfg.hardware.num_envs == cfg.algo.num_envs == 2048
-    assert cfg.budget.transitions is None
-    assert training_budget(cfg) == ("policy_version", 301)
+    assert cfg.training.num_envs == cfg.algo.num_envs == 2048
+    assert cfg.training.max_transitions is None
+    assert training_budget(cfg) == ("policy_version", 501)
     assert cfg.algo.num_steps_per_env == 8
     rollout = cfg.algo.num_envs * cfg.algo.num_steps_per_env
     assert rollout == 16384
     assert rollout // cfg.algo.algorithm.num_mini_batches == 4096
-    assert rollout * cfg.algo.max_iterations == 4931584
+    assert rollout * cfg.algo.max_iterations == 8208384
     assert (
         cfg.algo.max_iterations
         * cfg.algo.algorithm.num_learning_epochs
         * cfg.algo.algorithm.num_mini_batches
-    ) == 6020
-    assert cfg.budget.save_every == 1000000
-    assert cfg.model == OmegaConf.load(CONF_ROOT / "common/protocol.yaml").model
+    ) == 10020
+    assert cfg.algo.save_interval == 50
+    assert cfg.model == OmegaConf.load(CONF_ROOT / "common/sharpa_inhand.yaml").model
     overridden = compose_config(
-        "ppo", "mujoco", ["hardware.num_envs=8", "algo.num_steps_per_env=3"]
+        "ppo", "mujoco", ["training.num_envs=8", "algo.num_steps_per_env=3"]
     )
     assert overridden.algo.num_envs == 8
-    assert training_budget(overridden) == ("policy_version", 301)
+    assert training_budget(overridden) == ("policy_version", 501)
 
 
-@pytest.mark.parametrize("iterations, transitions", [(301, 17), (None, None)])
+@pytest.mark.parametrize("iterations, transitions", [(501, 17), (None, None)])
 def test_ppo_requires_exactly_one_budget(iterations, transitions):
     cfg = compose_config("ppo", "mujoco", [])
     cfg.algo.max_iterations = iterations
-    cfg.budget.transitions = transitions
+    cfg.training.max_transitions = transitions
     with pytest.raises(ValueError, match="exactly one"):
         training_budget(cfg)
 
@@ -45,35 +45,46 @@ def test_ppo_requires_exactly_one_budget(iterations, transitions):
 def test_ppo_requires_positive_budget(iterations, transitions):
     cfg = compose_config("ppo", "mujoco", [])
     cfg.algo.max_iterations = iterations
-    cfg.budget.transitions = transitions
+    cfg.training.max_transitions = transitions
     with pytest.raises(ValueError, match="positive"):
         training_budget(cfg)
 
 
 @pytest.mark.slow
 @pytest.mark.parametrize(
-    "num_envs, horizon, iterations, transitions, rollout_lengths",
-    [(8, 8, 2, None, [8, 8]), (4, 3, 3, None, [3, 3, 3]), (8, 2, None, 17, [2, 1])],
+    "num_envs, horizon, iterations, transitions, rollout_lengths, save_interval",
+    [
+        (8, 8, 2, None, [8, 8], 1),
+        (4, 3, 3, None, [3, 3, 3], 1),
+        (8, 2, None, 17, [2, 1], 1),
+        (4, 2, 2, None, [2, 2], 0),
+    ],
 )
 def test_ppo_stops_after_updates_and_saves(
-    tmp_path, monkeypatch, num_envs, horizon, iterations, transitions, rollout_lengths
+    tmp_path,
+    monkeypatch,
+    num_envs,
+    horizon,
+    iterations,
+    transitions,
+    rollout_lengths,
+    save_interval,
 ):
     cfg = compose_config(
         "ppo",
         "mujoco",
         [
-            f"hardware.num_envs={num_envs}",
-            "hardware.device=cpu",
-            "hardware.torch_threads=2",
+            f"training.num_envs={num_envs}",
+            "training.device=cpu",
+            "training.torch_threads.learner_num_threads=2",
             f"algo.num_steps_per_env={horizon}",
-            f"budget.save_every={num_envs * horizon}",
-            "budget.log_every=1",
+            f"algo.save_interval={save_interval}",
             "training.logger=no_print",
             f"training.log_dir={tmp_path / 'run'}",
         ],
     )
     cfg.algo.max_iterations = iterations
-    cfg.budget.transitions = transitions
+    cfg.training.max_transitions = transitions
     original_update = PPO.update
     lengths, optimizer_steps = [], []
 
@@ -101,6 +112,6 @@ def test_ppo_stops_after_updates_and_saves(
     rows = [json.loads(line) for line in (path.parent / "metrics.jsonl").read_text().splitlines()]
     assert [row["policy_version"] for row in rows] == list(range(1, rounds + 1))
     assert rows[-1]["received"] == samples
-    assert {p.name for p in path.parent.glob("teacher_[0-9]*.pt")} == {
-        f"teacher_{step}.pt" for step in range(num_envs * horizon, samples + 1, num_envs * horizon)
+    assert {p.name for p in path.parent.glob("teacher_iteration_*.pt")} == {
+        f"teacher_iteration_{step}.pt" for step in range(1, rounds + 1) if save_interval
     }

@@ -43,22 +43,33 @@ uv run sharpa-train --algo flashsac
 uv run sharpa-train --algo ppo
 ```
 
-Append Hydra overrides for tuning; `--cfg` prints the composed Manager-Based
-configuration. All algorithms share physical settings, observation preprocessing,
-and fixed-scene quantitative evaluation. APPO defaults to 2048 environments,
-305 learner updates and a checkpoint every 51 updates; its collector follows the
-automatically selected learner device. PPO defaults to 2048 environments and
-301 updates of 8 steps per environment (4,931,584 transitions). Its checkpoints
-still use `budget.save_every`, defaulting to 1,000,000 transitions.
-For a PPO or APPO sampling budget, explicitly set `algo.max_iterations=null
-budget.transitions=N`; APPO checkpoints still use `algo.save_interval`.
-FlashSAC defaults to 2048 environments and 10000 update rounds through UniLab’s
-DoubleBuffer runner, with AMP disabled and automatic threads per process role.
-Its checkpoints retain transition-based `budget.save_every` thresholds. Explicit
-`algo.max_iterations=null budget.transitions=N` selects the synchronous sampling
-compatibility path; see [FlashSAC runtime details](docs/migrations/issue-2-flashsac-native.md).
-`sharpa-compare` explicitly selects sampling budgets for comparisons. `--nodr` uses
-one common override; `+preset=throughput` selects a separate throughput experiment.
+Append Hydra overrides for tuning; `--cfg` prints the composed configuration.
+`conf/common/sharpa_inhand.yaml` defines the shared task, model and runtime settings.
+All three teachers use 2048 environments, `training.device=cuda:0`, and 4 Torch
+intra-op / 1 inter-op threads per learner or independent collector process.
+APPO's collector follows the learner unless `algo.collector_device` is set.
+Use `training.device=null` for automatic CUDA → MPS → CPU selection.
+
+APPO/PPO default to 501 update rounds, FlashSAC to 3000. Every teacher saves each
+50 rounds (`algo.save_interval`; 0 disables intermediate saves), logs every round
+and writes `teacher_final.pt` on completion. Round counts do not imply equal
+sample counts or compute. For a sampling limit, set
+`algo.max_iterations=null training.max_transitions=N`; saving remains by round.
+`sharpa-compare` explicitly selects sampling limits and evaluates final models.
+Training itself does not schedule quantitative evaluation.
+
+FlashSAC uses UniLab's DoubleBuffer runner with AMP disabled. A sampling limit
+selects its synchronous compatibility runner; see
+[FlashSAC runtime details](docs/migrations/issue-2-flashsac-native.md).
+Both paths normalize clean174 Q inputs using fresh-sample statistics shared by
+current and target Q networks. V/Q architectures and algorithm settings remain distinct.
+
+Tune resources or individual randomization settings with explicit overrides:
+
+```bash
+uv run sharpa-train --algo flashsac training.num_envs=1024 training.torch_threads.learner_num_threads=8
+uv run sharpa-train --algo appo training.device=cuda:0 algo.collector_device=cpu
+```
 
 ```bash
 uv run sharpa-eval --checkpoint /absolute/path/to/teacher_final.pt
@@ -71,14 +82,15 @@ Teacher and student runs show a UniLab Rich terminal panel and save TensorBoard
 events alongside the full `metrics.jsonl`. Run `uv run tensorboard --logdir logs`
 to view curves indexed by newly received transitions. Set `training.logger=none`
 for the panel and JSONL only, or `training.logger=no_print` for JSONL only.
-APPO and native FlashSAC log every learner update and show iteration progress/ETA; sampling counters
-remain separate. Other runs use `budget.log_every` in transitions. Native TensorBoard
-logging keeps slash metrics as-is and prefixes flat metrics with `train/`.
+Teachers log every round; iteration-limited runs show iteration progress/ETA.
+Student logs use `distillation.log_every` (default 10,000 transitions).
+Native TensorBoard logging keeps slash metrics as-is and prefixes flat metrics with `train/`.
 See [component reuse and validation](docs/migrations/issue-2-simplify.md).
 
 Use `uv sync --extra mujoco --extra evaluation` for comparison figures. Add
-`--smoke` to `sharpa-compare` for a short pipeline check. Old checkpoints require
-retraining. The v2 runner supports one learner device and fresh training runs;
+`--smoke` to `sharpa-compare` for a short pipeline check. Supported v2 checkpoints migrate their configuration
+paths on load and retain saved model/environment semantics. Older incompatible
+formats require retraining. The runner supports one learner device and fresh training runs;
 see the [protocol, migration and validation limits](docs/migrations/issue-2.md).
 
 ## Manager-Based correctness notes

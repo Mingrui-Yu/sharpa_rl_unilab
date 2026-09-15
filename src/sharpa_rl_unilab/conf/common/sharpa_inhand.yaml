@@ -253,3 +253,60 @@ reward:
     weight: 0.003
     params:
       state_term_name: dropped
+protocol:
+  comparison_mode: fixed-hardware
+  version: sharpa-hora-v2
+  stage: teacher
+  appo_baseline: appo-default-790ae32
+model:
+  actor_hidden_dims: [512, 256, 128]
+  critic_hidden_dims: [512, 256, 128]
+  priv_mlp_hidden_dims: [256, 128, 9]
+  activation: elu
+  actor_normalization: true
+  critic_normalization: true
+training:
+  num_envs: 2048
+  max_transitions: null
+  device: cuda:0
+  torch_threads:
+    enabled: true
+    learner_num_threads: 4
+    collector_num_threads: 4
+    learner_num_interop_threads: 1
+    collector_num_interop_threads: 1
+    compile_threads: auto
+    set_env_vars: true
+  devices: null
+  log_dir: null
+  logger: tensorboard
+  play_only: false
+  task_name: SharpaInhandRotation
+  sim_backend: mujoco
+  no_play: false
+  play_render_mode: record
+  play_env_num: 16
+  play_steps: 400
+  render_spacing: 0.5
+  cam_distance: 0.75
+  cam_lookat: [0.0, 0.0, 0.62]
+  cam_elevation: -25.0
+  cam_azimuth: 45.0
+evaluation:
+  seeds: [10001, 10002, 10003]
+  training_seeds: [1, 2, 3]
+  episodes_per_scale: 10
+  scales: [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+  scale_weights: [0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125]
+  window_seconds: 20.0
+  checkpoint_selection: final
+  split: validation
+  manifest: null
+distillation:
+  transitions: 100000000
+  num_envs: 4096
+  learning_rate: 0.0003
+  save_every: 10000000
+  log_every: 10000
+  seeds: [1, 2, 3]
+  seed: ${algo.seed}

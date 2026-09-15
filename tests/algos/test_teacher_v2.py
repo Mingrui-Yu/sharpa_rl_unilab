@@ -141,6 +141,63 @@ def test_normalization_counts_fresh_batches_once_despite_staging_and_replay():
     )
 
 
+def test_flash_q_normalizes_all_paths_without_recounting_and_roundtrips(tmp_path):
+    from sharpa_rl_unilab.training.teacher_runtime import save_teacher
+
+    cfg = compose_config("flashsac", "mujoco", [])
+    actor, critic, learner = make_models(cfg, "cpu")
+    raw = transitions()
+    raw["critic"] = raw["critic"] * 3 + 7
+    raw["next_critic"] = raw["next_critic"] * 5 - 2
+    observe_new_samples(actor, critic, pack_actor(raw), raw["critic"])
+    normalizer = critic.obs_normalizer
+    assert normalizer is learner.target_critic.obs_normalizer
+    assert normalizer is not actor.shared.obs_normalizer
+    torch.testing.assert_close(normalizer.mean, raw["critic"].mean(dim=(0, 1)))
+    assert normalizer.count.item() == 8
+    before = frozen_weights(normalizer)
+    replay = Replay(8, "cpu")
+    replay.add(raw)
+    torch.testing.assert_close(replay.data["critic"], raw["critic"].flatten(0, 1))
+    seen = {"current": [], "target": []}
+    handles = [
+        module.network.register_forward_pre_hook(
+            lambda _module, args, key=key: seen[key].append(tuple(x.detach().clone() for x in args))
+        )
+        for key, module in (("current", critic), ("target", learner.target_critic))
+    ]
+    for _ in range(2):
+        batch = replay.sample(8)
+        learner.update_critic(batch)
+        expected = normalizer(torch.cat((batch["critic"], batch["next_critic"])))
+        torch.testing.assert_close(seen["current"][-1][0], expected)
+        torch.testing.assert_close(seen["target"][-1][0], expected)
+        torch.testing.assert_close(seen["current"][-1][1][:8], batch["actions"])
+        learner.update_actor(batch)
+        torch.testing.assert_close(seen["current"][-1][0], normalizer(batch["critic"]))
+        learner.soft_update_target()
+        for key, value in before.items():
+            torch.testing.assert_close(normalizer.state_dict()[key], value, rtol=0, atol=0)
+    for handle in handles:
+        handle.remove()
+    assert all(np.isfinite(v) for v in learner.saturation_metrics.values())
+    path = tmp_path / "teacher.pt"
+    save_teacher(path, cfg, actor, critic, learner, {"received": 8}, 0)
+    state = torch.load(path, weights_only=False)
+    _, restored_q, restored = make_models(cfg, "cpu")
+    restored.load_state_dict(state["learner"])
+    for key, value in before.items():
+        torch.testing.assert_close(restored_q.obs_normalizer.state_dict()[key], value)
+    for original, loaded in ((critic, restored_q), (learner.target_critic, restored.target_critic)):
+        expected = original(batch["critic"], batch["actions"], training=False)[0]
+        actual = loaded(batch["critic"], batch["actions"], training=False)[0]
+        assert torch.isfinite(actual).all()
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    del state["learner"]["critic"]["obs_normalizer.count"]
+    with pytest.raises(RuntimeError, match="obs_normalizer.count"):
+        restored.load_state_dict(state["learner"])
+
+
 def test_timeout_bootstrap_uses_final_clean_value_and_real_termination_wins():
     batch = {
         "next_critic": torch.tensor([[[5.0], [7.0], [11.0]]]),
