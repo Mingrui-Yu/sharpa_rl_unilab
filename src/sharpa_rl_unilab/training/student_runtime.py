@@ -86,11 +86,13 @@ def train_student(checkpoint, *, overrides=(), device=None):
     if target <= 0:
         raise ValueError("distillation.transitions must be positive")
     cfg.algo.num_envs = n
-    # A teacher's run directory must never be reused by its student.
+    # Keep distillation runs separate from teacher runs unless explicitly overridden.
     run_override = next(
         (item.split("=", 1)[1] for item in overrides if item.startswith("training.log_dir=")), None
     )
-    run = Path(run_override or Path(checkpoint).parent / f"student_seed_{seed}_{time.time_ns()}")
+    run = Path(
+        run_override or f"logs/hora_distill/{source['algorithm']}_seed_{seed}_{time.time_ns()}"
+    )
     cfg.training.log_dir = str(run)
     run.mkdir(parents=True, exist_ok=False)
     write_run_metadata(run, cfg)
