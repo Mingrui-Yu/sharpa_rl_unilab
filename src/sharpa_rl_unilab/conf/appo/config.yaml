@@ -8,6 +8,7 @@ algo:
     max_grad_norm: 1.0
     use_clipped_value_loss: true
     schedule: adaptive
+    kl_mode: log_epsilon  # log_epsilon: log(std / old_std + 1e-5); exact: unbiased KL.
     optimizer: adam
     tau: 1.0
     target_update_freq: 1

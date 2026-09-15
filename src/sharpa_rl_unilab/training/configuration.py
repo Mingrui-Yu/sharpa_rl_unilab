@@ -29,6 +29,10 @@ def migrate_checkpoint_config(config) -> DictConfig:
     cfg = OmegaConf.create(config)
     assert isinstance(cfg, DictConfig)
     OmegaConf.resolve(cfg)
+    if cfg.algo.algo in {"ppo", "appo"}:
+        algorithm = cfg.algo.get("algorithm", {})
+        if algorithm.get("kl_mode") == "legacy":
+            algorithm["kl_mode"] = "log_epsilon"
     if "budget" in cfg:
         old = cfg.pop("budget")
         cfg.training.setdefault("max_transitions", old.get("transitions"))

@@ -15,7 +15,7 @@ from uni_rl.algos.flash_sac.learner import FlashSACLearner
 from uni_rl.algos.flash_sac.network import FlashSACDoubleCritic
 from uni_rl.algos.flash_sac.update import build_lr_lambda
 
-from .distribution import LogStd, PolicyDistribution
+from .distribution import LogStd, PolicyDistribution, validate_kl_mode
 from .legacy import LegacyScalarStd, LegacyTanhStd
 from .models import _MLP, HoraCoreOutput, ProprioAdaptTConv
 
@@ -122,7 +122,10 @@ class TeacherActor(HoraActor):
 
     is_recurrent = False
 
-    def __init__(self, model: dict[str, Any], *, student: bool = False):
+    def __init__(
+        self, model: dict[str, Any], *, student: bool = False, kl_mode: str = "log_epsilon"
+    ):
+        self.kl_mode = validate_kl_mode(kl_mode)
         super().__init__(model, student=student)
         self._distribution: PolicyDistribution | None = None
 
@@ -163,7 +166,9 @@ class TeacherActor(HoraActor):
         old_params: tuple[torch.Tensor, torch.Tensor],
         new_params: tuple[torch.Tensor, torch.Tensor],
     ):
-        return PolicyDistribution(*new_params, self.action_mapping).kl_from(*old_params)
+        return PolicyDistribution(*new_params, self.action_mapping).kl_from(
+            *old_params, mode=self.kl_mode
+        )
 
     def reset(self, dones=None, hidden_state=None):
         pass
@@ -209,6 +214,10 @@ class CleanValue(nn.Module):
 class TeacherAPPOLearner(APPOLearner):
     """Reuse upstream V-trace and PPO losses, replacing only distribution math."""
 
+    def __init__(self, *args, kl_mode: str = "log_epsilon", **kwargs):
+        self.kl_mode = validate_kl_mode(kl_mode)
+        super().__init__(*args, **kwargs)
+
     def _minibatch_policy_value(self, obs_mini, critic_obs_mini):
         actor = cast(TeacherActor, self.actor)
         critic = cast(CleanValue, self.critic)
@@ -251,8 +260,10 @@ class TeacherAPPOLearner(APPOLearner):
             old_mu_mini,
             old_sigma_mini,
         )
+        if self.kl_mode == "log_epsilon":
+            # Preserve upstream's full formula, including log(sigma / old_sigma + 1e-5).
+            return result
         kl = self._loss_distribution.kl_from(old_mu_mini, old_sigma_mini).mean()
-        # Upstream adds 1e-5 inside log(sigma / old_sigma); use exact KL instead.
         return (*result[:4], kl, *result[5:])
 
 

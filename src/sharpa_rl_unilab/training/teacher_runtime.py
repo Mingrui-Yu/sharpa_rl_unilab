@@ -19,6 +19,7 @@ from omegaconf import DictConfig, OmegaConf
 from rsl_rl.algorithms import PPO
 from rsl_rl.storage import RolloutStorage
 from tensordict import TensorDict
+from uni_rl.algos.appo.learner import APPOLearner
 from uni_rl.algos.appo.staging import RolloutStagingPool
 from uni_rl.algos.appo.worker import compute_rollout_active_steps_per_sec
 from uni_rl.algos.common.collector_timing import extract_env_step_breakdown_timing_ms
@@ -124,13 +125,14 @@ def make_models(cfg, device):
             **params,
         )
         return learner.actor, learner.critic, learner
-    return TeacherActor(model).to(device), CleanValue(model).to(device), None
+    actor = TeacherActor(model, kl_mode=cfg.algo.algorithm.get("kl_mode", "log_epsilon"))
+    return actor.to(device), CleanValue(model).to(device), None
 
 
-def algorithm_options(cfg, cls):
+def algorithm_options(cfg, cls, *, extra_options=()):
     params = config_dict(cfg.algo.algorithm)
-    allowed = inspect.signature(cls.__init__).parameters
-    if unsupported := params.keys() - allowed.keys():
+    allowed = set(inspect.signature(cls.__init__).parameters) | set(extra_options)
+    if unsupported := params.keys() - allowed:
         raise ValueError(f"Unsupported algorithm options: {sorted(unsupported)}")
     return {k: v for k, v in params.items() if k in allowed}
 
@@ -200,7 +202,13 @@ def _collector(config, initial_weights, output, weights, stop, count):
         torch.manual_seed(seed)
         np.random.seed(seed)
         device = str(cfg.algo.collector_device)
-        actor = TeacherActor(config_dict(cfg.model)).to(device).eval()
+        actor = (
+            TeacherActor(
+                config_dict(cfg.model), kl_mode=cfg.algo.algorithm.get("kl_mode", "log_epsilon")
+            )
+            .to(device)
+            .eval()
+        )
         actor.load_state_dict(initial_weights)
         env = SharpaTeacherEnv(cfg, int(cfg.algo.num_envs))
         obs, _ = env.reset(seed=seed)
@@ -412,7 +420,9 @@ def load_policy(path, device: str | None = "cpu", *, stage=None, configure_runti
     if checkpoint["algorithm"] == "flashsac":
         actor = TeacherFlashActor(model, student=student).to(device)
     else:
-        actor = TeacherActor(model, student=student).to(device)
+        actor = TeacherActor(
+            model, student=student, kl_mode=cfg.algo.algorithm.get("kl_mode", "exact")
+        ).to(device)
     from sharpa_rl_unilab.algos.hora.legacy import migrate_actor_state
 
     actor.load_state_dict(migrate_actor_state(checkpoint["actor"]), strict=True)
@@ -524,7 +534,7 @@ def train_teacher(cfg):
                 ),  # Native annotations require MLPModel; adapters implement its interface.
                 critic=cast(Any, critic),
                 device=device,
-                **algorithm_options(cfg, TeacherAPPOLearner.__mro__[1]),
+                **algorithm_options(cfg, APPOLearner, extra_options=("kl_mode",)),
             )
             asynchronous = AsyncRollouts(cfg, actor)
             resources.callback(asynchronous.close)
@@ -632,12 +642,15 @@ def train_teacher(cfg):
                     else RolloutStorage("rl", n, t, td, [22], device)
                 )
                 if learner is None:
+                    options = algorithm_options(cfg, PPO, extra_options=("kl_mode",))
+                    # PPO obtains KL from the actor adapter, configured by make_models.
+                    options.pop("kl_mode", None)
                     learner = PPO(
                         cast(Any, actor),
                         cast(Any, critic),
                         storage,
                         device=device,
-                        **algorithm_options(cfg, PPO),
+                        **options,
                     )
                 assert isinstance(learner, PPO)
                 learner.storage = storage

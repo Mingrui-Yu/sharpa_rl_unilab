@@ -59,6 +59,42 @@ def legacy_config(algo):
     return cfg
 
 
+@pytest.mark.parametrize("algo", ["ppo", "appo"])
+@pytest.mark.parametrize(
+    "saved_mode,expected",
+    [
+        ("legacy", "log_epsilon"),
+        ("log_epsilon", "log_epsilon"),
+        ("exact", "exact"),
+        (None, "exact"),
+    ],
+)
+def test_checkpoint_kl_mode_migration_preserves_policy(tmp_path, algo, saved_mode, expected):
+    cfg = compose_config(algo, "mujoco", [])
+    actor, critic, _ = make_models(cfg, "cpu")
+    if saved_mode is None:
+        del cfg.algo.algorithm.kl_mode
+    else:
+        cfg.algo.algorithm.kl_mode = saved_mode
+    path = tmp_path / "teacher.pt"
+    from types import SimpleNamespace
+
+    save_teacher(
+        path,
+        cfg,
+        actor,
+        critic,
+        SimpleNamespace(optimizer=torch.optim.Adam(actor.parameters())),
+        {"received": 0},
+        0,
+    )
+    restored, migrated, _ = load_policy(path, configure_runtime=False)
+    assert restored.kl_mode == expected
+    assert migrated.algo.algorithm.get("kl_mode", "exact") == expected
+    torch.testing.assert_close(restored.state_dict(), actor.state_dict(), atol=0, rtol=0)
+    assert cfg.algo.algorithm.get("kl_mode") == saved_mode
+
+
 @pytest.mark.parametrize("algo", ["ppo", "appo", "flashsac"])
 def test_migration_preserves_checkpoint_semantics(algo):
     old = legacy_config(algo)

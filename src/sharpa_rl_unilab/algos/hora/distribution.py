@@ -10,6 +10,12 @@ from torch import nn
 from torch.nn import functional as F
 
 
+def validate_kl_mode(mode: str) -> str:
+    if mode not in {"exact", "log_epsilon"}:
+        raise ValueError("algo.algorithm.kl_mode must be exact or log_epsilon")
+    return mode
+
+
 def tanh_log_det(raw: torch.Tensor) -> torch.Tensor:
     """Log absolute Jacobian, summed over joints, including saturated samples."""
     return (2 * (math.log(2) - raw - F.softplus(-2 * raw))).sum(-1)
@@ -73,9 +79,18 @@ class PolicyDistribution:
             entropy = entropy + tanh_log_det(self.sample(noise, log_prob=False).raw)
         return entropy
 
-    def kl_from(self, old_mean: torch.Tensor, old_std: torch.Tensor) -> torch.Tensor:
-        """KL(old || self); latent Gaussian KL for clip, exact action KL for tanh."""
+    def kl_from(
+        self, old_mean: torch.Tensor, old_std: torch.Tensor, *, mode: str = "exact"
+    ) -> torch.Tensor:
+        """KL(old || self), or its log-epsilon scheduler variant (not an exact KL)."""
+        validate_kl_mode(mode)
         old_mean, old_std = old_mean.to(self.mean.dtype), old_std.to(self.std.dtype)
+        if mode == "log_epsilon":
+            return (
+                torch.log(self.std / old_std + 1e-5)
+                + (old_std.square() + (old_mean - self.mean).square()) / (2 * self.std.square())
+                - 0.5
+            ).sum(-1)
         return (
             self.std.log()
             - old_std.log()

@@ -56,9 +56,23 @@ uv run sharpa-train --algo appo model.action_mapping=tanh \
 tanh 的确定性动作为 `tanh(mean)`，熵奖励使用当前策略新采样估计变换后的动作熵。
 clip 的训练密度、熵和 KL 指潜在高斯分布。PPO/APPO 均保存映射前的原始样本、
 行为 log-prob 和 mean/std。自适应学习率保留原有规则，使用 `KL(old || current)`；
-APPO 在该调度中使用目标策略作为旧分布。公共解析 KL 移除了上游的加性数值偏移：
-相同策略的 KL 为零，不再触发学习率增大；阈值和调整倍数保持原值。
+APPO 在该调度中使用目标策略作为旧分布，PPO 使用采集策略。
+HORA 旋转任务的 PPO/APPO 均默认 `algo.algorithm.kl_mode=log_epsilon`，使用完整旧公式，包括
+`log(std / old_std + 1e-5)`；相同策略仍有微小正偏差，可触发学习率增大。
+设为 `exact` 则使用公共解析 KL，相同策略的 KL 为零，不触发该增大分支。
+此选择影响调度 KL 和对应指标，不改变 loss、熵或 V-trace。
+各算法的调度阈值和调整倍数保持原值，选项随 resolved config 保存到日志和 checkpoint。
+旧 checkpoint 中的 `legacy` 名称在加载时迁移为 `log_epsilon`；新训练仅接受
+`exact`、`log_epsilon`。该选项属于 HORA teacher 运行器，不影响独立的 grasp PPO 运行器。
 
+```bash
+uv run sharpa-train --algo ppo algo.algorithm.kl_mode=log_epsilon  # 默认，带 1e-5
+uv run sharpa-train --algo ppo algo.algorithm.kl_mode=exact
+uv run sharpa-train --algo appo algo.algorithm.kl_mode=log_epsilon  # 默认，带 1e-5
+uv run sharpa-train --algo appo algo.algorithm.kl_mode=exact
+```
+
+FlashSAC 不使用该 KL 调度，也不提供 `kl_mode` 开关；学习率按更新步数调度。
 FlashSAC 采集仍按环境保持高斯噪声，由 `algo.exploration.noise_zeta_mu=2.0`
 和 `algo.exploration.noise_zeta_max=16` 控制；最大持续步数为 1 时每步刷新。
 runner 在 Learner 设备上持有噪声状态，Actor/Critic 更新和确定性评估均不推进它，

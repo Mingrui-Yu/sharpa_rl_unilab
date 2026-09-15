@@ -70,12 +70,28 @@ transformed action entropy using fresh current-policy samples. For clip, the
 training density, entropy and KL refer to the latent Gaussian. PPO/APPO always
 store the raw sample before mapping, together with its behavior log-prob and
 mean/std. Existing learning-rate schedules use `KL(old || current)`; APPO's old
-distribution for this schedule is its target policy. The shared analytic KL
-removes the upstream additive numerical offsets: identical policies now have
-zero KL and do not trigger a learning-rate increase. Thresholds and adjustment
-factors are unchanged.
+distribution for this schedule is its target policy, while PPO uses its collecting
+policy. Both PPO and APPO for HORA rotation default to
+`algo.algorithm.kl_mode=log_epsilon`, using the complete old formula including
+`log(std / old_std + 1e-5)`. Identical policies have a small positive bias that can
+trigger a learning-rate increase. Select `exact` for the shared analytic KL:
+identical policies have zero KL and do not trigger that increase. This option
+affects scheduler KL and corresponding metrics; loss, entropy and V-trace are
+unchanged. Each algorithm retains its schedule thresholds and adjustment factors.
+The selection is saved in the resolved config and checkpoints. Old checkpoints
+using the name `legacy` migrate to `log_epsilon` on load; new training accepts only
+`exact` and `log_epsilon`. This option belongs to the HORA teacher runner and does
+not change the separate grasp PPO runner.
 
-FlashSAC collection keeps its per-environment Gaussian noise for a sampled
+```bash
+uv run sharpa-train --algo ppo algo.algorithm.kl_mode=log_epsilon  # Default, with 1e-5
+uv run sharpa-train --algo ppo algo.algorithm.kl_mode=exact
+uv run sharpa-train --algo appo algo.algorithm.kl_mode=log_epsilon  # Default, with 1e-5
+uv run sharpa-train --algo appo algo.algorithm.kl_mode=exact
+```
+
+FlashSAC does not use this KL schedule or expose `kl_mode`; its learning rates
+are scheduled by update count. FlashSAC collection keeps its per-environment Gaussian noise for a sampled
 number of steps, controlled by `algo.exploration.noise_zeta_mu=2.0` and
 `algo.exploration.noise_zeta_max=16`. A maximum of 1 refreshes every step.
 The runner owns this state on the learner device; actor/critic updates and

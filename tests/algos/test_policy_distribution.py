@@ -5,7 +5,10 @@ import numpy as np
 import pytest
 import torch
 from omegaconf import OmegaConf
+from rsl_rl.algorithms import PPO
+from rsl_rl.storage import RolloutStorage
 from tensordict import TensorDict
+from uni_rl.algos.appo.learner import APPOLearner
 from uni_rl.algos.flash_sac.network import FlashSACActor
 
 from sharpa_rl_unilab.algos.hora.distribution import PolicyDistribution
@@ -14,7 +17,7 @@ from sharpa_rl_unilab.cli import compose_config
 from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import CONTRACT_VERSION
 from sharpa_rl_unilab.training.action_diagnostics import EpisodeActionDiagnostics
 from sharpa_rl_unilab.training.exploration import HeldGaussianNoise
-from sharpa_rl_unilab.training.teacher_runtime import load_policy, make_models
+from sharpa_rl_unilab.training.teacher_runtime import algorithm_options, load_policy, make_models
 
 
 @pytest.mark.parametrize("mapping", ["clip", "tanh"])
@@ -184,12 +187,24 @@ def test_optional_bounds_match_appo_current_target_and_sampling(mode):
 
 @pytest.mark.parametrize("mapping", ["clip", "tanh"])
 @pytest.mark.parametrize("mode", ["state_independent", "state_dependent"])
-def test_appo_loss_uses_current_entropy_and_target_kl(mapping, mode):
+@pytest.mark.parametrize("kl_mode", ["log_epsilon", "exact"])
+def test_appo_loss_uses_current_entropy_and_target_kl(mapping, mode, kl_mode):
     cfg = compose_config(
-        "appo", "mujoco", [f"model.action_mapping={mapping}", f"model.std_mode={mode}"]
+        "appo",
+        "mujoco",
+        [
+            f"model.action_mapping={mapping}",
+            f"model.std_mode={mode}",
+            f"algo.algorithm.kl_mode={kl_mode}",
+        ],
     )
     actor, critic, _ = make_models(cfg, "cpu")
-    learner = TeacherAPPOLearner(actor=actor, critic=critic, device="cpu", schedule="adaptive")
+    learner = TeacherAPPOLearner(
+        actor=actor,
+        critic=critic,
+        device="cpu",
+        **algorithm_options(cfg, APPOLearner, extra_options=("kl_mode",)),
+    )
     obs, clean = torch.randn(8, 156), torch.randn(8, 174)
     with torch.no_grad():
         sample = actor.policy(obs).sample()
@@ -207,7 +222,11 @@ def test_appo_loss_uses_current_entropy_and_target_kl(mapping, mode):
     )
     result = learner._minibatch_loss_tensors(*args)
     torch.testing.assert_close(result[-1], torch.ones(8))
-    torch.testing.assert_close(result[4], torch.tensor(0.0), atol=1e-7, rtol=0)
+    expected_kl = 0.0 if kl_mode == "exact" else 0.00022029876708984375
+    torch.testing.assert_close(result[4], torch.tensor(expected_kl), atol=1e-7, rtol=0)
+    before = learner.learning_rate
+    learner._update_adaptive_learning_rate(result[4].item())
+    assert learner.learning_rate == (before if kl_mode == "exact" else before * 1.1)
     # Only entropy can contribute a mean gradient here if advantages are zero.
     zero_adv = list(args)
     zero_adv[4] = torch.zeros(8)
@@ -228,10 +247,159 @@ def test_appo_loss_uses_current_entropy_and_target_kl(mapping, mode):
         .sum(-1)
         .mean()
     )
+    if kl_mode == "log_epsilon":
+        reference = (
+            (
+                torch.log(dist.std / sample.std + 1e-5)
+                + (sample.std.square() + (sample.mean - dist.mean).square())
+                / (2 * dist.std.square())
+                - 0.5
+            )
+            .sum(-1)
+            .mean()
+        )
     torch.testing.assert_close(result[4], reference)
     before = learner.learning_rate
     learner._update_adaptive_learning_rate(result[4].item())
     assert learner.learning_rate < before
+
+
+@pytest.mark.parametrize("algo", ["ppo", "appo"])
+def test_on_policy_kl_default_and_invalid_mode(algo):
+    cfg = compose_config(algo, "mujoco", [])
+    assert cfg.algo.algorithm.kl_mode == "log_epsilon"
+    actor, critic, _ = make_models(cfg, "cpu")
+    assert actor.kl_mode == "log_epsilon"
+    assert TeacherAPPOLearner(actor=actor, critic=critic, device="cpu").kl_mode == "log_epsilon"
+    with pytest.raises(ValueError, match="kl_mode must be exact or log_epsilon"):
+        TeacherAPPOLearner(actor=actor, critic=critic, device="cpu", kl_mode="typo")
+    bad = compose_config("appo", "mujoco", ["+algo.algorithm.kl_mod=exact"])
+    with pytest.raises(ValueError, match="Unsupported algorithm options"):
+        algorithm_options(bad, APPOLearner, extra_options=("kl_mode",))
+    for invalid in ["typo", "legacy"]:
+        bad = compose_config(algo, "mujoco", [f"algo.algorithm.kl_mode={invalid}"])
+        with pytest.raises(ValueError, match="kl_mode must be exact or log_epsilon"):
+            make_models(bad, "cpu")
+
+
+@pytest.mark.parametrize("kl_mode", ["exact", "log_epsilon"])
+@pytest.mark.parametrize("mapping", ["clip", "tanh"])
+def test_ppo_and_appo_kl_agree_for_changed_mean_and_std(kl_mode, mapping):
+    cfg = compose_config(
+        "ppo", "mujoco", [f"algo.algorithm.kl_mode={kl_mode}", f"model.action_mapping={mapping}"]
+    )
+    actor, critic, _ = make_models(cfg, "cpu")
+    learner = TeacherAPPOLearner(actor=actor, critic=critic, device="cpu", kl_mode=kl_mode)
+    obs, clean = torch.randn(8, 156), torch.randn(8, 174)
+    with torch.no_grad():
+        sample = actor.policy(obs).sample()
+        old_mean = sample.mean + torch.randn_like(sample.mean) * 0.1
+        old_std = sample.std * torch.linspace(0.2, 2.0, 22)
+    args = (
+        obs,
+        clean,
+        sample.raw,
+        torch.zeros(8),
+        torch.ones(8),
+        sample.log_prob,
+        torch.zeros(8),
+        sample.log_prob,
+        old_mean,
+        old_std,
+    )
+    appo_kl = learner._minibatch_loss_tensors(*args)[4]
+    ppo_kl = actor.get_kl_divergence((old_mean, old_std), (sample.mean, sample.std))
+    torch.testing.assert_close(ppo_kl.mean(), appo_kl, atol=0, rtol=0)
+    exact = torch.distributions.kl_divergence(
+        torch.distributions.Normal(old_mean, old_std),
+        torch.distributions.Normal(sample.mean, sample.std),
+    ).sum(-1)
+    expected = (
+        exact if kl_mode == "exact" else exact + torch.log1p(1e-5 * old_std / sample.std).sum(-1)
+    )
+    torch.testing.assert_close(ppo_kl, expected, atol=2e-6, rtol=1e-5)
+    same = actor.get_kl_divergence((sample.mean, sample.std), (sample.mean, sample.std))
+    torch.testing.assert_close(
+        same,
+        torch.full((8,), 0.0 if kl_mode == "exact" else 0.00022029876708984375),
+        atol=0,
+        rtol=0,
+    )
+
+
+def test_appo_kl_selection_preserves_loss_gradient_and_rng():
+    cfg = compose_config("appo", "mujoco", [])
+    actor, critic, _ = make_models(cfg, "cpu")
+    learner = TeacherAPPOLearner(actor=actor, critic=critic, device="cpu")
+    obs, clean = torch.randn(8, 156), torch.randn(8, 174)
+    with torch.no_grad():
+        sample = actor.policy(obs).sample()
+    args = (
+        obs,
+        clean,
+        sample.raw,
+        torch.randn(8),
+        torch.randn(8),
+        sample.log_prob,
+        torch.zeros(8),
+        sample.log_prob,
+        sample.mean,
+        sample.std,
+    )
+    rng = torch.get_rng_state()
+    records = []
+    for mode in ["log_epsilon", "exact"]:
+        learner.kl_mode = mode
+        learner.optimizer.zero_grad()
+        torch.set_rng_state(rng)
+        result = learner._minibatch_loss_tensors(*args)
+        result[0].backward()
+        records.append(
+            (
+                result,
+                [p.grad.clone() for p in learner._combined_params if p.grad is not None],
+                torch.get_rng_state(),
+            )
+        )
+    for i, (a, b) in enumerate(zip(records[0][0], records[1][0])):
+        if i != 4:
+            torch.testing.assert_close(a, b, atol=0, rtol=0)
+    for a, b in zip(records[0][1], records[1][1]):
+        torch.testing.assert_close(a, b, atol=0, rtol=0)
+    assert torch.equal(records[0][2], records[1][2])
+
+
+@pytest.mark.parametrize("kl_mode", ["exact", "log_epsilon"])
+def test_ppo_update_uses_configured_kl_for_learning_rate(kl_mode):
+    cfg = compose_config(
+        "ppo",
+        "mujoco",
+        [
+            f"algo.algorithm.kl_mode={kl_mode}",
+            "algo.algorithm.num_learning_epochs=1",
+            "algo.algorithm.num_mini_batches=1",
+        ],
+    )
+    actor, critic, _ = make_models(cfg, "cpu")
+    obs = TensorDict({"policy": torch.randn(8, 156), "critic": torch.randn(8, 174)}, batch_size=8)
+    storage = RolloutStorage("rl", 8, 1, obs, [22], "cpu")
+    transition = RolloutStorage.Transition()
+    with torch.no_grad():
+        transition.observations = obs
+        transition.actions = actor(obs, stochastic_output=True)
+        transition.actions_log_prob = actor.get_output_log_prob(transition.actions)
+        transition.distribution_params = actor.output_distribution_params
+        transition.values = critic(obs)
+        transition.rewards = torch.ones(8)
+        transition.dones = torch.zeros(8)
+        storage.add_transition(transition)
+    options = algorithm_options(cfg, PPO, extra_options=("kl_mode",))
+    options.pop("kl_mode")  # The actor consumes this option, as in train_teacher.
+    learner = PPO(actor, critic, storage, device="cpu", **options)
+    learner.compute_returns(obs)
+    before = learner.learning_rate
+    learner.update()
+    assert learner.learning_rate == (before if kl_mode == "exact" else before * 1.5)
 
 
 @pytest.mark.parametrize("max_steps", [1, 16])
