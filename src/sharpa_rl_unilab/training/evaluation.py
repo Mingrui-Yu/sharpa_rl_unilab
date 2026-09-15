@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -157,23 +158,40 @@ def deterministic_actions(actor, obs, device, history_normalizer=None):
 
 
 def evaluate_checkpoint(checkpoint, *, output=None, device: str | None = "cpu", evaluation=None):
+    print(f"[eval] Loading checkpoint: {checkpoint}", file=sys.stderr, flush=True)
     actor, cfg, snapshot = load_policy(checkpoint, device)
     device = str(next(actor.parameters()).device)
+    print(
+        f"[eval] {snapshot['algorithm']} {snapshot['stage']} | device={device}",
+        file=sys.stderr,
+        flush=True,
+    )
     if evaluation is not None:
         cfg.evaluation = OmegaConf.merge(cfg.evaluation, evaluation)
     output = Path(output or Path(checkpoint).with_suffix(".evaluation.json"))
     manifest_path = Path(cfg.evaluation.manifest or output.parent / "scenes.json")
+    manifest_exists = manifest_path.exists()
+    print(
+        f"[eval] {'Loading' if manifest_exists else 'Generating'} scenes: {manifest_path}",
+        file=sys.stderr,
+        flush=True,
+    )
     manifest = (
-        load_manifest(cfg, manifest_path)
-        if manifest_path.exists()
-        else make_manifest(cfg, manifest_path)
+        load_manifest(cfg, manifest_path) if manifest_exists else make_manifest(cfg, manifest_path)
     )
     hist_norm = None
     if snapshot["stage"] == "student":
         hist_norm = EmpiricalNormalization((30, 49), device).eval()
         hist_norm.load_state_dict(snapshot["history_normalizer"], strict=True)
     results = []
+    total = len(manifest["episodes"])
+    print(
+        f"[eval] Starting {total} episodes across {len(cfg.evaluation.scales)} scales",
+        file=sys.stderr,
+        flush=True,
+    )
     started = time.monotonic()
+    last_logged = started
     for scale in cfg.evaluation.scales:
         env = SharpaTeacherEnv(cfg, 1, scale=float(scale), auto_reset=False)
         try:
@@ -212,6 +230,18 @@ def evaluate_checkpoint(checkpoint, *, output=None, device: str | None = "cpu", 
                         "speed_alive": angle / survival,
                     }
                 )
+                done = len(results)
+                now = time.monotonic()
+                if done == 1 or done == total or now - last_logged >= 10:
+                    elapsed = now - started
+                    eta = elapsed / done * (total - done)
+                    print(
+                        f"[eval] {done}/{total} ({done / total:.1%}) | scale={scale:g}"
+                        f" | elapsed={elapsed:.0f}s | ETA~{eta:.0f}s",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    last_logged = now
         finally:
             env.close()
     per_scale = {
@@ -247,6 +277,7 @@ def evaluate_checkpoint(checkpoint, *, output=None, device: str | None = "cpu", 
         "episodes": results,
     }
     write_json(output, result)
+    print(f"[eval] Saved: {output.resolve()}", file=sys.stderr, flush=True)
     return result
 
 
