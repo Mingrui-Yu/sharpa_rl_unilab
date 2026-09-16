@@ -11,6 +11,8 @@ from sharpa_rl_unilab.training import rendering
 
 def test_failed_gpu_probe_falls_back_without_changing_parent_until_success(monkeypatch):
     monkeypatch.setattr(rendering.sys, "platform", "linux")
+    # prepare_recording writes directly; isolate that write even if the key was absent.
+    monkeypatch.setattr(os, "environ", os.environ.copy())
     monkeypatch.delenv("MUJOCO_GL", raising=False)
     monkeypatch.delenv("DISPLAY", raising=False)
     attempted = []

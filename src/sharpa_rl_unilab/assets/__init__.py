@@ -25,8 +25,12 @@ def cache_root() -> Path:
 
 
 def generated_root() -> Path:
-    """User-generated data is outside the manifest-managed asset files."""
-    return cache_root() / "generated"
+    """User data has a stable location independent of the bundled manifest."""
+    override = os.environ.get(CACHE_ENV_VAR)
+    if override:
+        return Path(override).expanduser().resolve() / "generated"
+    root = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+    return root / "sharpa-rl-unilab" / "generated"
 
 
 def ensure_assets() -> Path:
@@ -57,8 +61,8 @@ def ensure_assets() -> Path:
 def resolve_asset(path: str | Path) -> Path:
     """Resolve user data first, then the managed asset cache and package.
 
-    New grasp caches collected at runtime are written under the writable cache
-    generated directory and take precedence; bundled copies are the fallback. A missing
+    New grasp caches collected at runtime use the stable generated directory
+    and take precedence; bundled copies are the fallback. A missing
     file raises ``FileNotFoundError`` instead of reaching the network.
     """
     candidate = Path(path)

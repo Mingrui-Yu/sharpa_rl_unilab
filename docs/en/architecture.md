@@ -137,8 +137,9 @@ tests and experiments.
 ## Assets and generated grasp caches
 
 `ensure_assets()` repairs only manifest-managed copies of bundled assets. Recorder
-outputs use the `generated/` subdirectory of the writable cache; reads prefer these
-files. Absolute custom output prefixes remain supported. Cache contents are validated
+outputs use a stable `generated/` directory outside the manifest-versioned cache;
+reads prefer these files. See the [training guide](training.md#1-prepare-grasp-caches)
+for paths. Absolute custom output prefixes remain supported. Cache contents are validated
 once on loading, and reset sampling only checks variant indices.
 
 FlashSAC checkpoints keep top-level actor/critic states for inference and reference

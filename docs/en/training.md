@@ -14,9 +14,11 @@ bash src/sharpa_rl_unilab/tools/sharpa_collect_grasps.sh 0.8 0.9 1 1.1 1.2 1.3 1
 ```
 
 The script runs an independent PPO grasp task for each scale and writes to
-`generated/caches/sharpa_grasp_linspace_<scale>.npy` under the writable asset
-cache by default. Generated data takes precedence over bundled caches and survives
-asset repair. Progress and the stop target count individual grasps, not batches. To use a custom location,
+`$XDG_CACHE_HOME/sharpa-rl-unilab/generated/caches/sharpa_grasp_linspace_<scale>.npy`
+by default (`XDG_CACHE_HOME` defaults to `~/.cache`). Setting
+`SHARPA_RL_UNILAB_ASSET_CACHE` places `generated/` under that custom directory.
+Generated data takes precedence over bundled caches and survives asset repair and
+manifest updates. Progress and the stop target count individual grasps. To use a custom location,
 set the output prefix with the `SHARPA_GRASP_CACHE_PATH` environment variable,
 then set `env.events.reset.params.grasp_cache_path` to the same prefix when
 training the teacher.

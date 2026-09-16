@@ -11,12 +11,14 @@
 bash src/sharpa_rl_unilab/tools/sharpa_collect_grasps.sh 0.8 0.9 1 1.1 1.2 1.3 1.4 1.5
 ```
 
-生成脚本逐尺度运行独立的 PPO 抓取任务，默认输出到可写资产缓存下的
-`generated/caches/sharpa_grasp_linspace_<尺度>.npy`。
+生成脚本逐尺度运行独立的 PPO 抓取任务，默认输出到
+`$XDG_CACHE_HOME/sharpa-rl-unilab/generated/caches/sharpa_grasp_linspace_<尺度>.npy`
+（`XDG_CACHE_HOME` 默认为 `~/.cache`）。设置 `SHARPA_RL_UNILAB_ASSET_CACHE` 时，
+`generated/` 位于该自定义目录下。
 如需自定义位置，用环境变量 `SHARPA_GRASP_CACHE_PATH` 指定输出前缀，
 训练 teacher 时再通过 `env.events.reset.params.grasp_cache_path` 指定相同前缀。
 
-生成的数据优先于内置缓存，资产修复不会覆盖它；采集进度与停止目标按抓取条数统计。
+生成的数据优先于内置缓存，不受资产修复和 manifest 更新影响；采集进度与停止目标按抓取条数统计。
 
 ## 2. 训练 teacher
 

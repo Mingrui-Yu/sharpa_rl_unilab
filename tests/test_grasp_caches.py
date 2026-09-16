@@ -47,6 +47,29 @@ def test_generated_grasps_survive_asset_repair_and_override_bundled_data(bundled
     np.testing.assert_array_equal(np.load(output), generated)
 
 
+def test_generated_grasps_survive_manifest_update(bundled_cache, tmp_path, monkeypatch):
+    _, source = bundled_cache
+    monkeypatch.delenv(assets.CACHE_ENV_VAR)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    managed = assets.ensure_assets()
+    prefix = "caches/sharpa_grasp_linspace"
+    output = grasp_cache_output_file(prefix, 1)
+    output.parent.mkdir(parents=True)
+    generated = np.ones((3, 29), dtype=np.float32)
+    np.save(output, generated)
+
+    np.save(source, np.zeros((2, 29), dtype=np.float32))
+    manifest = assets.ASSETS_ROOT_PATH / "manifest.json"
+    data = json.loads(manifest.read_text())
+    data["sha256"][str(source.relative_to(assets.ASSETS_ROOT_PATH))] = hashlib.sha256(
+        source.read_bytes()
+    ).hexdigest()
+    manifest.write_text(json.dumps(data))
+    assert assets.ensure_assets() != managed
+    assert resolve_grasp_cache_file(prefix, 1) == output
+    np.testing.assert_array_equal(np.load(output), generated)
+
+
 def test_grasp_target_counts_rows_and_stops_at_exact_limit(bundled_cache):
     recorder = SharpaGraspRecorder.__new__(SharpaGraspRecorder)
     recorder._env = SimpleNamespace(

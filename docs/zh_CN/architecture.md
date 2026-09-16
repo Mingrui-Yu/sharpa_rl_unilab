@@ -110,7 +110,8 @@ Checkpoint 使用范围见[兼容性说明](training.md#5-常用设置与兼容�
 ## 资产与生成的抓取缓存
 
 `ensure_assets()` 只修复 manifest 管理的内置资产副本。Recorder 默认输出到可写
-缓存的 `generated/` 子目录，读取时优先选择这些用户数据；仍支持绝对路径前缀。
+缓存中的稳定 `generated/` 目录，不随 manifest 版本切换；读取时优先选择这些用户数据，
+仍支持绝对路径前缀。具体路径见[训练说明](training.md)。
 缓存内容在加载时完整校验一次，reset 采样时只检查 variant 索引。
 
 FlashSAC checkpoint 的顶层 actor/critic 用于推理，归档的 learner 状态引用同一份

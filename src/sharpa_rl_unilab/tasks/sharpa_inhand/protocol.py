@@ -39,3 +39,17 @@ def validate_observation_config(cfg: DictConfig) -> None:
         value = OmegaConf.select(cfg, field)
         if value != required:
             raise ValueError(f"{CONTRACT_VERSION} requires {field}={required!r}; got {value!r}")
+    for group in ("actor", "critic", "priv_info", "proprio_hist"):
+        field = f"env.observations.{group}.concatenate_terms"
+        value = OmegaConf.select(cfg, field, default=True)
+        if value is not True:
+            raise ValueError(f"{CONTRACT_VERSION} requires {field}=True; got {value!r}")
+    # Privilege has no manager history. An omitted group setting delegates to
+    # the term's default, unlike the explicit actor/critic/history settings above.
+    field = "env.observations.priv_info.history_length"
+    value = OmegaConf.select(cfg, field)
+    if value is None:
+        field = "env.observations.priv_info.terms.current.history_length"
+        value = OmegaConf.select(cfg, field, default=0)
+    if value != 0:
+        raise ValueError(f"{CONTRACT_VERSION} requires {field}=0; got {value!r}")
