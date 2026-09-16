@@ -57,6 +57,24 @@ separate virtual environment; pip does not apply the local `tool.uv.sources` map
 `uv run pytest -m slow` for simulation and training smoke tests.
 The FlashSAC smoke test requires CUDA.
 
+## Quick start
+
+After installation, run from the repository root to train PPO, APPO and FlashSAC
+in sequence for Sharpa Wave in-hand cylinder rotation:
+
+```bash
+uv run sharpa-compare
+```
+
+In another terminal, start TensorBoard and open <http://localhost:6006> to view training curves:
+
+```bash
+uv run tensorboard --logdir logs/compare
+```
+
+Each algorithm saves its playback video after training to
+`logs/compare/seed_<seed>_<timestamp>/<algorithm>/play_video.mp4`.
+
 ## Train, evaluate and distill
 
 ```bash
@@ -86,7 +104,6 @@ uv run sharpa-eval --checkpoint /absolute/path/to/student_final.pt
 default configurations; append `--distill --eval --num-seeds 3` to run distillation
 and evaluation across multiple seeds. Each algorithm uses its own training budget;
 equal sample counts or compute costs are not guaranteed.
-Use `uv run tensorboard --logdir logs` to view training curves.
 
 See [in-hand rotation](docs/en/task.md) for task background and the
 [training guide](docs/en/training.md) for detailed steps, runtime limitations

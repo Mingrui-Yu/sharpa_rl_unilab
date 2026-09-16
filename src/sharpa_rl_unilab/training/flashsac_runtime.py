@@ -165,6 +165,8 @@ class TeacherDoubleBufferRunner(DoubleBufferOffPolicyRunner):
         self.collected = int(logger._total_steps)
         payload = super()._aggregate_log_statistics(logger, **kwargs)
         payload["metrics"].update(self.learner.saturation_metrics)
+        if payload["reward"] is not None:
+            payload["metrics"]["episode/return"] = payload["reward"]
         row = {
             **payload["metrics"],
             **self.counters(),

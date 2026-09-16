@@ -27,6 +27,23 @@ uv run pyright
 `uv run pytest` 默认运行快速回归测试；仿真与训练冒烟测试使用
 `uv run pytest -m slow`，其中 FlashSAC 冒烟测试需要 CUDA。
 
+## 快速上手
+
+安装完成后，在仓库根目录一键依次训练 PPO、APPO、FlashSAC，让 Sharpa Wave 手学习手内旋转圆柱体：
+
+```bash
+uv run sharpa-compare
+```
+
+另开终端启动 TensorBoard，浏览器打开 <http://localhost:6006> 查看训练曲线：
+
+```bash
+uv run tensorboard --logdir logs/compare
+```
+
+每种算法训练结束后，回放视频保存至
+`logs/compare/seed_<seed>_<时间戳>/<算法>/play_video.mp4`。
+
 ## 训练、评估与蒸馏
 
 ```bash
@@ -53,7 +70,6 @@ uv run sharpa-eval --checkpoint /absolute/path/to/student_final.pt
 `uv run sharpa-compare` 按默认配置依次训练三种算法；追加
 `--distill --eval --num-seeds 3` 可运行多 seed 蒸馏与评估。
 各算法使用各自的训练预算，不保证等采样量或等计算成本。
-使用 `uv run tensorboard --logdir logs` 查看训练曲线。
 
 任务背景见[手内旋转](docs/zh_CN/task.md)，操作步骤、运行限制和 checkpoint 兼容范围
 见[训练指南](docs/zh_CN/training.md)。
