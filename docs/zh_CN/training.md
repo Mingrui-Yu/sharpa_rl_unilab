@@ -66,21 +66,25 @@ uv run sharpa-train --algo appo model.std_parameterization=direct
 
 tanh 的确定性动作为 `tanh(mean)`，熵奖励使用当前策略新采样估计变换后的动作熵。
 clip 的训练密度、熵和 KL 指潜在高斯分布。PPO/APPO 均保存映射前的原始样本、
-行为 log-prob 和 mean/std。自适应学习率保留原有规则，使用 `KL(old || current)`；
-APPO 在该调度中使用目标策略作为旧分布，PPO 使用采集策略。
-HORA 旋转任务的 PPO/APPO 均默认 `algo.algorithm.kl_mode=log_epsilon`，使用完整旧公式，包括
-`log(std / old_std + 1e-5)`；相同策略仍有微小正偏差，可触发学习率增大。
-设为 `exact` 则使用公共解析 KL，相同策略的 KL 为零，不触发该增大分支。
-此选择影响调度 KL 和对应指标，不改变 loss、熵或 V-trace。
-各算法的调度阈值和调整倍数保持原值，选项随 resolved config 保存到日志和 checkpoint。
-旧 checkpoint 中的 `legacy` 名称在加载时迁移为 `log_epsilon`；新训练仅接受
-`exact`、`log_epsilon`。该选项属于 HORA teacher 运行器，不影响独立的 grasp PPO 运行器。
+行为 log-prob 和 mean/std。自适应学习率使用 `KL(old || current)`；
+APPO 的参考策略是 target，PPO 的参考策略是采集策略。
+HORA 旋转任务的 PPO/APPO 均默认 `algo.algorithm.kl_mode=exact`，相同策略的 KL 为零。
+参考策略重置后的首个 minibatch 跳过调度，沿用上一轮最终学习率；后续 minibatch
+在 `0 <= KL < lower_threshold` 时增大学习率。上阈值、调整倍数和学习率上下限不变，
+负 KL 不进入增大学习率分支。
+
+PPO 每批新 rollout 的首次更新跳过调度。APPO 在初始化及完整复制 target（`tau=1`）
+后跳过一次，遵循 `target_update_freq`；软更新不重置跳过标记。
+KL 在 optimizer step 前计算，反映相对参考策略的累计偏移，不代表即将执行的一步更新幅度。
+
+`log_epsilon` 仍可选，保留包括 `log(std / old_std + 1e-5)` 的完整旧公式，
+使用相同调度规则。选项保存到 resolved config 和 checkpoint；旧 checkpoint 中的
+`legacy` 名称在加载时迁移为 `log_epsilon`。loss、熵和 V-trace 不变，
+独立的 grasp PPO 运行器不受影响。
 
 ```bash
-uv run sharpa-train --algo ppo algo.algorithm.kl_mode=log_epsilon  # 默认，带 1e-5
-uv run sharpa-train --algo ppo algo.algorithm.kl_mode=exact
-uv run sharpa-train --algo appo algo.algorithm.kl_mode=log_epsilon  # 默认，带 1e-5
-uv run sharpa-train --algo appo algo.algorithm.kl_mode=exact
+uv run sharpa-train --algo ppo algo.algorithm.kl_mode=exact  # 默认
+uv run sharpa-train --algo appo algo.algorithm.kl_mode=exact  # 默认
 ```
 
 FlashSAC 不使用该 KL 调度，也不提供 `kl_mode` 开关；学习率按更新步数调度。

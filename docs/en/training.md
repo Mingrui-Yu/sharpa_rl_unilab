@@ -84,22 +84,26 @@ store the raw sample before mapping, together with its behavior log-prob and
 mean/std. Existing learning-rate schedules use `KL(old || current)`; APPO's old
 distribution for this schedule is its target policy, while PPO uses its collecting
 policy. Both PPO and APPO for HORA rotation default to
-`algo.algorithm.kl_mode=log_epsilon`, using the complete old formula including
-`log(std / old_std + 1e-5)`. Identical policies have a small positive bias that can
-trigger a learning-rate increase. Select `exact` for the shared analytic KL:
-identical policies have zero KL and do not trigger that increase. This option
-affects scheduler KL and corresponding metrics; loss, entropy and V-trace are
-unchanged. Each algorithm retains its schedule thresholds and adjustment factors.
-The selection is saved in the resolved config and checkpoints. Old checkpoints
-using the name `legacy` migrate to `log_epsilon` on load; new training accepts only
-`exact` and `log_epsilon`. This option belongs to the HORA teacher runner and does
-not change the separate grasp PPO runner.
+`algo.algorithm.kl_mode=exact`, the analytic KL with zero divergence for identical
+policies. Scheduling skips the first minibatch after a reference reset, retaining
+the previous learning rate. Subsequent minibatches increase it when
+`0 <= KL < lower_threshold`; the upper threshold, adjustment factors and LR limits
+are unchanged. Negative KL is not treated as low KL.
+
+PPO skips once per fresh rollout update. APPO skips at initialization and after a
+full target copy (`tau=1`), respecting `target_update_freq`; soft target updates do
+not reset this flag. KL is measured before the optimizer step and describes the
+cumulative change from the reference, not the size of the impending step.
+
+`log_epsilon` remains an optional legacy formula, including
+`log(std / old_std + 1e-5)`, and uses the same scheduling rules. The selection is
+saved in the resolved config and checkpoints. Old checkpoints using `legacy`
+migrate to `log_epsilon` on load. Loss, entropy and V-trace are unchanged; the
+separate grasp PPO runner is unaffected.
 
 ```bash
-uv run sharpa-train --algo ppo algo.algorithm.kl_mode=log_epsilon  # Default, with 1e-5
-uv run sharpa-train --algo ppo algo.algorithm.kl_mode=exact
-uv run sharpa-train --algo appo algo.algorithm.kl_mode=log_epsilon  # Default, with 1e-5
-uv run sharpa-train --algo appo algo.algorithm.kl_mode=exact
+uv run sharpa-train --algo ppo algo.algorithm.kl_mode=exact  # Default
+uv run sharpa-train --algo appo algo.algorithm.kl_mode=exact  # Default
 ```
 
 FlashSAC does not use this KL schedule or expose `kl_mode`; its learning rates

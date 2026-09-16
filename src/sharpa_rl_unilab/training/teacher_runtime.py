@@ -24,6 +24,7 @@ from uni_rl.algos.appo.staging import RolloutStagingPool
 from uni_rl.algos.appo.worker import compute_rollout_active_steps_per_sec
 from uni_rl.algos.common.collector_timing import extract_env_step_breakdown_timing_ms
 
+from sharpa_rl_unilab.algos.hora.kl_schedule import TeacherPPO, TeacherRolloutStorage
 from sharpa_rl_unilab.algos.hora.teacher import (
     CleanValue,
     TeacherActor,
@@ -136,7 +137,7 @@ def make_models(cfg, device):
             **params,
         )
         return learner.actor, learner.critic, learner
-    actor = TeacherActor(model, kl_mode=cfg.algo.algorithm.get("kl_mode", "log_epsilon"))
+    actor = TeacherActor(model, kl_mode=cfg.algo.algorithm.get("kl_mode", "exact"))
     return actor.to(device), CleanValue(model).to(device), None
 
 
@@ -215,7 +216,7 @@ def _collector(config, initial_weights, output, weights, stop, count):
         device = str(cfg.algo.collector_device)
         actor = (
             TeacherActor(
-                config_dict(cfg.model), kl_mode=cfg.algo.algorithm.get("kl_mode", "log_epsilon")
+                config_dict(cfg.model), kl_mode=cfg.algo.algorithm.get("kl_mode", "exact")
             )
             .to(device)
             .eval()
@@ -650,13 +651,13 @@ def train_teacher(cfg):
                 storage = (
                     learner.storage
                     if isinstance(learner, PPO) and learner.storage.num_transitions_per_env == t
-                    else RolloutStorage("rl", n, t, td, [22], device)
+                    else TeacherRolloutStorage("rl", n, t, td, [22], device)
                 )
                 if learner is None:
                     options = algorithm_options(cfg, PPO, extra_options=("kl_mode",))
                     # PPO obtains KL from the actor adapter, configured by make_models.
                     options.pop("kl_mode", None)
-                    learner = PPO(
+                    learner = TeacherPPO(
                         cast(Any, actor),
                         cast(Any, critic),
                         storage,

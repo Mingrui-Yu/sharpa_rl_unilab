@@ -12,6 +12,7 @@ from uni_rl.algos.appo.learner import APPOLearner
 from uni_rl.algos.flash_sac.network import FlashSACActor
 
 from sharpa_rl_unilab.algos.hora.distribution import PolicyDistribution
+from sharpa_rl_unilab.algos.hora.kl_schedule import TeacherPPO, TeacherRolloutStorage
 from sharpa_rl_unilab.algos.hora.teacher import TeacherActor, TeacherAPPOLearner, TeacherFlashActor
 from sharpa_rl_unilab.cli import compose_config
 from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import CONTRACT_VERSION
@@ -226,7 +227,7 @@ def test_appo_loss_uses_current_entropy_and_target_kl(mapping, mode, kl_mode):
     torch.testing.assert_close(result[4], torch.tensor(expected_kl), atol=1e-7, rtol=0)
     before = learner.learning_rate
     learner._update_adaptive_learning_rate(result[4].item())
-    assert learner.learning_rate == (before if kl_mode == "exact" else before * 1.1)
+    assert learner.learning_rate == before  # No updates since target synchronization.
     # Only entropy can contribute a mean gradient here if advantages are zero.
     zero_adv = list(args)
     zero_adv[4] = torch.zeros(8)
@@ -267,10 +268,10 @@ def test_appo_loss_uses_current_entropy_and_target_kl(mapping, mode, kl_mode):
 @pytest.mark.parametrize("algo", ["ppo", "appo"])
 def test_on_policy_kl_default_and_invalid_mode(algo):
     cfg = compose_config(algo, "mujoco", [])
-    assert cfg.algo.algorithm.kl_mode == "log_epsilon"
+    assert cfg.algo.algorithm.kl_mode == "exact"
     actor, critic, _ = make_models(cfg, "cpu")
-    assert actor.kl_mode == "log_epsilon"
-    assert TeacherAPPOLearner(actor=actor, critic=critic, device="cpu").kl_mode == "log_epsilon"
+    assert actor.kl_mode == "exact"
+    assert TeacherAPPOLearner(actor=actor, critic=critic, device="cpu").kl_mode == "exact"
     with pytest.raises(ValueError, match="kl_mode must be exact or log_epsilon"):
         TeacherAPPOLearner(actor=actor, critic=critic, device="cpu", kl_mode="typo")
     bad = compose_config("appo", "mujoco", ["+algo.algorithm.kl_mod=exact"])
@@ -382,7 +383,7 @@ def test_ppo_update_uses_configured_kl_for_learning_rate(kl_mode):
     )
     actor, critic, _ = make_models(cfg, "cpu")
     obs = TensorDict({"policy": torch.randn(8, 156), "critic": torch.randn(8, 174)}, batch_size=8)
-    storage = RolloutStorage("rl", 8, 1, obs, [22], "cpu")
+    storage = TeacherRolloutStorage("rl", 8, 1, obs, [22], "cpu")
     transition = RolloutStorage.Transition()
     with torch.no_grad():
         transition.observations = obs
@@ -395,11 +396,11 @@ def test_ppo_update_uses_configured_kl_for_learning_rate(kl_mode):
         storage.add_transition(transition)
     options = algorithm_options(cfg, PPO, extra_options=("kl_mode",))
     options.pop("kl_mode")  # The actor consumes this option, as in train_teacher.
-    learner = PPO(actor, critic, storage, device="cpu", **options)
+    learner = TeacherPPO(actor, critic, storage, device="cpu", **options)
     learner.compute_returns(obs)
     before = learner.learning_rate
     learner.update()
-    assert learner.learning_rate == (before if kl_mode == "exact" else before * 1.5)
+    assert learner.learning_rate == before  # The first minibatch always keeps the previous LR.
 
 
 @pytest.mark.parametrize("max_steps", [1, 16])

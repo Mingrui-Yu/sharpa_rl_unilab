@@ -16,6 +16,7 @@ from uni_rl.algos.flash_sac.network import FlashSACDoubleCritic
 from uni_rl.algos.flash_sac.update import build_lr_lambda
 
 from .distribution import DirectStd, LogStd, PolicyDistribution, validate_kl_mode
+from .kl_schedule import adaptive_learning_rate
 from .legacy import LegacyScalarStd, LegacyTanhStd
 from .models import _MLP, HoraCoreOutput, ProprioAdaptTConv
 
@@ -125,7 +126,7 @@ class TeacherActor(HoraActor):
     is_recurrent = False
 
     def __init__(
-        self, model: dict[str, Any], *, student: bool = False, kl_mode: str = "log_epsilon"
+        self, model: dict[str, Any], *, student: bool = False, kl_mode: str = "exact"
     ):
         self.kl_mode = validate_kl_mode(kl_mode)
         super().__init__(model, student=student)
@@ -214,11 +215,33 @@ class CleanValue(nn.Module):
 
 
 class TeacherAPPOLearner(APPOLearner):
-    """Reuse upstream V-trace and PPO losses, replacing only distribution math."""
+    """Reuse upstream losses with HORA distribution math and KL scheduling."""
 
-    def __init__(self, *args, kl_mode: str = "log_epsilon", **kwargs):
+    def __init__(self, *args, kl_mode: str = "exact", **kwargs):
         self.kl_mode = validate_kl_mode(kl_mode)
         super().__init__(*args, **kwargs)
+        self._skip_kl_schedule = True  # The initial target is a copy of the actor.
+
+    def update_target_network(self):
+        super().update_target_network()
+        if self.tau == 1.0:
+            self._skip_kl_schedule = True
+
+    def _update_adaptive_learning_rate(self, kl_mean: float):
+        if self.desired_kl is None or self.schedule != "adaptive":
+            return
+        if self._skip_kl_schedule:
+            self._skip_kl_schedule = False
+            return
+        self.learning_rate = adaptive_learning_rate(
+            self.learning_rate,
+            kl_mean,
+            self.desired_kl,
+            self.adaptive_kl_factor,
+            self.adaptive_lr_factor,
+        )
+        for group in self.optimizer.param_groups:
+            group["lr"] = self.learning_rate
 
     def _minibatch_policy_value(self, obs_mini, critic_obs_mini):
         actor = cast(TeacherActor, self.actor)

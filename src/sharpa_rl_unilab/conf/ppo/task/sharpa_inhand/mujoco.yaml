@@ -13,7 +13,7 @@ algo:
     entropy_coef: 0.01
     learning_rate: 0.001
     desired_kl: 0.02
-    kl_mode: log_epsilon  # Same scheduler KL options as APPO: log_epsilon or exact.
+    kl_mode: exact  # Same scheduler KL options as APPO: exact or log_epsilon.
     num_learning_epochs: 5
     num_mini_batches: 4
     clip_param: 0.2
