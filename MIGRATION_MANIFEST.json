@@ -1,0 +1,259 @@
+{
+  "sources": {
+    "UniLab": "9e3bb6b814d694d52bfff0f074d0a2b8ede6f032",
+    "unilab_rl": "441fa2bb6f58789b66dd68b87c5cac61358192ed"
+  },
+  "notes": [
+    "sha256 values are computed over the file content at the pinned source commit (git show <commit>:<path>), i.e. the pre-removal state; both source worktrees have since deleted these files.",
+    "tests/algos/test_hora_contract.py is a merge of two source files (unilab_rl and UniLab both shipped a copy); both pre-removal hashes are recorded under `sources`.",
+    "Destination files live under src/sharpa_rl_unilab/ (the import package), so UniLab's src/unilab/conf/** maps to src/sharpa_rl_unilab/conf/** and scripts/* map to src/sharpa_rl_unilab/{training,tools}/.",
+    "src/sharpa_rl_unilab/conf/{ppo,appo,sac}/config.yaml are derived from the UniLab config roots: only the Hydra defaults entry (task group default) and task_name were changed to SharpaInhandRotation; the rest of each file is byte-preserved.",
+    "src/sharpa_rl_unilab/training/playback.py also contains HORA APPO playback helpers (create_hora_appo_playback_session, _build_hora_appo_actor, _resolve_appo_checkpoint_from_cfg, _normalize_checkpoint_value) adapted from interactive_playback.py's generic APPO factories (create_appo_playback_session, _build_appo_actor, _resolve_appo_checkpoint_from_cfg, normalize_checkpoint_value); only the verbatim HORA distill symbols are listed in `symbols`.",
+    "Docs were flattened: UniLab's docs/sphinx/source/<lang>/2-user_guide/2-algorithms/7-hora.md -> docs/<lang>/7-hora.md and 8-manipulation/1-dexterous_inhand.md -> docs/<lang>/1-dexterous_inhand.md.",
+    "Robot meshes (40 STL files) and grasp caches (9 .npy files) come from the unilabsim/unilab-robots and unilabsim/unilab-caches Hugging Face datasets, not from UniLab git; their provenance and sha256 are recorded in src/sharpa_rl_unilab/assets/manifest.json. Only the two git-native XML files are listed here.",
+    "Files with no pre-removal source (new in this repository): src/sharpa_rl_unilab/cli.py, tests/test_package_contract.py, tests/algos/test_hora_sac_adapter.py, package __init__.py shims, assets/manifest.json, docs/ARCHITECTURE.md, docs/VALIDATION.md, README.md, README_zh.md, NOTICE.md, Makefile, pyproject.toml.",
+    "Post-migration fix: src/sharpa_rl_unilab/assets/robots/sharpa_wave/scene.xml adds simple=\"false\" to the object body (its recorded sha256 is the pre-fix source hash). Without it, reset-time com/mass domain randomization breaks MuJoCo sameframe and segfaults the mujoco_uni batch runtime (mj_setConst, engine_setconst.c:1533)."
+  ],
+  "files": {
+    "src/sharpa_rl_unilab/algos/hora/__init__.py": {
+      "source": "unilab_rl/src/uni_rl/algos/hora/__init__.py",
+      "sha256": "a16dc8767bffbf6ba1a1548f79f6e06b8c049c29d0a42c3b98d43a33f7e9c7e2"
+    },
+    "src/sharpa_rl_unilab/algos/hora/appo.py": {
+      "source": "unilab_rl/src/uni_rl/algos/hora/appo.py",
+      "sha256": "369a9c6d972ee262f81e7722ac3836c2e92e8b5fb28907ecf7fa30e8293848ed"
+    },
+    "src/sharpa_rl_unilab/algos/hora/appo_learner.py": {
+      "source": "unilab_rl/src/uni_rl/algos/hora/appo_learner.py",
+      "sha256": "f4409192821c71273b0d4af090b538b65f473fca11e3d87e4bcbc63359c2e9f1"
+    },
+    "src/sharpa_rl_unilab/algos/hora/appo_runner.py": {
+      "source": "unilab_rl/src/uni_rl/algos/hora/appo_runner.py",
+      "sha256": "99686226b0ebe08d611e43230887041752fd3ff6f5e0259e039d774bdb5c3fb1"
+    },
+    "src/sharpa_rl_unilab/algos/hora/appo_worker.py": {
+      "source": "unilab_rl/src/uni_rl/algos/hora/appo_worker.py",
+      "sha256": "984287b0b1e439b71ba6fc873db92844788b18543e13605b82ba54fbefc266b8"
+    },
+    "src/sharpa_rl_unilab/algos/hora/distill.py": {
+      "source": "unilab_rl/src/uni_rl/algos/hora/distill.py",
+      "sha256": "c568b938142176c6eef396f9ae6e57333ce1ede5dccf484f233db3b70a5a689a"
+    },
+    "src/sharpa_rl_unilab/algos/hora/models.py": {
+      "source": "unilab_rl/src/uni_rl/algos/hora/models.py",
+      "sha256": "84b8d7733904445d310f8c2f4b7793c41e1c5995416385b8b83d8afea6a014fb"
+    },
+    "src/sharpa_rl_unilab/algos/hora/observations.py": {
+      "source": "unilab_rl/src/uni_rl/algos/hora/observations.py",
+      "sha256": "6928985299b88d7fa62a6483561091ba8e362a6754468cc0e3bc4d9687dce551"
+    },
+    "src/sharpa_rl_unilab/algos/hora/ppo.py": {
+      "source": "unilab_rl/src/uni_rl/algos/hora/ppo.py",
+      "sha256": "e9c94b7ad15cb9149927cd4dffb193d78df0392f1140b0d66a3c92459ea1c11d"
+    },
+    "src/sharpa_rl_unilab/algos/hora/rsl_rl.py": {
+      "source": "unilab_rl/src/uni_rl/algos/hora/rsl_rl.py",
+      "sha256": "bd95f710cd222d2b209994ef1ece7ec580c3303873b3e6c61986c4f4a14ec1c0"
+    },
+    "src/sharpa_rl_unilab/algos/hora/rsl_rl_compat.py": {
+      "source": "unilab_rl/src/uni_rl/algos/hora/rsl_rl_compat.py",
+      "sha256": "16e7bb11ca36e3c190268fefc11c053a7b433ea6cdad00147d5c28ddf0583088"
+    },
+    "src/sharpa_rl_unilab/algos/hora/runtime.py": {
+      "source": "unilab_rl/src/uni_rl/algos/hora/runtime.py",
+      "sha256": "7730065113c2b32fcb247d49927dde4c049c642b90d841fa53d9acab255637c0"
+    },
+    "src/sharpa_rl_unilab/algos/hora/sac.py": {
+      "source": "unilab_rl/src/uni_rl/algos/hora/sac.py",
+      "sha256": "c0a77dbf035935e217ed30dc3d0838ccaaf31771e1bb2caa0aa65e195679df4f"
+    },
+    "src/sharpa_rl_unilab/algos/hora/sac_learner.py": {
+      "source": "unilab_rl/src/uni_rl/algos/hora/sac_learner.py",
+      "sha256": "3c522e87c86ae3a726a4f4bf1a09acff6f4e09562acaed0f592dca665a2247af"
+    },
+    "src/sharpa_rl_unilab/algos/hora/sac_models.py": {
+      "source": "unilab_rl/src/uni_rl/algos/hora/sac_models.py",
+      "sha256": "cb8e0f555ff8d68d9bdcf650c75f40d72abb0960bb3b8808b01f715791232a4a"
+    },
+    "tests/algos/test_hora_contract.py": {
+      "sources": [
+        {
+          "source": "unilab_rl/tests/algos/test_hora_contract.py",
+          "sha256": "c636ca5d89e856c2ef274be38f5ccb973d515459c84adfe1fc04ab324d56a3a7"
+        },
+        {
+          "source": "UniLab/tests/algos/test_hora_contract.py",
+          "sha256": "6da00ab55bdbd9a7d68cf83afa7e52845ce7a625b64a47680b30203255973b3c"
+        }
+      ]
+    },
+    "tests/algos/test_hora_imports.py": {
+      "source": "unilab_rl/tests/algos/test_hora_imports.py",
+      "sha256": "76c3dacab73bb2be9886948957289e1b234f317b79004197aa8f3fd41089db28"
+    },
+    "src/sharpa_rl_unilab/tasks/sharpa_inhand/__init__.py": {
+      "source": "UniLab/src/unilab/tasks/manipulation/sharpa_inhand/__init__.py",
+      "sha256": "9e165f963e47891dedbe33ef4cf9d97bc1ff364985a9f0738f9f5874bf5c0c71"
+    },
+    "src/sharpa_rl_unilab/tasks/sharpa_inhand/base.py": {
+      "source": "UniLab/src/unilab/tasks/manipulation/sharpa_inhand/base.py",
+      "sha256": "8496f8796819565ed22e5f010a4f20e834c727722d45d89f86c46070d9ff5014"
+    },
+    "src/sharpa_rl_unilab/tasks/sharpa_inhand/rotation.py": {
+      "source": "UniLab/src/unilab/tasks/manipulation/sharpa_inhand/rotation.py",
+      "sha256": "50e8e1fe35581128eaa759f5e965849333a92feb3cc18991a64dc3992a4dd2b7"
+    },
+    "src/sharpa_rl_unilab/tasks/sharpa_inhand/grasp_gen.py": {
+      "source": "UniLab/src/unilab/tasks/manipulation/sharpa_inhand/grasp_gen.py",
+      "sha256": "ca488f82e5edd2e0c83ceb68861cf5eafa7d19d1a5032520d49344388a81e04c"
+    },
+    "src/sharpa_rl_unilab/conf/ppo/config.yaml": {
+      "source": "UniLab/src/unilab/conf/ppo/config.yaml",
+      "sha256": "2820f486cd0eac32060d47f9bf0a2636afead533b1f9b156711d21de2961e3d5"
+    },
+    "src/sharpa_rl_unilab/conf/ppo/task/sharpa_inhand/motrix.yaml": {
+      "source": "UniLab/src/unilab/conf/ppo/task/sharpa_inhand/motrix.yaml",
+      "sha256": "6092d1b83e5313d2786a9d61b52341986118b23a6ce83868fec7752aa8cff5d7"
+    },
+    "src/sharpa_rl_unilab/conf/ppo/task/sharpa_inhand/mujoco.yaml": {
+      "source": "UniLab/src/unilab/conf/ppo/task/sharpa_inhand/mujoco.yaml",
+      "sha256": "d987146a3b331fef27b0a602dfb7d88e44002740756fe62f23fdd07b6fcc893b"
+    },
+    "src/sharpa_rl_unilab/conf/ppo/task/sharpa_inhand/mujoco_hora.yaml": {
+      "source": "UniLab/src/unilab/conf/ppo/task/sharpa_inhand/mujoco_hora.yaml",
+      "sha256": "40d1c071ab4b0acba1849f28b1a9aabe4b2a778261f5376b1c0aa3b62d51cdc2"
+    },
+    "src/sharpa_rl_unilab/conf/ppo/task/sharpa_inhand_grasp/motrix.yaml": {
+      "source": "UniLab/src/unilab/conf/ppo/task/sharpa_inhand_grasp/motrix.yaml",
+      "sha256": "51d3f385d5a5b0d8cd1f0df9b229c81dda72956aec2b15780be212085668db35"
+    },
+    "src/sharpa_rl_unilab/conf/ppo/task/sharpa_inhand_grasp/mujoco.yaml": {
+      "source": "UniLab/src/unilab/conf/ppo/task/sharpa_inhand_grasp/mujoco.yaml",
+      "sha256": "829583b0aeccf89e5ccde7ef181193bae74d0e325fc3811b76c98aa9725bee13"
+    },
+    "src/sharpa_rl_unilab/conf/appo/config.yaml": {
+      "source": "UniLab/src/unilab/conf/appo/config.yaml",
+      "sha256": "043aee63c43b7fb56bd9890255078aa8877043c560e957ceb8bc4f68078824fb"
+    },
+    "src/sharpa_rl_unilab/conf/appo/task/sharpa_inhand/motrix.yaml": {
+      "source": "UniLab/src/unilab/conf/appo/task/sharpa_inhand/motrix.yaml",
+      "sha256": "e21790ca9d7d17a689fe2a1e8f812c704e7f6dee9443b6c0d7d8e6f5508a1eeb"
+    },
+    "src/sharpa_rl_unilab/conf/appo/task/sharpa_inhand/mujoco.yaml": {
+      "source": "UniLab/src/unilab/conf/appo/task/sharpa_inhand/mujoco.yaml",
+      "sha256": "9254efe93a9ad4c21958e6e56894ef7632696d352d8199df617df1373ad51ceb"
+    },
+    "src/sharpa_rl_unilab/conf/appo/task/sharpa_inhand/mujoco_hora.yaml": {
+      "source": "UniLab/src/unilab/conf/appo/task/sharpa_inhand/mujoco_hora.yaml",
+      "sha256": "fbedcff2d4176b929c95774dc66fd5117176b27ca79075793b834672f050c9b1"
+    },
+    "src/sharpa_rl_unilab/conf/sac/config.yaml": {
+      "source": "UniLab/src/unilab/conf/sac/config.yaml",
+      "sha256": "b52cfba9d582d17f5ca7d7d31940eee8e521a4373ee7cdca53c8f279f3437e20"
+    },
+    "src/sharpa_rl_unilab/conf/sac/task/sharpa_inhand/mujoco_hora.yaml": {
+      "source": "UniLab/src/unilab/conf/sac/task/sharpa_inhand/mujoco_hora.yaml",
+      "sha256": "960f68b96143eb3f5e30fc5d34fa50e3feaf755d172101998c06f28cd3096484"
+    },
+    "src/sharpa_rl_unilab/conf/hora_distill/config.yaml": {
+      "source": "UniLab/src/unilab/conf/hora_distill/config.yaml",
+      "sha256": "4125e2ebc2e91e7daa138688875c707b357a56180c26ad15ae54c8f49afcbaa1"
+    },
+    "src/sharpa_rl_unilab/conf/hora_distill/student_model/hora_actor.yaml": {
+      "source": "UniLab/src/unilab/conf/hora_distill/student_model/hora_actor.yaml",
+      "sha256": "ed13ff63353a560f516844447c97ddbe0019f5046806115bb86554bfdbc690ac"
+    },
+    "src/sharpa_rl_unilab/conf/hora_distill/student_model/hora_sac.yaml": {
+      "source": "UniLab/src/unilab/conf/hora_distill/student_model/hora_sac.yaml",
+      "sha256": "ccf22986166199d090e74d273b41deedd26c07fe9ddb62011df91a98a44d0591"
+    },
+    "src/sharpa_rl_unilab/conf/hora_distill/task/sharpa_inhand/mujoco.yaml": {
+      "source": "UniLab/src/unilab/conf/hora_distill/task/sharpa_inhand/mujoco.yaml",
+      "sha256": "485a4d91e283dd38dcc7123bfbe6c52495f0669cb8a8afaeb3847104c41e1b83"
+    },
+    "src/sharpa_rl_unilab/conf/hora_distill/task/sharpa_inhand/mujoco_nodr.yaml": {
+      "source": "UniLab/src/unilab/conf/hora_distill/task/sharpa_inhand/mujoco_nodr.yaml",
+      "sha256": "1b3140fb9ed47e9cf357df674f79a2048b8579bf10d744318e5f78bca2f50785"
+    },
+    "src/sharpa_rl_unilab/training/play_hora_appo.py": {
+      "source": "UniLab/src/unilab/scripts/play_hora_appo.py",
+      "sha256": "6f3f903efffc3cd6feae50552ad03507895c0881b29c8d4d92a565af989b3850"
+    },
+    "src/sharpa_rl_unilab/training/hora_distill_config.py": {
+      "source": "UniLab/src/unilab/training/hora_distill_config.py",
+      "sha256": "15b2eb17c6f9dc025e611424bb087001d0b116ccf93e412815276c8238d72023"
+    },
+    "src/sharpa_rl_unilab/training/train_hora_distill.py": {
+      "source": "UniLab/scripts/train_hora_distill.py",
+      "sha256": "b951074bec531271693c6792ec64d8e0f768cac5d1541abe1b65d6008784a6d1"
+    },
+    "src/sharpa_rl_unilab/training/stage2.py": {
+      "source": "UniLab/src/unilab/training/run.py",
+      "sha256": "17a8d7e93cf7166d30f37f23e8be9a2c240c86e69358cd3e961c2f3aee910b18",
+      "symbols": [
+        "resolve_hora_stage2_checkpoint_path",
+        "format_hora_stage2_checkpoint_error"
+      ]
+    },
+    "src/sharpa_rl_unilab/training/playback.py": {
+      "source": "UniLab/src/unilab/visualization/interactive_playback.py",
+      "sha256": "787d13a850674f3149f57cd1a8dd21d74a3964d50d49d98c004e782aa8fd7451",
+      "symbols": [
+        "_default_hora_distill_playback_deps",
+        "create_hora_distill_playback_session"
+      ]
+    },
+    "src/sharpa_rl_unilab/tools/sharpa_collect_grasps.sh": {
+      "source": "UniLab/scripts/sharpa_collect_grasps.sh",
+      "sha256": "b36c26a8cc9e3e06dd1abcc47a4382d479448748a93678ba01aa206f9963d4c4"
+    },
+    "src/sharpa_rl_unilab/tools/benchmark_sharpa_init_dr_construct.py": {
+      "source": "UniLab/scripts/benchmark/env/benchmark_sharpa_init_dr_construct.py",
+      "sha256": "a5265c9f41a7dd30ae4ce8b3d62066b6d21bc0a77fc53c24a8ef2e04c952c77d"
+    },
+    "src/sharpa_rl_unilab/assets/robots/sharpa_wave/scene.xml": {
+      "source": "UniLab/src/unilab/assets/robots/sharpa_wave/scene.xml",
+      "sha256": "41dfe0c43f09187ee3c902b7279f218062650de82f9a5cfad10fc824e9ba479b"
+    },
+    "src/sharpa_rl_unilab/assets/robots/sharpa_wave/right_sharpa_wave.xml": {
+      "source": "UniLab/src/unilab/assets/robots/sharpa_wave/right_sharpa_wave.xml",
+      "sha256": "7d8b92cb1efd0985bd2389d719c7fad06c4dcf45b7c479396ff5190bb24b8876"
+    },
+    "tests/test_sharpa.py": {
+      "source": "UniLab/tests/test_sharpa.py",
+      "sha256": "73dd10c00560cd23060a002808b70b5e24b90ee3919de3361618c6cadbc44516"
+    },
+    "tests/envs/test_sharpa.py": {
+      "source": "UniLab/tests/envs/test_sharpa.py",
+      "sha256": "5a85594826ba0cbc81e7b1f6f42a28eae8e1a94db1bb29ba55752d1d9f9eb370"
+    },
+    "tests/test_hora_distill_config.py": {
+      "source": "UniLab/tests/algos/test_hora_distill_config.py",
+      "sha256": "14d9e64ede94178c7208444bd493794d74550141fd819fd05304d1a89c5de350"
+    },
+    "tests/test_sharpa_init_dr_benchmark.py": {
+      "source": "UniLab/tests/benchmark/test_sharpa_init_dr_benchmark.py",
+      "sha256": "3f11307166fbe051765e72362d63e49f2d163efe77d299f135dafb53b256e282"
+    },
+    "docs/en/7-hora.md": {
+      "source": "UniLab/docs/sphinx/source/en/2-user_guide/2-algorithms/7-hora.md",
+      "sha256": "49a3db5cc191b5b2282c76ad738403ca371e9e23480d29b7fbc5b1138739cd0b"
+    },
+    "docs/zh_CN/7-hora.md": {
+      "source": "UniLab/docs/sphinx/source/zh_CN/2-user_guide/2-algorithms/7-hora.md",
+      "sha256": "5094b258130ec985c03889291c4bece127bc98607eb8245594ccb20c076b4e0b"
+    },
+    "docs/en/1-dexterous_inhand.md": {
+      "source": "UniLab/docs/sphinx/source/en/2-user_guide/8-manipulation/1-dexterous_inhand.md",
+      "sha256": "b89a138e2b847f1829bc914037567cfe2a69750790ec1e5e5a8f3362f762b0ab"
+    },
+    "docs/zh_CN/1-dexterous_inhand.md": {
+      "source": "UniLab/docs/sphinx/source/zh_CN/2-user_guide/8-manipulation/1-dexterous_inhand.md",
+      "sha256": "2cb7daa0b2b646e81a05d7ae260190d7a85ec4a30f2ed41a5b4782af71f53251"
+    },
+    "LICENSE": {
+      "source": "UniLab/LICENSE",
+      "sha256": "2191d05c6ee7c145480916b745bd020484adb61653be943c43cff10bc22927a1"
+    }
+  }
+}

@@ -12,6 +12,7 @@ from unilab.utils.geometry import np_normalize_axis
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.cache import (
     resolve_grasp_cache_file,
     sample_scale_grasp_caches,
+    validate_grasp_caches,
 )
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.constants import (
     ACTUATOR_NAMES,
@@ -105,19 +106,23 @@ class SharpaHandObjectReset(ManagerTermBase):
         self._variant_ids = self._resolve_variant_ids(env)
         self.scale_values = self._resolve_variant_scales(env)
         self._grasp_caches: tuple[np.ndarray, ...] | None = None
+        self.cache_row_indices = np.full(env.num_envs, -1, dtype=np.int64)
+        self._sampled_indices = np.empty(0, dtype=np.int64)
         if not self._grasp_generation:
             prefix = require_name(term, "grasp_cache_path", cfg.params.get("grasp_cache_path"))
             caches: list[np.ndarray] = []
             missing: list[str] = []
             for scale in self.scale_values:
-                path = resolve_grasp_cache_file(prefix, float(scale))
-                if not path.is_file():
-                    missing.append(str(path))
+                try:
+                    path = resolve_grasp_cache_file(prefix, float(scale))
+                except FileNotFoundError:
+                    missing.append(f"{prefix} (scale={scale:g})")
                     continue
                 caches.append(np.load(path).astype(np.float64))
             if missing:
                 raise FileNotFoundError(f"{term} missing grasp cache(s): {', '.join(missing)}")
             self._grasp_caches = tuple(caches)
+            validate_grasp_caches(self._grasp_caches)
 
     def _resolve_variant_ids(self, env: SharpaEnv) -> np.ndarray:
         scene = env.cfg.scene
@@ -154,7 +159,10 @@ class SharpaHandObjectReset(ManagerTermBase):
             root_pose = np.broadcast_to(self.object_default_pose[0], (count, 7)).copy()
             return np.concatenate((hand, root_pose), axis=1)
         assert self._grasp_caches is not None
-        return sample_scale_grasp_caches(self._grasp_caches, variant_ids)
+        self._sampled_indices = np.empty(count, dtype=np.int64)
+        return sample_scale_grasp_caches(
+            self._grasp_caches, variant_ids, rng=env.rng, selected_rows=self._sampled_indices
+        )
 
     def __call__(
         self,
@@ -167,6 +175,8 @@ class SharpaHandObjectReset(ManagerTermBase):
         if ids.size == 0:
             return
         rows = self._sample_rows(ids.size, env, self._variant_ids[ids])
+        if not self._grasp_generation:
+            self.cache_row_indices[ids] = self._sampled_indices
         hand_pos = np.asarray(rows[:, :NUM_HAND_JOINTS], dtype=get_global_dtype())
         root_pose = np.asarray(rows[:, NUM_HAND_JOINTS:], dtype=get_global_dtype())
         # Cache rows are global/default poses. CPU batch env origins are zero; the

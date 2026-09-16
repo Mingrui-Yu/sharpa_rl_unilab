@@ -1,8 +1,9 @@
-# Sharpa RL documentation
+# Documentation
 
-Choose a language:
+| Guide | English | 中文 |
+| --- | --- | --- |
+| Task overview | [In-hand rotation](en/task.md) | [手内旋转任务](zh_CN/task.md) |
+| Training | [Training guide](en/training.md) | [训练指南](zh_CN/training.md) |
+| Architecture | [Architecture](en/architecture.md) | [架构说明](zh_CN/architecture.md) |
 
-- [English](en/README.md)
-- [中文](zh_CN/README.md)
-
-Both directories contain the same file structure and strictly parallel content.
+See [validation](VALIDATION.md) for regression checks and known limitations.

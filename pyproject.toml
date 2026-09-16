@@ -11,21 +11,24 @@ requires-python = ">=3.10,<3.14"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 dependencies = [
-    "unilab>=1.3.0,<1.4",
+    "unilab>=1.2.0,<1.3",
     "unilab-rl>=1.2.0,<1.3",
     "numpy", "torch>=2.8", "tensordict", "hydra-core>=1.3",
     "filelock", "tensorboard",
+    "imageio", "imageio-ffmpeg>=0.6.0",
 ]
 
 [project.optional-dependencies]
 mujoco = ["unilab[mujoco]"]
 export = ["onnx", "onnxscript", "onnxruntime"]
+evaluation = ["matplotlib"]
 
 [project.scripts]
 sharpa-train = "sharpa_rl_unilab.cli:train_main"
 sharpa-eval = "sharpa_rl_unilab.cli:eval_main"
 sharpa-assets = "sharpa_rl_unilab.assets:main"
-sharpa-distill = "sharpa_rl_unilab.training.train_hora_distill:main"
+sharpa-distill = "sharpa_rl_unilab.training.student_runtime:main"
+sharpa-compare = "sharpa_rl_unilab.tools.compare_rl_algo:main"
 
 [project.entry-points."unilab.tasks"]
 sharpa = "sharpa_rl_unilab.tasks"
@@ -46,32 +49,28 @@ ignore = ["E501", "E402"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--tb=short"
-markers = ["slow: physics integration tests"]
+addopts = "--tb=short -m 'not slow'"
+markers = ["slow: MuJoCo, asset compilation and training integration tests"]
 
 [tool.mypy]
 ignore_missing_imports = true
 no_site_packages = true
-
-[[tool.mypy.overrides]]
-module = "sharpa_rl_unilab.tools.*"
-disable_error_code = ["method-assign"]
 
 [tool.pyright]
 pythonVersion = "3.10"
 venvPath = "."
 venv = ".venv"
 include = ["src/sharpa_rl_unilab"]
-exclude = ["src/sharpa_rl_unilab/tools"]
 
 [tool.uv.build-backend]
 module-name = "sharpa_rl_unilab"
 
 [tool.uv]
 constraint-dependencies = ["torch==2.8.0; sys_platform != 'linux' or platform_machine != 'aarch64'"]
-# UniLab is consumed exclusively from its registered PyPI release; there is no
-# local checkout source override.
+# UniLab remains an external dependency. The local checkout is a development
+# source only; CI/users can consume the same API from the registered package.
 [tool.uv.sources]
+unilab = { path = "../UniLab", editable = true }
 torch = [
     { index = "r2-cu130", marker = "sys_platform=='linux' and platform_machine=='aarch64'" },
     { index = "pytorch-cu128", marker = "sys_platform=='linux' and platform_machine=='x86_64'" },

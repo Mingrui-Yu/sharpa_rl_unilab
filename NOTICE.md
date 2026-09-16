@@ -1,10 +1,12 @@
 # Source and license notices
 
-Task and configuration code originates from UniLab (Apache-2.0).
-The HORA modules originate from unilab_rl (Apache-2.0) and implement the
+Task, configuration and tooling code was extracted from UniLab (Apache-2.0).
+The HORA modules were extracted from unilab_rl (Apache-2.0) and implement the
 HORA teacher/student method ("In-Hand Object Rotation via Rapid Motor
 Adaptation", Haozhi Qi et al., https://github.com/HaozhiQi/hora); any original
-original license headers in source-derived files are preserved in place.
+license headers carried by the extracted files are preserved in place.
+`MIGRATION_MANIFEST.json` records source commits and pre-migration file hashes.
+See [the extraction record](docs/en/architecture.md) for the ownership boundary.
 
 Robot meshes, the Sharpa Wave XML scene and the grasp caches are bundled from
 the pinned `unilabsim/unilab-robots` and `unilabsim/unilab-caches` datasets.

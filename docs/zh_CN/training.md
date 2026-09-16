@@ -1,125 +1,116 @@
-# 训练指南
+# 训练、蒸馏与评估
 
-## 选择训练配方
+先按 [README](../../README_zh.md#安装与校验) 安装环境。
+以下命令在仓库根目录执行；任务背景见[手内旋转](task.md)。
 
-| 目标 | 命令族 |
+## 1. 准备抓取缓存
+
+默认使用包内缓存，无需配置。如需重新生成全部八个尺度：
+
+```bash
+bash src/sharpa_rl_unilab/tools/sharpa_collect_grasps.sh 0.8 0.9 1 1.1 1.2 1.3 1.4 1.5
+```
+
+生成脚本逐尺度运行独立的 PPO 抓取任务，默认输出到
+`$XDG_CACHE_HOME/sharpa-rl-unilab/generated/caches/sharpa_grasp_linspace_<尺度>.npy`
+（`XDG_CACHE_HOME` 默认为 `~/.cache`）。设置 `SHARPA_RL_UNILAB_ASSET_CACHE` 时，
+`generated/` 位于该自定义目录下。
+如需自定义位置，用环境变量 `SHARPA_GRASP_CACHE_PATH` 指定输出前缀，
+训练 teacher 时再通过 `env.events.reset.params.grasp_cache_path` 指定相同前缀。
+
+生成的数据优先于内置缓存，不受资产修复和 manifest 更新影响；采集进度与停止目标按抓取条数统计。
+
+## 2. 训练 teacher
+
+以 APPO 为例；将 `--algo appo` 改为 `ppo` 或 `flashsac` 可切换算法。PPO、APPO、FlashSAC 共用 HORA Actor 与高斯分布实现。
+
+```bash
+uv run sharpa-train --algo appo
+```
+
+默认输出到 `logs/<算法>/seed_<seed>_<时间戳>/`，最终模型为 `teacher_final.pt`，
+包含运行配置和归一化统计。同目录保存配置快照、`metrics.jsonl` 和 TensorBoard 日志。
+
+## 3. 蒸馏 student
+
+加载 teacher，训练历史编码器来拟合 teacher 的特权表示。
+Teacher 的策略和基础归一化统计保持冻结。
+
+```bash
+uv run sharpa-distill --checkpoint /path/to/teacher_final.pt
+```
+
+将 `/path/to/teacher_final.pt` 替换为实际文件路径。
+默认输出到 `logs/hora_distill/<算法>_seed_<seed>_<时间戳>/`，最终模型为 `student_final.pt`。
+
+## 4. 评估与算法比较
+
+评估时直接指定 checkpoint：
+
+```bash
+uv run sharpa-eval --checkpoint /path/to/teacher_final.pt
+```
+
+替换为实际文件路径；评估 student 时指定 `student_final.pt` 即可。
+
+默认在八种尺度上各使用 3 个评估 seed、每个 seed 10 个 episode。
+每个 episode 最长 20 秒，提前掉落不补跑；各尺度等权汇总。
+结果记录回报、存活时间、掉落率、有符号旋转角，以及按固定窗口和实际存活时间计算的转速。
+结果保存为 checkpoint 旁的 `<模型名>.evaluation.json`，场景清单为 `scenes.json`。
+
+统一训练三种算法：
+
+```bash
+uv run sharpa-compare
+```
+
+默认仅训练每种算法的一个 teacher。需要蒸馏时追加 `--distill`，需要评估时追加 `--eval`；
+`--num-seeds N` 从各算法配置的 seed 起连续取 N 个。
+启用对应阶段后，所有 teacher 完成才开始 student，全部训练完成后再评估。
+输出位于 `logs/compare/seed_<seed>_<时间戳>/<算法>/`，student 位于其 `student/` 子目录。
+所有评估共用第一个 seed 目录下的场景清单；各算法使用自己的预算，不保证等采样量或耗时。
+该命令不自动汇总多 seed 或绘图。比较多 seed 时，以训练 seed 为独立重复，避免把 episode 当作独立训练结果。
+
+可选评估诊断通过 `evaluation.diagnostics=true` 开启，报告实际访问状态的 std、
+动作饱和率（`abs(action)>0.99`）、相邻动作变化 RMS、关节位置二阶差分 RMS 和目标限位率。
+每场独立计算，包含真实终止步，再按尺度权重汇总，避免跨重置边界计算运动差分。
+诊断不采样策略随机数，不改变评估轨迹。
+
+## 5. 常用设置与兼容性
+
+训练命令末尾可追加 Hydra 参数覆盖；用 `uv run sharpa-train --algo appo --cfg`
+查看完整合并配置。公共参数见[公共配置](../../src/sharpa_rl_unilab/conf/common/sharpa_inhand.yaml)，
+算法参数见[配置目录](../../src/sharpa_rl_unilab/conf)。
+
+例如，减少 teacher 环境数：
+
+```bash
+uv run sharpa-train --algo appo training.num_envs=1024
+```
+
+| 设置 | 参数与默认值 |
 | --- | --- |
-| 训练标准 on-policy baseline | `--algo ppo` |
-| 训练 flat asymmetric APPO baseline | `--algo appo` |
-| 训练 HORA APPO teacher | `--algo appo --profile hora` |
-| 训练 FlashSAC teacher | `--algo flashsac` |
-| 重新生成抓取状态 | `--algo ppo --task sharpa_inhand_grasp` |
+| Teacher 环境数 | `training.num_envs=2048` |
+| 输出目录 | 默认自动创建；用 `training.log_dir=/path/to/new_run` 指定尚不存在的目录 |
+| 设备 | `training.device=cuda:0`；`null` 自动选择 CUDA、MPS、CPU；APPO 的 `algo.collector_device=null` 跟随 learner |
+| 每进程线程 | `training.torch_threads.*`：learner/collector 各 4 个 intra-op、1 个 inter-op 线程 |
+| Teacher 轮数 | `algo.max_iterations`：PPO/APPO 为 501，FlashSAC 为 2000 |
+| Teacher 保存间隔 | `algo.save_interval`：PPO/APPO 为 50，FlashSAC 为 500；0 关闭中间保存，正常结束仍保存 final |
+| FlashSAC 精度 | `algo.use_amp=true`；设为 `false` 关闭混合精度 |
+| Student 预算 | `distillation.transitions=100000000`、`distillation.num_envs=4096` |
+| Student 学习率 | `distillation.learning_rate=0.0003` |
+| Student 保存与日志 | `distillation.save_every=10000000`、`distillation.log_every=10000`，单位为 transition |
+| 日志 | Teacher 每轮记录；`training.logger=none` 关闭 TensorBoard，`no_print` 仅保留 JSONL |
+| 录像 | 默认训练后保存 `play_video.mp4`；`training.no_play=true` 关闭录像 |
 
-本指南中的所有生产运行都使用 MuJoCo。
+用 `uv run tensorboard --logdir logs` 查看曲线，横轴为实际接收的新 transition 数。
+中间 teacher 文件名为 `teacher_iteration_N.pt`。采样数与数据复用次数分别记录，不能用轮数推算实际采样量。
 
-## 训练 teacher
+录像用于查看动作，定量评估需单独执行。无显示器的 Linux 机器需要 EGL 或 OSMesa，
+安装说明见 [README](../../README_zh.md#训练评估与蒸馏)。
 
-HORA APPO teacher：
+实现约定见[架构说明](architecture.md)，验证范围见[验证记录](../VALIDATION.md)。
 
-```bash
-uv run sharpa-train --algo appo --sim mujoco --profile hora \
-  algo.seed=1 training.no_play=true
-```
-
-FlashSAC teacher：
-
-```bash
-uv run sharpa-train --algo flashsac --sim mujoco \
-  algo.seed=1 training.no_play=true
-```
-
-PPO baseline：
-
-```bash
-uv run sharpa-train --algo ppo --sim mujoco \
-  algo.seed=1 training.no_play=true
-```
-
-保持 `training.log_root` 未设置，并从仓库根目录运行。训练会写入规范目录
-树：
-
-```text
-logs/<algorithm-log-name>/SharpaInhandRotation/<timestamp>/
-```
-
-示例：
-
-```text
-logs/hora_appo/SharpaInhandRotation/<timestamp>/
-logs/flash_sac/SharpaInhandRotation/<timestamp>/
-logs/rsl_rl_ppo/SharpaInhandRotation/<timestamp>/
-```
-
-## 检查 run
-
-完成的 run 包含：
-
-- `model_<iteration>.pt`：策略 checkpoint。
-- `run_config.json`：精确解析后的配置。
-- `run_summary.json`：最终 reward、episode 长度、步数与 checkpoint 路径。
-- `events.out.tfevents.*`：TensorBoard 曲线。
-
-观察所有进行中的 run：
-
-```bash
-uv run tensorboard --logdir ./logs --port 6006
-```
-
-打开：
-
-```text
-http://localhost:6006
-```
-
-## 常用控制
-
-| 控制 | 用途 |
-| --- | --- |
-| `algo.seed=1` | 让运行可复现 |
-| `training.no_play=true` | 训练后退出，不进入 playback |
-| `training.play_render_mode=none` | 禁用训练后 playback |
-| `training.play_render_mode=record` | 训练后录制视频 |
-| `training.device=cuda:0` | 在支持处选择 learner 设备 |
-| `algo.max_iterations=N` | 设置训练日程长度 |
-| `algo.save_interval=N` | 设置 checkpoint 间隔 |
-| `training.log_dir=/absolute/run` | 使用一个精确输出目录 |
-
-算法专属示例：
-
-```text
-PPO/APPO: algo.num_envs, algo.steps_per_env or algo.num_steps_per_env
-FlashSAC: algo.batch_size, algo.replay_buffer_n, algo.updates_per_step
-```
-
-## 继续 PPO 或 APPO
-
-使用相同仓库根目录并选择之前的 run：
-
-```bash
-uv run sharpa-train --algo ppo --sim mujoco \
-  algo.seed=1 algo.load_run=-1 training.no_play=true
-```
-
-PPO 可以用 `algo.checkpoint=<iteration>` 选择 checkpoint 迭代。当前
-FlashSAC launcher 不会从 `algo.load_run` 恢复训练；请保留完成的 FlashSAC
-checkpoint，或启动新的 seeded run。
-
-如果 run 使用 `training.log_dir` 创建，评估时请将该 run 或 checkpoint 路径
-直接传给 `algo.load_run`。
-
-## 重新生成抓取状态
-
-仓库内置生产 grasp cache。只有修改手、物体或抓取生成策略后才需要重新生
-成：
-
-```bash
-bash src/sharpa_rl_unilab/tools/sharpa_collect_grasps.sh 0.8 1.0 1.2
-```
-
-有用的环境变量：
-
-```text
-SHARPA_GRASP_TARGET=<number of saved grasps>
-SHARPA_GRASP_NUM_ENVS=<parallel environments>
-SHARPA_GRASP_CACHE_PATH=<output prefix>
-```
+当前要求启用触觉和摩擦特权信息、不加入重力特权信息，
+actor/critic 历史为 3 帧，proprio 历史为 30 帧。不兼容组合在构建阶段报错，
+当前接口不支持可变维度。

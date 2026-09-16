@@ -48,6 +48,7 @@ class SharpaPersistentObjectForce(ManagerTermBase):
             term, "domain_randomization_name", cfg.params.get("domain_randomization_name")
         )
         self._randomization: SharpaDomainRandomization | None = None
+        self.rng: np.random.Generator | None = None
         self._force_scale = require_real(
             term, "force_scale", cfg.params.get("force_scale", 2.0), minimum=0.0
         )
@@ -89,13 +90,14 @@ class SharpaPersistentObjectForce(ManagerTermBase):
             dr = env.event_manager.get_term_cfg(self._randomization_name).func
             if not isinstance(dr, SharpaDomainRandomization):
                 raise TypeError(f"{type(self).__name__} requires SharpaDomainRandomization")
-            self.domain_randomization = dr
+            self._randomization = dr
+        rng = env.rng if self.rng is None else self.rng
         self._force *= self._decay
-        trigger = env.rng.random(env.num_envs) < self._probability
+        trigger = rng.random(env.num_envs) < self._probability
         if np.any(trigger):
             ids = np.flatnonzero(trigger)
-            mass = self.domain_randomization.mass[ids]
-            self._force[ids, 0, :] = env.rng.standard_normal((ids.size, 3)) * mass[:, None]
+            mass = self._randomization.mass[ids]
+            self._force[ids, 0, :] = rng.standard_normal((ids.size, 3)) * mass[:, None]
             self._force[ids] *= self._force_scale
         self._entity.apply_body_wrench_to_sim(
             self._force,

@@ -1,0 +1,44 @@
+# @package _global_
+defaults:
+  - /common/sharpa_task
+  - _self_
+# Legacy flat observations are retained only for grasp-cache generation.
+env:
+  observations:
+    flat:
+      history_length: 3
+      flatten_history_dim: true
+      terms:
+        privileged:
+          func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation.SharpaFlattenedObservation
+          params:
+            entity_name: robot
+            action_name: hand
+            event_state_name: reset
+            domain_randomization_name: domain_randomization
+            sensor_names:
+            - contact_right_thumb_elastomer_force
+            - contact_right_index_elastomer_force
+            - contact_right_middle_elastomer_force
+            - contact_right_ring_elastomer_force
+            - contact_right_pinky_elastomer_force
+            enable_tactile: true
+            joint_noise: 0.02
+            contact_smoothing: 0.5
+            contact_latency: 0.005
+            contact_sensor_noise: 0.01
+            binary_contact: false
+            contact_threshold: 0.05
+            tactile_force_clip_max: 4.0
+            clip_obs: 5.0
+  terminations:
+    dropped:
+      func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.termination.SharpaDropTermination
+      params:
+        observation_group: flat
+        observation_term: privileged
+    time_out:
+      func: unilab.envs.mdp.time_out
+      time_out: true
+  policy_observation_group: flat
+  critic_observation_group: null

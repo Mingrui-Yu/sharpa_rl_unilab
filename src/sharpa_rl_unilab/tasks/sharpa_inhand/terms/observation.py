@@ -9,6 +9,7 @@ from unilab.dtype_config import get_global_dtype
 from unilab.managers import ManagerTermBase
 from unilab.utils.geometry import np_quat_angular_velocity_from_pair
 
+from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import FRAME_DIM, PRIV_DIM
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.action import SharpaIncrementalPositionAction
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.constants import (
     HAND_JOINT_NAMES,
@@ -49,7 +50,6 @@ class SharpaRotationObservation(ManagerTermBase):
         "binary_contact",
         "contact_threshold",
         "tactile_force_clip_max",
-        "disable_tactile_ids",
         "enable_tactile",
         "clip_obs",
     }
@@ -112,9 +112,6 @@ class SharpaRotationObservation(ManagerTermBase):
             term, "tactile_force_clip_max", cfg.params.get("tactile_force_clip_max", 4.0)
         )
         self._clip_obs = require_real(term, "clip_obs", cfg.params.get("clip_obs", 5.0))
-        disabled = np.asarray(cfg.params.get("disable_tactile_ids", ()), dtype=np.intp)
-        if np.any(disabled < 0) or np.any(disabled >= len(sensor_names)):
-            raise ValueError(f"{term} disable_tactile_ids are out of range: {disabled.tolist()}")
 
         dtype = get_global_dtype()
         self.dof_pos = np.asarray(
@@ -133,6 +130,11 @@ class SharpaRotationObservation(ManagerTermBase):
         self.last_contacts = np.zeros_like(self._prev_tactile_force)
         self._tactile_output = self.last_contacts.copy()
         self._last_counter = int(env.common_step_counter)
+        self._needs_reset = np.ones(env.num_envs, dtype=np.bool_)
+        self._clean_tactile = np.zeros_like(self._prev_tactile_force)
+        self._actor_frame = np.zeros((env.num_envs, self.frame_dim), dtype=dtype)
+        self._clean_frame = np.zeros_like(self._actor_frame)
+        self.priv_info = np.zeros((env.num_envs, PRIV_DIM), dtype=dtype)
 
         ranges = np.asarray(self._entity.data.actuator_ctrl_range, dtype=get_global_dtype())
         actuator_indices = np.arange(NUM_HAND_JOINTS, dtype=np.intp)
@@ -161,55 +163,77 @@ class SharpaRotationObservation(ManagerTermBase):
         return NUM_HAND_JOINTS * 2 + (len(self._sensor_view.names) if self._enable_tactile else 0)
 
     def reset(self, env_ids: np.ndarray | slice | None = None) -> None:
+        # Reset events commit after manager.reset(). Read the new episode only
+        # when observations are next computed, after action targets also reset.
         ids = resolve_env_ids(self._env, env_ids)
-        self.dof_pos[ids] = self._entity.data.joint_pos[ids][:, self._joint_ids_array]
-        self.dof_vel[ids] = 0.0
-        self.object_pos[ids] = self._entity.data.root_link_pos_w[ids]
-        self.object_quat[ids] = self._entity.data.root_link_quat_w[ids]
-        self.object_linvel[ids] = 0.0
-        self.object_angvel[ids] = 0.0
-        self.torques[ids] = 0.0
-        self._previous_dof_pos[ids] = self.dof_pos[ids]
-        self._previous_object_pos[ids] = self.object_pos[ids]
-        self._previous_object_quat[ids] = self.object_quat[ids]
+        self._needs_reset[ids] = True
         self._prev_tactile_force[ids] = 0.0
         self.last_contacts[ids] = 0.0
-        self._tactile_output[ids] = 0.0
-        self._last_counter = int(cast("SharpaEnv", self._env).common_step_counter)
 
     def snapshot(self, env: SharpaEnv) -> SharpaRotationObservation:
         counter = int(env.common_step_counter)
-        if counter == self._last_counter:
+        if counter != self._last_counter:
+            if counter != self._last_counter + 1:
+                raise RuntimeError(
+                    f"Sharpa observation missed a control-step update: "
+                    f"last={self._last_counter}, current={counter}"
+                )
+            ids = np.arange(env.num_envs, dtype=np.int32)
+        else:
+            ids = np.flatnonzero(self._needs_reset)
+        if ids.size == 0:
             return self
-        if counter != self._last_counter + 1:
-            raise RuntimeError(
-                f"Sharpa observation missed a control-step update: "
-                f"last={self._last_counter}, current={counter}"
-            )
-        dtype = get_global_dtype()
-        dof_pos = np.asarray(self._entity.data.joint_pos[:, self._joint_ids_array], dtype=dtype)
-        object_pos = np.asarray(self._entity.data.root_link_pos_w, dtype=dtype)
-        object_quat = np.asarray(self._entity.data.root_link_quat_w, dtype=dtype)
-        np.subtract(dof_pos, self._previous_dof_pos, out=self.dof_vel)
-        self.dof_vel /= env.step_dt
-        np.subtract(object_pos, self._previous_object_pos, out=self.object_linvel)
-        self.object_linvel /= env.step_dt
-        self.object_angvel[:] = np_quat_angular_velocity_from_pair(
-            object_quat, self._previous_object_quat, env.step_dt
+
+        reset_ids = ids[self._needs_reset[ids]]
+        self.dof_pos[ids] = self._entity.data.joint_pos[ids][:, self._joint_ids_array]
+        self.object_pos[ids] = self._entity.data.root_link_pos_w[ids]
+        self.object_quat[ids] = self._entity.data.root_link_quat_w[ids]
+        self.dof_vel[ids] = (self.dof_pos[ids] - self._previous_dof_pos[ids]) / env.step_dt
+        self.object_linvel[ids] = (
+            self.object_pos[ids] - self._previous_object_pos[ids]
+        ) / env.step_dt
+        self.object_angvel[ids] = np_quat_angular_velocity_from_pair(
+            self.object_quat[ids], self._previous_object_quat[ids], env.step_dt
         )
-        self.dof_pos[:] = dof_pos
-        self.object_pos[:] = object_pos
-        self.object_quat[:] = object_quat
+        self.dof_vel[reset_ids] = 0.0
+        self.object_linvel[reset_ids] = 0.0
+        self.object_angvel[reset_ids] = 0.0
         action = self._resolve_action(env)
         if action is None:
-            self.torques[:] = 0.0
+            self.torques[ids] = 0.0
         else:
-            self.torques[:] = self.domain_randomization.kp * (action.target - self.dof_pos)
-            self.torques -= self.domain_randomization.kd * self.dof_vel
-        self._previous_dof_pos[:] = dof_pos
-        self._previous_object_pos[:] = object_pos
-        self._previous_object_quat[:] = object_quat
-        self._tactile_output = self.tactile(env)
+            self.torques[ids] = (
+                self.domain_randomization.kp[ids] * (action.target[ids] - self.dof_pos[ids])
+                - self.domain_randomization.kd[ids] * self.dof_vel[ids]
+            )
+        self._previous_dof_pos[ids] = self.dof_pos[ids]
+        self._previous_object_pos[ids] = self.object_pos[ids]
+        self._previous_object_quat[ids] = self.object_quat[ids]
+
+        # Read contact forces once. Only the Actor branch sees artificial
+        # smoothing, latency and dropout; both branches describe this step.
+        self._clean_tactile[ids] = self._read_tactile(env)[ids]
+        if self._enable_tactile:
+            self._tactile_output[ids] = self._process_tactile(env, ids)
+        normalized = 2.0 * (self.dof_pos[ids] - self._dof_mid) / (self._dof_range + 1.0e-8)
+        target = action.target[ids] if action is not None else np.zeros_like(normalized)
+        clean_parts = [normalized, target]
+        noisy = normalized.copy()
+        if self._joint_noise > 0.0:
+            noisy += env.rng.uniform(-self._joint_noise, self._joint_noise, size=noisy.shape)
+        actor_parts = [noisy, target]
+        if self._enable_tactile:
+            clean_parts.append(self._clean_tactile[ids])
+            actor_parts.append(self._tactile_output[ids])
+        self._clean_frame[ids] = np.concatenate(clean_parts, axis=1)
+        self._actor_frame[ids] = np.concatenate(actor_parts, axis=1)
+        if self._clip_obs > 0.0:
+            for frame in (self._clean_frame, self._actor_frame):
+                frame[ids] = np.clip(frame[ids], -self._clip_obs, self._clip_obs)
+        self.priv_info[ids] = self.domain_randomization.privileged_info(
+            self.object_pos, self.task_state.object_pos_anchor
+        )[ids]
+        self._needs_reset[ids] = False
         self._last_counter = counter
         return self
 
@@ -226,45 +250,28 @@ class SharpaRotationObservation(ManagerTermBase):
             np.clip(result, 0.0, self._tactile_clip, out=result)
         return result
 
-    def tactile(self, env: SharpaEnv) -> np.ndarray:
-        if not self._enable_tactile:
-            return np.zeros((env.num_envs, 0), dtype=get_global_dtype())
-        current = self._read_tactile(env)
-        smooth = current * self._contact_smoothing + self._prev_tactile_force * (
+    def _process_tactile(self, env: SharpaEnv, ids: np.ndarray) -> np.ndarray:
+        current = self._clean_tactile[ids]
+        smooth = current * self._contact_smoothing + self._prev_tactile_force[ids] * (
             1.0 - self._contact_smoothing
         )
-        self._prev_tactile_force[:] = current
-        latency = (env.rng.random(smooth.shape) < self._contact_latency).astype(get_global_dtype())
+        self._prev_tactile_force[ids] = current
+        delayed = env.rng.random(smooth.shape) < self._contact_latency
+        contact = (
+            (smooth > self._contact_threshold).astype(get_global_dtype())
+            if self._binary_contact
+            else smooth
+        )
+        self.last_contacts[ids] = np.where(delayed, self.last_contacts[ids], contact)
+        result = self.last_contacts[ids].copy()
         if self._binary_contact:
-            contact = (smooth > self._contact_threshold).astype(get_global_dtype())
-            self.last_contacts[:] = self.last_contacts * latency + contact * (1.0 - latency)
-            keep = (env.rng.random(self.last_contacts.shape) >= self._contact_noise).astype(
-                get_global_dtype()
-            )
-            return np.where(
-                self.last_contacts > 0.1,
-                keep * self.last_contacts,
-                self.last_contacts,
-            )
-        self.last_contacts[:] = self.last_contacts * latency + smooth * (1.0 - latency)
-        return self.last_contacts.copy()
+            keep = env.rng.random(result.shape) >= self._contact_noise
+            result = np.where(result > 0.1, keep * result, result)
+        return result
 
     def frame(self, env: SharpaEnv, *, noisy: bool) -> np.ndarray:
         self.snapshot(env)
-        normalized = 2.0 * (self.dof_pos - self._dof_mid) / (self._dof_range + 1.0e-8)
-        if noisy and self._joint_noise > 0.0:
-            normalized = normalized + env.rng.uniform(
-                -self._joint_noise, self._joint_noise, size=normalized.shape
-            )
-        action = self._resolve_action(env)
-        target = action.target if action is not None else np.zeros_like(normalized)
-        parts = [normalized, target]
-        if self._enable_tactile:
-            parts.append(self._tactile_output)
-        frame = np.concatenate(parts, axis=1, dtype=get_global_dtype())
-        if self._clip_obs > 0.0:
-            np.clip(frame, -self._clip_obs, self._clip_obs, out=frame)
-        return frame
+        return self._actor_frame if noisy else self._clean_frame
 
     def __call__(self, env: SharpaEnv, **params: Any) -> np.ndarray:
         del params
@@ -272,46 +279,63 @@ class SharpaRotationObservation(ManagerTermBase):
 
 
 class SharpaFlattenedObservation(SharpaRotationObservation):
-    """Noisy policy frame plus privileged channels in one flattened group."""
-
-    def __init__(self, cfg: ManagerTermBaseCfg, env: SharpaEnv):
-        super().__init__(cfg, env)
-        self._include_privileged = True
-        self._noisy_output = True
+    """Legacy noisy policy frame plus privileged channels."""
 
     def __call__(self, env: SharpaEnv, **params: Any) -> np.ndarray:
         del params
-        return np.concatenate(
-            (
-                self.frame(env, noisy=self._noisy_output),
-                self.domain_randomization.privileged_info(
-                    self.object_pos,
-                    self.task_state.object_pos_anchor,
-                ),
-            ),
-            axis=1,
-            dtype=get_global_dtype(),
-        )
+        return np.concatenate((self.frame(env, noisy=True), self.priv_info), axis=1)
 
 
-class SharpaCriticObservation(SharpaRotationObservation):
-    """Clean policy frame plus privileged channels for asymmetric learners."""
+class _SharpaObservationView(ManagerTermBase):
+    """Read a named frame owner without another sensor read or noise draw."""
+
+    output_dim: int
 
     def __init__(self, cfg: ManagerTermBaseCfg, env: SharpaEnv):
-        super().__init__(cfg, env)
-        self._include_privileged = True
-        self._noisy_output = False
+        super().__init__(env)
+        term = type(self).__name__
+        validate_term_params(term, cfg, {"observation_group", "observation_term"})
+        self._group = require_name(term, "observation_group", cfg.params.get("observation_group"))
+        self._term = require_name(term, "observation_term", cfg.params.get("observation_term"))
 
     def __call__(self, env: SharpaEnv, **params: Any) -> np.ndarray:
         del params
-        return np.concatenate(
-            (
-                self.frame(env, noisy=self._noisy_output),
-                self.domain_randomization.privileged_info(
-                    self.object_pos,
-                    self.task_state.object_pos_anchor,
-                ),
-            ),
-            axis=1,
-            dtype=get_global_dtype(),
-        )
+        # ObservationManager probes dimensions before env.observation_manager
+        # is assigned. Dependencies are resolved on the first real compute.
+        manager = getattr(env, "observation_manager", None)
+        if manager is None:
+            return np.zeros((env.num_envs, self.output_dim), dtype=get_global_dtype())
+        source = manager.get_term_cfg(self._group, self._term).func
+        if not isinstance(source, SharpaRotationObservation) or source.frame_dim != FRAME_DIM:
+            raise ValueError(f"{type(self).__name__} requires a 49D Sharpa frame owner")
+        return self._read(source.snapshot(env))
+
+    def _read(self, source: SharpaRotationObservation) -> np.ndarray:
+        raise NotImplementedError
+
+
+class SharpaCriticObservation(_SharpaObservationView):
+    """Current clean 49D frame plus current 9D privileged information."""
+
+    output_dim = FRAME_DIM + PRIV_DIM
+
+    def _read(self, source: SharpaRotationObservation) -> np.ndarray:
+        return np.concatenate((source._clean_frame, source.priv_info), axis=1)
+
+
+class SharpaPrivilegedObservation(_SharpaObservationView):
+    """Explicit current privileged vector, independent of critic history layout."""
+
+    output_dim = PRIV_DIM
+
+    def _read(self, source: SharpaRotationObservation) -> np.ndarray:
+        return source.priv_info
+
+
+class SharpaProprioObservation(_SharpaObservationView):
+    """Same noisy frame as the Actor; configure a 30-frame manager history."""
+
+    output_dim = FRAME_DIM
+
+    def _read(self, source: SharpaRotationObservation) -> np.ndarray:
+        return source._actor_frame

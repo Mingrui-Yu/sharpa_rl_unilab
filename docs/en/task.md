@@ -1,67 +1,41 @@
-# Task and environment guide
+# Sharpa Wave in-hand rotation
 
-## Robot and objective
+## Task objective
 
-The task controls a Sharpa Wave hand with 22 actuated joints. The manipulated
-object is a free cylinder. The policy rotates the object around the target axis
-while keeping it stable in hand.
+Control the hand's joint position targets to rotate an object continuously
+around a specified axis while maintaining a stable grasp. The reward encourages
+rotation and penalizes object translation, deviations in hand posture and control
+effort. Each episode lasts at most 20 seconds; leaving the height range around
+the initial grasp ends the episode as a drop.
 
-The registered environments are:
+## Environment setup
 
-- `SharpaInhandRotation`: policy training and evaluation.
-- `SharpaInhandRotationGrasp`: grasp-state collection.
+The task currently uses MuJoCo. Each reset samples hand joint positions and an
+object pose from a stable grasp cache. Caches are bundled with the package and
+can be regenerated after changing the model or grasp policy.
 
-## Observations and actions
+Objects use eight fixed scales: 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4 and 1.5.
+Each parallel environment uses one scale and its matching cache.
 
-| Contract | Size |
-| --- | ---: |
-| Hand action | 22 |
-| Actor frame | 49 |
-| Actor history | 147 |
-| Flat APPO observation | 174 |
-| HORA privileged critic history | 174 |
+Training randomizes object mass, center of mass, friction, gravity direction
+and joint control gains, and applies external force disturbances. Policy
+observations include joint and tactile information, with configurable tactile
+smoothing, latency and noise. These variations train the policy to adapt to
+different objects and sensor conditions.
 
-The actor observation contains hand state, position-target history, and tactile
-history. The privileged critic additionally observes object and domain state
-that is not available to the deployed actor.
+## Teacher and student
 
-## Training variations
+PPO, APPO and FlashSAC share the HORA teacher/student pipeline:
 
-Each episode randomly samples:
+1. **Teacher:** learns a rotation policy using measurable observations and
+   privileged simulation information, such as mass and friction.
+2. **Student:** estimates the teacher's privileged representation from observation
+   history, then uses the inherited policy to produce actions.
+3. **Evaluation:** checks rotation speed, survival time and drop rate in fixed scenes.
 
-- hand actuator P/D gain multipliers;
-- object mass and center-of-mass offset;
-- object, elastomer, and metal friction;
-- gravity direction;
-- decaying external object force.
+Student inference requires only measurable observations and their history,
+without privileged simulation information. Each algorithm uses its own training
+budget; comparisons must account for actual sample counts and elapsed time.
 
-Object size is not mutated at runtime. The environment uses fixed MJCF variants
-for these scales:
-
-```text
-0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5
-```
-
-This avoids MuJoCo sameframe errors during mass/CoM randomization and gives the
-policy a stable multi-scale training curriculum.
-
-## Reward behavior
-
-The reward favors target-axis object rotation and penalizes:
-
-- object linear velocity;
-- hand pose deviation;
-- estimated torque;
-- mechanical work;
-- object displacement from its anchor.
-
-Episodes end when the object drops outside the reset-height band or reaches the
-time limit.
-
-## Bundled assets
-
-The package includes the Sharpa Wave MJCF, collision meshes, visual meshes, and
-one grasp cache per object scale. `uv run sharpa-assets` prepares a writable
-repair cache when needed; normal runs do not download assets.
-
-Set `SHARPA_RL_UNILAB_ASSET_CACHE` to choose a custom asset-cache directory.
+See the [training guide](training.md) for instructions and the
+[architecture](architecture.md) for input shapes and code responsibilities.

@@ -9,7 +9,7 @@ from unilab.base.run_control import RunComplete
 from unilab.managers import ManagerTermBase, RecorderTerm, RecorderTermCfg
 from unilab.utils.rotation import np_quat_error_magnitude
 
-from sharpa_rl_unilab.tasks.sharpa_inhand.terms.cache import resolve_grasp_cache_file
+from sharpa_rl_unilab.tasks.sharpa_inhand.terms.cache import grasp_cache_output_file
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation import SharpaRotationObservation
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.reset import SharpaHandObjectReset
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.validation import (
@@ -152,12 +152,13 @@ class SharpaGraspRecorder(RecorderTerm):
         self._target = require_int(term, "target", cfg.params.get("target"), positive=True)
         self._auto_save = require_bool(term, "auto_save", cfg.params.get("auto_save", True))
         self._rows: list[np.ndarray] = []
+        self._num_rows = 0
         self._saved = False
         self._target_notified = False
 
     @property
     def total_saved(self) -> int:
-        return len(self._rows)
+        return self._num_rows
 
     def _log(self, name: str, value: float) -> None:
         env = cast("SharpaEnv", self._env)
@@ -165,11 +166,11 @@ class SharpaGraspRecorder(RecorderTerm):
         log[name] = value
 
     def _save(self, *, force: bool = False) -> None:
-        if self._saved or not self._rows or (not force and len(self._rows) < self._target):
+        if self._saved or not self._rows or (not force and self.total_saved < self._target):
             return
-        rows = np.concatenate(self._rows, axis=0)[: self._target].astype(np.float32)
+        rows = np.concatenate(self._rows, axis=0)
         scale = float(np.asarray(self.task_state.scale_values)[0])
-        output = resolve_grasp_cache_file(self._prefix, scale)
+        output = grasp_cache_output_file(self._prefix, scale)
         output.parent.mkdir(parents=True, exist_ok=True)
         np.save(output, rows)
         self._saved = True
@@ -195,7 +196,9 @@ class SharpaGraspRecorder(RecorderTerm):
             if rows.shape != (success_ids.size, 29):
                 raise ValueError(f"{type(self).__name__} collected invalid rows")
             if self.total_saved < self._target:
-                self._rows.append(rows[: self._target - self.total_saved])
+                rows = rows[: self._target - self.total_saved]
+                self._rows.append(rows)
+                self._num_rows += len(rows)
             self._log("grasp/cache_size", float(self.total_saved))
         self._save()
         if self.total_saved >= self._target and not self._target_notified:

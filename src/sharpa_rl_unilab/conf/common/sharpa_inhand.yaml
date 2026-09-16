@@ -1,0 +1,128 @@
+# @package _global_
+defaults:
+  - /common/sharpa_task
+  - _self_
+env:
+  observations:
+    priv_info:
+      terms:
+        current:
+          func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation.SharpaPrivilegedObservation
+          params:
+            observation_group: actor
+            observation_term: frame
+    proprio_hist:
+      history_length: 30
+      flatten_history_dim: false
+      terms:
+        frame:
+          func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation.SharpaProprioObservation
+          params:
+            observation_group: actor
+            observation_term: frame
+    actor:
+      history_length: 3
+      flatten_history_dim: true
+      terms:
+        frame:
+          func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation.SharpaRotationObservation
+          params:
+            entity_name: robot
+            action_name: hand
+            event_state_name: reset
+            domain_randomization_name: domain_randomization
+            sensor_names:
+            - contact_right_thumb_elastomer_force
+            - contact_right_index_elastomer_force
+            - contact_right_middle_elastomer_force
+            - contact_right_ring_elastomer_force
+            - contact_right_pinky_elastomer_force
+            enable_tactile: true
+            joint_noise: 0.02
+            contact_smoothing: 0.5
+            contact_latency: 0.005
+            contact_sensor_noise: 0.01
+            binary_contact: false
+            contact_threshold: 0.05
+            tactile_force_clip_max: 4.0
+            clip_obs: 5.0
+    critic:
+      history_length: 3
+      flatten_history_dim: true
+      terms:
+        privileged:
+          func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation.SharpaCriticObservation
+          params:
+            observation_group: actor
+            observation_term: frame
+  terminations:
+    dropped:
+      func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.termination.SharpaDropTermination
+      params:
+        observation_group: actor
+        observation_term: frame
+    time_out:
+      func: unilab.envs.mdp.time_out
+      time_out: true
+  policy_observation_group: actor
+  critic_observation_group: critic
+protocol:
+  comparison_mode: fixed-hardware
+  version: sharpa-hora-v2
+  stage: teacher
+model:
+  action_mapping: tanh  # tanh / clip; FlashSAC requires tanh
+  std_mode: state_independent  # state_independent / state_dependent; direct requires state_independent
+  std_parameterization: log  # log / direct (PPO/APPO); legacy_scalar aliases direct; legacy_tanh is checkpoint-only
+  initial_std: 1.0  # Initial std; direct requires [1e-6, 1e6]
+  log_std_bounds: null  # Optional log-std clamp; must be null for direct
+  actor_hidden_dims: [512, 256, 128]
+  critic_hidden_dims: [512, 256, 128]
+  priv_mlp_hidden_dims: [256, 128, 9]
+  activation: elu
+  actor_normalization: true
+  critic_normalization: true
+training:
+  num_envs: 2048
+  max_transitions: null
+  device: cuda:0
+  torch_threads:
+    enabled: true
+    learner_num_threads: 4
+    collector_num_threads: 4
+    learner_num_interop_threads: 1
+    collector_num_interop_threads: 1
+    compile_threads: auto
+    set_env_vars: true
+  devices: null
+  log_dir: null
+  logger: tensorboard
+  play_only: false
+  task_name: SharpaInhandRotation
+  sim_backend: mujoco
+  no_play: false
+  play_render_mode: record
+  play_env_num: 16
+  play_steps: 400
+  render_spacing: 0.5
+  cam_distance: 0.75
+  cam_lookat: [0.0, 0.0, 0.62]
+  cam_elevation: -25.0
+  cam_azimuth: 45.0
+evaluation:
+  diagnostics: false
+  seeds: [10001, 10002, 10003]
+  episodes_per_scale: 10
+  scales: [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+  scale_weights: [0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125]
+  window_seconds: 20.0
+  checkpoint_selection: final
+  split: validation
+  manifest: null
+distillation:
+  transitions: 100000000
+  num_envs: 4096
+  learning_rate: 0.0003
+  save_every: 10000000
+  log_every: 10000
+  seed: ${algo.seed}

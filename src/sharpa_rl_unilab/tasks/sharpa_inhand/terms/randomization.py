@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 from unilab.dtype_config import get_global_dtype
 from unilab.managers import ManagerTermBase
-from unilab.utils.geometry import np_sample_uniform_quaternion
 from unilab.utils.rotation import np_quat_apply
 
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.constants import NUM_HAND_JOINTS
@@ -218,9 +217,6 @@ class SharpaDomainRandomization(ManagerTermBase):
         if scale_catalog is not None and env.cfg.scene is not None:
             if env.cfg.scene.fixed_variant_plan is None:
                 raise ValueError(f"{term} fixed variant plan was not materialized")
-            variant_index = {
-                variant.name: index for index, variant in enumerate(scale_catalog.variants)
-            }
             scales = np.asarray(
                 [
                     float(variant.name.removeprefix("scene_scale_").replace("_", "."))
@@ -230,11 +226,10 @@ class SharpaDomainRandomization(ManagerTermBase):
             )
             ids = np.asarray(env.cfg.scene.fixed_variant_plan.assignment, dtype=np.intp)
             self.scale[:] = scales[ids][:, None]
-            del variant_index
 
     @property
     def privileged_dim(self) -> int:
-        return 9 + (3 if self._include_gravity else 0)
+        return 8 + int(self._include_friction) + (3 if self._include_gravity else 0)
 
     def _sample_split_around_one(
         self, rng: np.random.Generator, bounds: tuple[float, float], shape: tuple[int, int]
@@ -339,7 +334,13 @@ class SharpaDomainRandomization(ManagerTermBase):
         if self._randomize_gravity_direction:
             downward = np.zeros((count, 3), dtype=np.float64)
             downward[:, 2] = -self._gravity_magnitude
-            quat = np_sample_uniform_quaternion(count)
+            # Shoemake's uniform rotation, using the environment's explicit RNG.
+            u1 = env.rng.random(count)
+            u2, u3 = env.rng.random((2, count)) * (2.0 * np.pi)
+            r1, r2 = np.sqrt(1.0 - u1), np.sqrt(u1)
+            quat = np.stack(
+                (r2 * np.cos(u3), r1 * np.sin(u2), r1 * np.cos(u2), r2 * np.sin(u3)), axis=-1
+            )
             gravity = np_quat_apply(quat, downward).astype(dtype)
         else:
             gravity = np.broadcast_to(self._default_gravity, (count, 3)).copy()

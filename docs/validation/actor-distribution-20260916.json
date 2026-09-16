@@ -1,0 +1,115 @@
+{
+  "original_G": {
+    "return": 49.84488419378467,
+    "survival_seconds": 20.0,
+    "dropped": 0.0,
+    "signed_angle": 12.561752789786828,
+    "speed_fixed_window": 0.6280876394893414,
+    "speed_alive": 0.6280876394893414,
+    "std": 0.4598030149936676,
+    "saturation": 0.00024053030303030303,
+    "action_delta_rms": 0.24015564113289098,
+    "q_second_difference_rms": 0.007221203494581918,
+    "target_at_limit": 0.032486742424242425
+  },
+  "new_G": {
+    "return": 47.348912371096475,
+    "survival_seconds": 19.429166666666667,
+    "dropped": 0.03333333333333333,
+    "signed_angle": 11.940179079423507,
+    "speed_fixed_window": 0.5970089539711754,
+    "speed_alive": 0.5995202636430467,
+    "std": 0.4751097045161506,
+    "saturation": 0.0011354038279003213,
+    "action_delta_rms": 0.21989290380106952,
+    "q_second_difference_rms": 0.006713490684584188,
+    "target_at_limit": 0.06431827855385662
+  },
+  "speed_ratio": 0.95051855256468,
+  "motion_rms_ratio": 0.9296913858778987,
+  "manifest_sha256": "e592d62b6f716a30d3033938debed34b0985e771cfdae72682caabba09b3510a",
+  "new_checkpoint_sha256": "1443069fadb409fb9ecc59f8513f4343cbf5488dcf173d741a4a334077439f9a",
+  "old_checkpoint_sha256": "d3b25d3bb7a753685a72c4be5a96a9107661bee82fe2c051d3cd4acf536215b5",
+  "new_counters": {
+    "collected": 8208384,
+    "received": 8208384,
+    "training_samples": 326041600,
+    "optimizer_updates": 10020,
+    "actor_updates": 10020,
+    "critic_updates": 10020,
+    "temperature_updates": 0,
+    "policy_version": 501
+  },
+  "new_training_wall_seconds": 2043.344098892063,
+  "old_height_exits": 0,
+  "new_height_exits": 8,
+  "validation": {
+    "fast_tests_passed": 88,
+    "slow_tests_passed": 13,
+    "compiled_appo": [
+      "clip",
+      "tanh"
+    ],
+    "whole_repository_format_preexisting_failures": 8,
+    "old_video_trace_bitwise_equal": true,
+    "amp_audit": "FP32 critical arithmetic implemented; broader AMP audit remains TODO"
+  },
+  "dependencies": {
+    "torch": "2.8.0+cu128",
+    "rsl-rl-lib": "5.5.0",
+    "unilab-rl": "1.2.0",
+    "unilab": "1.2.0",
+    "mujoco": "3.11.0"
+  },
+  "noise_benchmark": {
+    "batch_size": 2048,
+    "device": "NVIDIA A800-SXM4-80GB",
+    "scope": "held-noise exploration including one HORA forward, no simulator or IPC",
+    "identical_weights": true,
+    "parameterization": "legacy_tanh",
+    "per_round_ms": {
+      "before": [
+        0.8352190628647804,
+        0.8314800448715687,
+        0.8311465941369534,
+        0.8267058059573174,
+        0.826207734644413,
+        0.8248208649456501,
+        0.824669785797596,
+        0.8378532156348228,
+        0.8232669159770012,
+        0.8327881619334221,
+        0.8258590847253799,
+        0.8260822482407093
+      ],
+      "after": [
+        0.8109959214925766,
+        0.7987275160849094,
+        0.7985551469027996,
+        0.7961893640458584,
+        0.796516165137291,
+        0.8073436096310616,
+        0.7918919250369072,
+        0.7909354940056801,
+        0.7929397188127041,
+        0.7922801934182644,
+        0.7931980304419994,
+        0.7917033694684505
+      ]
+    },
+    "median_ms": {
+      "before": 0.8264567703008652,
+      "after": 0.7946936972439289
+    },
+    "ratio_after_before": 0.9615671693930546
+  },
+  "artifacts": {
+    "new_checkpoint": "logs/actor_distribution/appo_G_log_std_seed1/teacher_final.pt",
+    "old_evaluation": "logs/actor_distribution/original_G.evaluation.json",
+    "new_evaluation": "logs/actor_distribution/new_G.evaluation.json",
+    "side_by_side_video": "logs/actor_distribution/G_comparison.mp4",
+    "video_scene": "1/10001/0",
+    "video_fps": 20,
+    "video_frames": 400
+  }
+}

@@ -1,85 +1,87 @@
-# UniLab Sharpa RL
+# UniLab Sharpa 手内操作与 HORA
 
-[English](README.md) | [文档](docs/README.md)
+Sharpa Wave 手内旋转任务已迁移到 UniLab 当前 **Manager-Based API**。任务只
+拥有 action / observation / reset / event / termination / reward terms；
+UniLab 保持外部依赖，负责 manager 生命周期与仿真后端。此前任务自有的
+legacy/direct `NpEnv` 实现和 compatibility factory 已移除。
 
-## 任务概述
+支持 PPO、APPO、FlashSAC teacher，三种算法默认共用 HORA 策略与 student
+蒸馏流程；Critic 保留各算法所需的 V/Q 结构。
 
-这是一个独立的 UniLab Sharpa Wave 手内操作任务包，提供 MuJoCo 可用的
-手/物体任务、内置机器人资产、grasp cache，以及 PPO、APPO、HORA APPO、
-FlashSAC 和 HORA student 蒸馏训练入口。
+## 安装与校验
 
-## 亮点与展示
-
-- 训练在 22 自由度 Sharpa Wave 手内旋转自由圆柱的策略。
-- 使用触觉历史、特权 critic 信息与物体尺度随机化。
-- 导出 FlashSAC actor ONNX，并录制评估视频。
-- 训练 HORA teacher，并蒸馏只使用 actor 观测的 student。
-
-| 真机 | APPO | FlashSAC |
-| --- | --- | --- |
-| ![真机部署回放](docs/media/sharpa-real-eval.gif) | ![APPO 评估回放](docs/media/sharpa-appo-eval.gif) | ![FlashSAC 评估回放](docs/media/sharpa-flashsac-eval.gif) |
-
-## 安装
-
-将 UniLab 与本任务包作为兄弟目录克隆：
+源码开发需要先准备兼容 UniLab 1.2 的兄弟目录 `../UniLab`，再执行 `uv sync`。
 
 ```bash
-mkdir ~/ws/unilab-tasks
-cd ~/ws/unilab-tasks
-git clone https://github.com/Motphys/UniLab.git
 git clone https://github.com/unilabsim/sharpa_rl_unilab.git
 cd sharpa_rl_unilab
-uv sync --extra mujoco --extra export
-uv run sharpa-assets
+uv sync --extra mujoco
+uv run pytest
+uv run pyright
 ```
 
-推荐使用 NVIDIA CUDA 训练。评估可通过
-`training.play_render_mode=record` 在无显示环境运行。
+开发环境通过兄弟目录 `../UniLab` 作为 `unilab` source；包依赖仍是外部的
+`unilab>=1.2.0,<1.3`，`unilab-rl>=1.2.0,<1.3` 来自发布包。若要使用发布版依赖，可在独立虚拟环境中
+运行 `pip install ".[mujoco]"`；pip 不采用 `tool.uv.sources` 中的本地目录映射。
 
-## 快速开始
+`uv run pytest` 默认运行快速回归测试；仿真与训练冒烟测试使用
+`uv run pytest -m slow`，其中 FlashSAC 冒烟测试需要 CUDA。
 
-### 训练 APPO
+## 快速上手
+
+安装完成后，在仓库根目录一键依次训练 PPO、APPO、FlashSAC，让 Sharpa Wave 手学习手内旋转圆柱体：
 
 ```bash
-uv run sharpa-train --algo appo --sim mujoco \
-  algo.seed=1 training.no_play=true
+uv run sharpa-compare
 ```
 
-### 训练 FlashSAC
+另开终端启动 TensorBoard，浏览器打开 <http://localhost:6006> 查看训练曲线：
 
 ```bash
-uv run sharpa-train --algo flashsac --sim mujoco \
-  algo.seed=1 training.no_play=true
+uv run tensorboard --logdir logs/compare
 ```
 
-### 评估 checkpoint
+每种算法训练结束后，回放视频保存至
+`logs/compare/seed_<seed>_<时间戳>/<算法>/play_video.mp4`。
 
-APPO：
+## 训练、评估与蒸馏
 
 ```bash
-uv run sharpa-eval --algo appo --sim mujoco \
-  algo.load_run=-1 training.play_render_mode=record
+uv run sharpa-train --algo appo
+uv run sharpa-train --algo flashsac
+uv run sharpa-train --algo ppo
 ```
 
-FlashSAC：
+`--cfg` 可打印合成后的 Manager-Based 配置。可在命令末尾追加 Hydra 参数覆盖。
+
+训练结束后保存 `teacher_final.pt`，并在同目录录制 `play_video.mp4`。
+无显示器的 Linux 机器使用 EGL 或 OSMesa 离屏渲染；Ubuntu/Debian 需要安装
+`libegl1` 并使用可用的 NVIDIA 图形驱动，或安装 `libosmesa6` 使用软件渲染。
+`uv sync` 不会安装这些系统依赖；无需录制时可设置 `training.no_play=true`。
+
+评估与蒸馏直接指定 checkpoint 文件：
 
 ```bash
-uv run sharpa-eval --algo flashsac --sim mujoco \
-  algo.load_run=-1 training.play_render_mode=record
+uv run sharpa-eval --checkpoint /absolute/path/to/teacher_final.pt
+uv run sharpa-distill --checkpoint /absolute/path/to/teacher_final.pt
+uv run sharpa-eval --checkpoint /absolute/path/to/student_final.pt
 ```
 
-视频会写在所选 checkpoint 旁。FlashSAC 还会写出并验证 `policy.onnx`。
+`uv run sharpa-compare` 按默认配置依次训练三种算法；追加
+`--distill --eval --num-seeds 3` 可运行多 seed 蒸馏与评估。
+各算法使用各自的训练预算，不保证等采样量或等计算成本。
 
-## 文档
+任务背景见[手内旋转](docs/zh_CN/task.md)，操作步骤、运行限制和 checkpoint 兼容范围
+见[训练指南](docs/zh_CN/training.md)。
 
-- [入门](docs/zh_CN/getting-started.md)
-- [训练指南](docs/zh_CN/training.md)
-- [评估指南](docs/zh_CN/evaluation.md)
-- [HORA 指南](docs/zh_CN/hora.md)
-- [任务与环境指南](docs/zh_CN/task.md)
-- [参考结果](docs/zh_CN/results.md)
+## 正确性说明
 
-## 许可
+- 物体尺寸随机化使用 UniLab fixed model variants
+  （`scene_scale_0.8.xml` … `scene_scale_1.5.xml`），不再运行时改 geom size。
+- fixed variant 中所有 body geom 均唯一命名，满足 `mjbatch.VariantPack`。
+- 所有 variant 的自由物体保留 `simple="false"`，避免 reset 时 mass/CoM DR 触发
+  `mj_setConst` sameframe 崩溃。
+- 触觉平滑/延迟、特权信息、位置目标、执行器增益、物体质量/质心/摩擦/重力与
+  衰减外力均为显式 manager terms，仅通过 Entity facade 访问状态。
 
-代码使用 [Apache License 2.0](LICENSE)。资产来源与第三方说明见
-[NOTICE.md](NOTICE.md)。
+详见 [架构](docs/zh_CN/architecture.md) 与 [验证](docs/VALIDATION.md)。

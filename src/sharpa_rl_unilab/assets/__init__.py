@@ -24,6 +24,15 @@ def cache_root() -> Path:
     return root / "sharpa-rl-unilab" / digest
 
 
+def generated_root() -> Path:
+    """User data has a stable location independent of the bundled manifest."""
+    override = os.environ.get(CACHE_ENV_VAR)
+    if override:
+        return Path(override).expanduser().resolve() / "generated"
+    root = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+    return root / "sharpa-rl-unilab" / "generated"
+
+
 def ensure_assets() -> Path:
     """Copy bundled assets to a writable cache for XML materialization tools.
 
@@ -50,10 +59,10 @@ def ensure_assets() -> Path:
 
 
 def resolve_asset(path: str | Path) -> Path:
-    """Resolve an asset path against the writable cache, then the package.
+    """Resolve user data first, then the managed asset cache and package.
 
-    New grasp caches collected at runtime are written under the writable cache
-    root and take precedence; the bundled copies are the fallback. A missing
+    New grasp caches collected at runtime use the stable generated directory
+    and take precedence; bundled copies are the fallback. A missing
     file raises ``FileNotFoundError`` instead of reaching the network.
     """
     candidate = Path(path)
@@ -61,7 +70,7 @@ def resolve_asset(path: str | Path) -> Path:
         if candidate.is_file():
             return candidate
     else:
-        for base in (cache_root(), ASSETS_ROOT_PATH):
+        for base in (generated_root(), cache_root(), ASSETS_ROOT_PATH):
             resolved = base / candidate
             if resolved.is_file():
                 return resolved
