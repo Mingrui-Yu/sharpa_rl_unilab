@@ -22,7 +22,7 @@ bash src/sharpa_rl_unilab/tools/sharpa_collect_grasps.sh 0.8 0.9 1 1.1 1.2 1.3 1
 
 ## 2. 训练 teacher
 
-以 APPO 为例；将 `--algo appo` 改为 `ppo` 或 `flashsac` 可切换算法。
+以 APPO 为例；将 `--algo appo` 改为 `ppo` 或 `flashsac` 可切换算法。PPO、APPO、FlashSAC 共用 HORA Actor 与高斯分布实现。
 
 ```bash
 uv run sharpa-train --algo appo
@@ -30,78 +30,6 @@ uv run sharpa-train --algo appo
 
 默认输出到 `logs/<算法>/seed_<seed>_<时间戳>/`，最终模型为 `teacher_final.pt`，
 包含运行配置和归一化统计。同目录保存配置快照、`metrics.jsonl` 和 TensorBoard 日志。
-
-FlashSAC teacher 训练需要 CUDA/MPS，仅支持按更新轮数停止。
-PPO/APPO 也支持采样预算：同时设置 `algo.max_iterations=null training.max_transitions=N`。
-采样数向上取整到一个向量步，最多多采集“环境数减 1”条 transition；保存仍按轮触发。
-
-### 策略分布
-
-PPO、APPO、FlashSAC 共用 HORA Actor 与高斯分布实现。新训练默认
-`model.std_mode=state_independent`：每个关节一个可学习的 log-std，
-`model.initial_std=1.0` 指定实际初始 std。设为 `state_dependent` 时，
-从 Actor 主干特征输出 log-std；输出头权重初始化为零，偏置为 `log(initial_std)`，
-因此两种模式在初始时都具有指定的实际 std。
-
-三种算法均默认 `model.action_mapping=tanh`；PPO/APPO 也支持 `clip`，FlashSAC 必须使用 `tanh`。
-例如：
-
-```bash
-uv run sharpa-train --algo appo model.action_mapping=tanh \
-  model.std_mode=state_independent model.initial_std=1.0 \
-  algo.algorithm.entropy_coef=0.01
-```
-
-`model.std_parameterization=log` 使用 `std=exp(log_std)`。
-`model.log_std_bounds=null` 表示不约束 log-std；可选用有限递增区间，
-例如 `model.log_std_bounds=[-10,2]`，在 exp 前裁剪。初始 std 必须处于该范围内；
-裁剪会改变区间外的梯度。网络保留各算法原有 AMP 设置，采样、密度、熵和 KL
-使用 FP32 计算。更完整的 AMP 数值审计仍为后续专项 TODO。
-
-PPO/APPO 也支持 `model.std_parameterization=direct`（别名 `legacy_scalar`）：
-每个关节直接学习一个 std 参数，以 `model.initial_std`（默认 1）初始化，
-前向使用 `std=clamp(parameter, 1e-6, 1e6)`。要求
-`model.std_mode=state_independent`、`model.log_std_bounds=null`，且初值有限并处于
-`[1e-6, 1e6]` 内。clamp 不修改参数本身，区间外的梯度为零。
-FlashSAC 新训练仍要求 `log`；`legacy_tanh` 仅用于加载旧 checkpoint。
-
-```bash
-uv run sharpa-train --algo appo model.std_parameterization=direct
-```
-
-tanh 的确定性动作为 `tanh(mean)`，熵奖励使用当前策略新采样估计变换后的动作熵。
-clip 的训练密度、熵和 KL 指潜在高斯分布。PPO/APPO 均保存映射前的原始样本、
-行为 log-prob 和 mean/std。自适应学习率使用 `KL(old || current)`；
-APPO 的参考策略是 target，PPO 的参考策略是采集策略。
-HORA 旋转任务的 PPO/APPO 均默认 `algo.algorithm.kl_mode=exact`，相同策略的 KL 为零。
-参考策略重置后的首个 minibatch 跳过调度，沿用上一轮最终学习率；后续 minibatch
-在 `0 <= KL < lower_threshold` 时增大学习率。上阈值、调整倍数和学习率上下限不变，
-负 KL 不进入增大学习率分支。
-
-PPO 每批新 rollout 的首次更新跳过调度。APPO 在初始化及完整复制 target（`tau=1`）
-后跳过一次，遵循 `target_update_freq`；软更新不重置跳过标记。
-KL 在 optimizer step 前计算，反映相对参考策略的累计偏移，不代表即将执行的一步更新幅度。
-
-`log_epsilon` 仍可选，保留包括 `log(std / old_std + 1e-5)` 的完整旧公式，
-使用相同调度规则。选项保存到 resolved config 和 checkpoint；旧 checkpoint 中的
-`legacy` 名称在加载时迁移为 `log_epsilon`。loss、熵和 V-trace 不变，
-独立的 grasp PPO 运行器不受影响。
-
-```bash
-uv run sharpa-train --algo ppo algo.algorithm.kl_mode=exact  # 默认
-uv run sharpa-train --algo appo algo.algorithm.kl_mode=exact  # 默认
-```
-
-FlashSAC 不使用该 KL 调度，也不提供 `kl_mode` 开关；学习率按更新步数调度。
-FlashSAC 采集仍按环境保持高斯噪声，由 `algo.exploration.noise_zeta_mu=2.0`
-和 `algo.exploration.noise_zeta_max=16` 控制；最大持续步数为 1 时每步刷新。
-runner 在 Learner 设备上持有噪声状态，Actor/Critic 更新和确定性评估均不推进它，
-原生 IPC、推理及更新调度保持不变。
-
-新默认配置将 FlashSAC 从原有的状态相关、有界 std 改为初始值为 1 的状态无关 log-std，
-因此是新的训练设置，不能视为旧训练轨迹的复现。已有 protocol-v2 teacher/student
-checkpoint 通过明确的兼容路径保留原来的 scalar/tanh std 参数化和动作映射。
-评估与蒸馏不允许覆盖 checkpoint 的模型配置。
 
 ## 3. 蒸馏 student
 
@@ -114,8 +42,6 @@ uv run sharpa-distill --checkpoint /path/to/teacher_final.pt
 
 将 `/path/to/teacher_final.pt` 替换为实际文件路径。
 默认输出到 `logs/hora_distill/<算法>_seed_<seed>_<时间戳>/`，最终模型为 `student_final.pt`。
-Student 继承 teacher 的任务和抓取缓存配置，可调整 `distillation.*`、`evaluation.*`、设备、线程、日志及录像设置，
-不接受 `env.*` 或模型配置覆盖。评估和蒸馏均可通过 `training.device=cpu` 使用 CPU。
 
 ## 4. 评估与算法比较
 
@@ -131,9 +57,6 @@ uv run sharpa-eval --checkpoint /path/to/teacher_final.pt
 每个 episode 最长 20 秒，提前掉落不补跑；各尺度等权汇总。
 结果记录回报、存活时间、掉落率、有符号旋转角，以及按固定窗口和实际存活时间计算的转速。
 结果保存为 checkpoint 旁的 `<模型名>.evaluation.json`，场景清单为 `scenes.json`。
-
-评估恢复 checkpoint 中的任务，仅允许覆盖 `evaluation.*` 和 `training.device`
-（也可用 `algo.checkpoint` 指定文件）。复用场景清单时会校验任务配置、抓取和随机化值。
 
 统一训练三种算法：
 
@@ -186,15 +109,8 @@ uv run sharpa-train --algo appo training.num_envs=1024
 录像用于查看动作，定量评估需单独执行。无显示器的 Linux 机器需要 EGL 或 OSMesa，
 安装说明见 [README](../../README_zh.md#训练评估与蒸馏)。
 
-当前支持本项目 v2 teacher/student checkpoint 的评估，以及 v2 teacher 的蒸馏。
-加载旧 v2 配置时自动迁移字段，保留原有任务、模型和归一化设置；
-旧同步 FlashSAC 生成的受支持 v2 checkpoint 也可加载。
-旧版共享 HORA、flat PPO 和原生 FlashSAC 的不兼容格式需要重训。
-当前入口仅支持单 learner 和从头训练，不支持训练断点恢复或 v2 的 JIT/ONNX 导出。
-
 实现约定见[架构说明](architecture.md)，验证范围见[验证记录](../VALIDATION.md)。
 
-无效选项 `disable_tactile_ids` 已移除。加载受支持的旧 checkpoint 时会删除该字段，
-因为它从未影响观测。v2 要求启用触觉和摩擦特权信息、不加入重力特权信息，
+当前要求启用触觉和摩擦特权信息、不加入重力特权信息，
 actor/critic 历史为 3 帧，proprio 历史为 30 帧。不兼容组合在构建阶段报错，
 当前接口不支持可变维度。

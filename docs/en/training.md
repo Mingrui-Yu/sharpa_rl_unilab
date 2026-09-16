@@ -26,7 +26,8 @@ training the teacher.
 ## 2. Train a teacher
 
 For APPO, run the following command; replace `--algo appo` with `--algo ppo` or
-`--algo flashsac` to switch algorithms.
+`--algo flashsac` to switch algorithms. PPO, APPO and FlashSAC share the same
+HORA actor and Gaussian distribution.
 
 ```bash
 uv run sharpa-train --algo appo
@@ -36,94 +37,6 @@ The default output directory is `logs/<algorithm>/seed_<seed>_<timestamp>/`.
 The final model, `teacher_final.pt`, includes the run configuration and
 normalization statistics. Configuration snapshots, `metrics.jsonl` and
 TensorBoard logs are saved in the same directory.
-
-FlashSAC teacher training requires CUDA/MPS and supports stopping only by update
-iteration count. PPO/APPO also support a sampling budget: set both
-`algo.max_iterations=null training.max_transitions=N`. The sample count rounds
-up to a vector step, collecting at most one fewer extra transition than the
-number of environments. Checkpoint saves are still triggered by iteration count.
-
-### Policy distribution
-
-PPO, APPO and FlashSAC share the same HORA actor and Gaussian distribution.
-New training defaults to `model.std_mode=state_independent`: one learnable
-log-std per joint, initialized with `model.initial_std=1.0`. Set
-`model.std_mode=state_dependent` to learn log-std from the actor trunk instead.
-The output head initially has zero weights and bias `log(initial_std)`, so both
-modes start with the specified actual standard deviation.
-
-All three algorithms default to `model.action_mapping=tanh`.
-PPO/APPO also support `clip`; FlashSAC requires `tanh`. For example:
-
-```bash
-uv run sharpa-train --algo appo model.action_mapping=tanh \
-  model.std_mode=state_independent model.initial_std=1.0 \
-  algo.algorithm.entropy_coef=0.01
-```
-
-`model.std_parameterization=log` uses `std=exp(log_std)`.
-`model.log_std_bounds=null` leaves log-std unconstrained; optionally set a finite
-increasing pair such as `model.log_std_bounds=[-10,2]` to clamp it before exp.
-The initial std must lie within those bounds. Clamping changes gradients outside
-the interval. Network computation retains the algorithm's AMP settings; sampling
-and density, entropy and KL calculations use FP32. A broader AMP numerical audit
-remains a separate TODO.
-
-PPO/APPO also support `model.std_parameterization=direct` (alias `legacy_scalar`):
-one learnable std parameter per joint, initialized to `model.initial_std` (default 1),
-with `std=clamp(parameter, 1e-6, 1e6)` on each forward pass. This requires
-`model.std_mode=state_independent`, `model.log_std_bounds=null`, and a finite initial
-std within `[1e-6, 1e6]`. The clamp does not modify the parameter itself; its gradient
-is zero outside the interval. FlashSAC new training still requires `log`;
-`legacy_tanh` is only supported for loading old checkpoints.
-
-```bash
-uv run sharpa-train --algo appo model.std_parameterization=direct
-```
-
-For tanh, deterministic actions are `tanh(mean)` and the entropy bonus estimates
-transformed action entropy using fresh current-policy samples. For clip, the
-training density, entropy and KL refer to the latent Gaussian. PPO/APPO always
-store the raw sample before mapping, together with its behavior log-prob and
-mean/std. Existing learning-rate schedules use `KL(old || current)`; APPO's old
-distribution for this schedule is its target policy, while PPO uses its collecting
-policy. Both PPO and APPO for HORA rotation default to
-`algo.algorithm.kl_mode=exact`, the analytic KL with zero divergence for identical
-policies. Scheduling skips the first minibatch after a reference reset, retaining
-the previous learning rate. Subsequent minibatches increase it when
-`0 <= KL < lower_threshold`; the upper threshold, adjustment factors and LR limits
-are unchanged. Negative KL is not treated as low KL.
-
-PPO skips once per fresh rollout update. APPO skips at initialization and after a
-full target copy (`tau=1`), respecting `target_update_freq`; soft target updates do
-not reset this flag. KL is measured before the optimizer step and describes the
-cumulative change from the reference, not the size of the impending step.
-
-`log_epsilon` remains an optional legacy formula, including
-`log(std / old_std + 1e-5)`, and uses the same scheduling rules. The selection is
-saved in the resolved config and checkpoints. Old checkpoints using `legacy`
-migrate to `log_epsilon` on load. Loss, entropy and V-trace are unchanged; the
-separate grasp PPO runner is unaffected.
-
-```bash
-uv run sharpa-train --algo ppo algo.algorithm.kl_mode=exact  # Default
-uv run sharpa-train --algo appo algo.algorithm.kl_mode=exact  # Default
-```
-
-FlashSAC does not use this KL schedule or expose `kl_mode`; its learning rates
-are scheduled by update count. FlashSAC collection keeps its per-environment Gaussian noise for a sampled
-number of steps, controlled by `algo.exploration.noise_zeta_mu=2.0` and
-`algo.exploration.noise_zeta_max=16`. A maximum of 1 refreshes every step.
-The runner owns this state on the learner device; actor/critic updates and
-deterministic evaluation do not advance it. Collection keeps the native IPC and
-inference/update schedule.
-
-The new defaults change FlashSAC from its former state-dependent bounded std
-to state-independent log-std initialized at 1. These are new training settings,
-not a reproduction of the old training trajectory. Existing protocol-v2 teacher
-and student checkpoints load through an explicit compatibility path that keeps
-their original scalar/tanh std parameterization and action mapping. Evaluation
-and distillation cannot override the checkpoint's model configuration.
 
 ## 3. Distill a student
 
@@ -137,11 +50,7 @@ uv run sharpa-distill --checkpoint /path/to/teacher_final.pt
 Replace `/path/to/teacher_final.pt` with the actual file path.
 The default output directory is
 `logs/hora_distill/<algorithm>_seed_<seed>_<timestamp>/`, with the final model
-saved as `student_final.pt`. The student inherits the teacher's task and grasp
-cache configuration. You can override `distillation.*`, `evaluation.*`, device,
-thread, logging and video settings; `env.*` and model configuration overrides
-are rejected. Evaluation and distillation can both run on CPU with
-`training.device=cpu`.
+saved as `student_final.pt`.
 
 ## 4. Evaluate and compare algorithms
 
@@ -160,11 +69,6 @@ Recorded metrics include return, survival time, drop rate, signed rotation angle
 and rotation speed calculated over both the fixed window and actual survival
 time. Results are saved beside the checkpoint as `<model_name>.evaluation.json`,
 with the scene manifest in `scenes.json`.
-
-Evaluation restores the task from the checkpoint and allows only `evaluation.*`
-and `training.device` overrides. You can also specify the checkpoint through
-`algo.checkpoint`. Reusing a scene manifest validates the task configuration,
-grasps and randomization values.
 
 To train all three algorithms:
 
@@ -231,20 +135,9 @@ Video is for inspecting behavior; quantitative evaluation must be run separately
 Headless Linux machines require EGL or OSMesa; see the
 [README](../../README.md#train-evaluate-and-distill) for installation instructions.
 
-Current support covers evaluation of this project's v2 teacher/student
-checkpoints and distillation of v2 teachers. Loading older v2 configurations
-automatically migrates fields while preserving task, model and normalization
-settings. Supported v2 checkpoints from the former synchronous FlashSAC runtime
-can also be loaded. Incompatible legacy shared HORA, flat PPO and native
-FlashSAC formats require retraining. Current entrypoints support only a single
-learner and training from scratch; resuming training and JIT/ONNX export of v2
-models are not supported.
-
 See the [architecture](architecture.md) for implementation contracts and the
 [validation record](../VALIDATION.md) for validation coverage.
 
-The unused `disable_tactile_ids` option has been removed. Loading supported older
-checkpoints discards this field because it never affected their observations.
-The v2 layout requires tactile inputs, friction privilege, no gravity privilege,
+The current layout requires tactile inputs, friction privilege, no gravity privilege,
 three actor/critic history frames and 30 proprioceptive history frames. Incompatible
 combinations fail during construction; this interface does not support variable dimensions.
