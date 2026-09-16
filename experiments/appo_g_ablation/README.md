@@ -92,3 +92,22 @@ An earlier constant-bias interpretation was stopped at iteration 53 after the us
 clarification. Its `N_kl_bias_seed1` artifacts and `kl_bias_manifest.json` are marked aborted,
 have no evaluations, and are excluded from comparisons. They are not a checkpoint source
 for the final logarithmic-term intervention.
+
+The later `train_zero_kl.py` experiment keeps the current production APPO defaults
+and exact KL, disabling only the skip after reference synchronization. The first
+zero KL therefore increases LR by 1.1, subject to the existing upper limit. It
+records every scheduling decision without changing losses or drawing random numbers.
+`--control` retains the production skip for an instrumentation check; `--iterations`
+defaults to 501. Use a fresh output directory:
+
+```bash
+PYTHONPATH="$PWD/src" CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=4 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=4 \
+  taskset -c 0-127 ../sharpa_rl_unilab-issue-2/.venv/bin/python \
+  experiments/appo_g_ablation/train_zero_kl.py logs/exact_zero_kl_run
+```
+
+This is a process-local experiment, not a production configuration change. The
+checkpoint's `experiment` fields record provenance; reproducing the training
+intervention requires this entrypoint. Evaluation uses the normal checkpoint loader.
+The completed run and comparison artifacts are under
+`logs/appo_exact_zero_increase_20260916/`.
