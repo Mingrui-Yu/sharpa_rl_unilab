@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from sharpa_rl_unilab.assets import cache_root, resolve_asset
+from sharpa_rl_unilab.assets import generated_root, resolve_asset
 
 
 def _scale_tag(value: float) -> str:
@@ -16,19 +16,33 @@ def _scale_tag(value: float) -> str:
     return f"{value:g}"
 
 
-def resolve_grasp_cache_file(prefix: str, scale: float) -> Path:
-    """Resolve the package/writable-cache path for one fixed object scale."""
+def grasp_cache_output_file(prefix: str, scale: float) -> Path:
+    """Choose a writable user-data path, never a bundled asset fallback."""
     prefix_path = Path(prefix)
     if prefix_path.suffix == ".npy":
         path = prefix_path.with_name(f"{prefix_path.stem}_{_scale_tag(scale)}.npy")
     else:
         path = Path(f"{prefix}_{_scale_tag(scale)}.npy")
-    if path.is_absolute():
-        return path
-    try:
-        return Path(resolve_asset(str(path)))
-    except FileNotFoundError:
-        return cache_root() / path
+    return path if path.is_absolute() else generated_root() / path
+
+
+def resolve_grasp_cache_file(prefix: str, scale: float) -> Path:
+    """Resolve an existing user cache, managed copy or bundled cache."""
+    output = grasp_cache_output_file(prefix, scale)
+    if Path(prefix).is_absolute():
+        return output
+    return resolve_asset(output.relative_to(generated_root()))
+
+
+def validate_grasp_caches(caches: tuple[np.ndarray, ...]) -> None:
+    """Scan immutable cache contents once, when loading them."""
+    if not caches:
+        raise ValueError("at least one grasp cache is required")
+    for index, cache in enumerate(caches):
+        if cache.ndim != 2 or cache.shape[1] != 29 or cache.shape[0] == 0:
+            raise ValueError(f"grasp cache {index} must have shape (N, 29), got {cache.shape}")
+        if not np.isfinite(cache).all():
+            raise ValueError(f"grasp cache {index} contains NaN or Inf")
 
 
 def sample_scale_grasp_caches(
@@ -38,15 +52,17 @@ def sample_scale_grasp_caches(
     rng: np.random.Generator | None = None,
     selected_rows: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Sample one cached grasp for each environment from its fixed variant."""
+    """Sample prevalidated caches without rescanning their contents on each reset."""
     if not caches:
         raise ValueError("at least one grasp cache is required")
-    for index, cache in enumerate(caches):
-        cache = np.asarray(cache)
-        if cache.ndim != 2 or cache.shape[1] != 29 or cache.shape[0] == 0:
-            raise ValueError(f"grasp cache {index} must have shape (N, 29), got {cache.shape}")
-        if not np.isfinite(cache).all():
-            raise ValueError(f"grasp cache {index} contains NaN or Inf")
+    variant_ids = np.asarray(variant_ids)
+    if (
+        variant_ids.ndim != 1
+        or not np.issubdtype(variant_ids.dtype, np.integer)
+        or np.any(variant_ids < 0)
+        or np.any(variant_ids >= len(caches))
+    ):
+        raise ValueError("variant_ids must contain valid integer cache indices")
     sampled = np.zeros((len(variant_ids), 29), dtype=np.float64)
     for variant_id, cache in enumerate(caches):
         ids = np.flatnonzero(variant_ids == variant_id)

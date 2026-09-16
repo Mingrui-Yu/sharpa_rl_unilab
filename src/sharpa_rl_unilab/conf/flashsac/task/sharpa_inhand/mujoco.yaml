@@ -7,7 +7,6 @@ algo:
   max_iterations: 2000
   save_interval: 500
   checkpoint: null
-  use_amp: true
   batch_size: 2048
   replay_buffer_n: 1280
   updates_per_step: 14

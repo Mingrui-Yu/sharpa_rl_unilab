@@ -1,89 +1,9 @@
 # @package _global_
+defaults:
+  - /common/sharpa_task
+  - _self_
 # Legacy flat observations are retained only for grasp-cache generation.
 env:
-  scene:
-    model_file: src/sharpa_rl_unilab/assets/robots/sharpa_wave/scene.xml
-    default_keyframe_name: home
-    entities:
-      robot:
-        root_body_name: object
-        joint_names:
-        - right_thumb_CMC_FE
-        - right_thumb_CMC_AA
-        - right_thumb_MCP_FE
-        - right_thumb_MCP_AA
-        - right_thumb_IP
-        - right_index_MCP_FE
-        - right_index_MCP_AA
-        - right_index_PIP
-        - right_index_DIP
-        - right_middle_MCP_FE
-        - right_middle_MCP_AA
-        - right_middle_PIP
-        - right_middle_DIP
-        - right_ring_MCP_FE
-        - right_ring_MCP_AA
-        - right_ring_PIP
-        - right_ring_DIP
-        - right_pinky_CMC
-        - right_pinky_MCP_FE
-        - right_pinky_MCP_AA
-        - right_pinky_PIP
-        - right_pinky_DIP
-        body_names:
-        - object
-        geom_names:
-        - floor
-        - right_hand_C_MC
-        - right_thumb_MC
-        - right_thumb_PP
-        - right_thumb_DP
-        - right_thumb_elastomer
-        - right_manager_geom_004
-        - right_index_PP
-        - right_index_MP
-        - right_index_DP
-        - right_index_elastomer
-        - right_manager_geom_006
-        - right_middle_PP
-        - right_middle_MP
-        - right_middle_DP
-        - right_middle_elastomer
-        - right_manager_geom_008
-        - right_ring_PP
-        - right_ring_MP
-        - right_ring_DP
-        - right_ring_elastomer
-        - right_pinky_MC
-        - right_manager_geom_010
-        - right_pinky_PP
-        - right_pinky_MP
-        - right_pinky_DP
-        - right_pinky_elastomer
-        - object
-        actuator_names:
-        - right_thumb_CMC_FE_ctrl
-        - right_thumb_CMC_AA_ctrl
-        - right_thumb_MCP_FE_ctrl
-        - right_thumb_MCP_AA_ctrl
-        - right_thumb_IP_ctrl
-        - right_index_MCP_FE_ctrl
-        - right_index_MCP_AA_ctrl
-        - right_index_PIP_ctrl
-        - right_index_DIP_ctrl
-        - right_middle_MCP_FE_ctrl
-        - right_middle_MCP_AA_ctrl
-        - right_middle_PIP_ctrl
-        - right_middle_DIP_ctrl
-        - right_ring_MCP_FE_ctrl
-        - right_ring_MCP_AA_ctrl
-        - right_ring_PIP_ctrl
-        - right_ring_DIP_ctrl
-        - right_pinky_CMC_ctrl
-        - right_pinky_MCP_FE_ctrl
-        - right_pinky_MCP_AA_ctrl
-        - right_pinky_PIP_ctrl
-        - right_pinky_DIP_ctrl
   observations:
     flat:
       history_length: 3
@@ -110,82 +30,7 @@ env:
             binary_contact: false
             contact_threshold: 0.05
             tactile_force_clip_max: 4.0
-            disable_tactile_ids: []
             clip_obs: 5.0
-  actions:
-    hand:
-      _target_: sharpa_rl_unilab.tasks.sharpa_inhand.terms.action.SharpaIncrementalPositionActionCfg
-      entity_name: robot
-      actuator_names:
-      - .*_ctrl
-      action_scale: 0.041666666666666664
-      raw_action_clip:
-      - -1.0
-      - 1.0
-      dof_limits_scale: 0.9
-  events:
-    reset_scene_to_default:
-      func: unilab.envs.mdp.reset_scene_to_default
-      mode: reset
-    reset:
-      func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.reset.SharpaHandObjectReset
-      mode: reset
-      params:
-        entity_name: robot
-        action_name: hand
-        actuator_names:
-        - .*_ctrl
-        grasp_cache_path: caches/sharpa_grasp_linspace
-        reset_height_band: 0.04
-        rotation_axis:
-        - 0.0
-        - 0.0
-        - 1.0
-        use_default_object_pose_for_object_pos_anchor: true
-    domain_randomization:
-      func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.randomization.SharpaDomainRandomization
-      mode: reset
-      params:
-        entity_name: robot
-        object_body_name: object
-        object_geom_name: object
-        randomize_pd_gains: true
-        p_gain_scale_range:
-        - 0.5
-        - 2.0
-        d_gain_scale_range:
-        - 0.5
-        - 2.0
-        randomize_friction: true
-        friction_scale_range:
-        - 0.75
-        - 1.25
-        elastomer_base_friction: 2.0
-        metal_base_friction: 1.0
-        object_base_friction: 2.0
-        randomize_mass: true
-        mass_range:
-        - 0.01
-        - 0.25
-        randomize_com: true
-        com_range:
-        - -0.01
-        - 0.01
-        randomize_gravity_direction: true
-        gravity_magnitude: 9.81
-        include_friction_scale: true
-        include_gravity_direction: false
-    persistent_force:
-      func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.disturbance.SharpaPersistentObjectForce
-      mode: step
-      params:
-        entity_name: robot
-        domain_randomization_name: domain_randomization
-        object_body_name: object
-        force_scale: 2.0
-        force_probability: 0.25
-        force_decay: 0.9
-        force_decay_interval: 0.08
   terminations:
     dropped:
       func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.termination.SharpaDropTermination
@@ -195,37 +40,5 @@ env:
     time_out:
       func: unilab.envs.mdp.time_out
       time_out: true
-  scale_rewards_by_dt: true
   policy_observation_group: flat
   critic_observation_group: null
-reward:
-  rotate:
-    func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.rewards.rotate_reward
-    weight: 2.5
-    params:
-      state_term_name: dropped
-  obj_linvel:
-    func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.rewards.object_linear_velocity_l1
-    weight: -0.3
-    params:
-      state_term_name: dropped
-  pose_diff:
-    func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.rewards.hand_pose_deviation_l2
-    weight: -0.4
-    params:
-      state_term_name: dropped
-  torque:
-    func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.rewards.estimated_torque_l2
-    weight: -0.1
-    params:
-      state_term_name: dropped
-  work:
-    func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.rewards.estimated_work_l2
-    weight: -0.5
-    params:
-      state_term_name: dropped
-  object_pos:
-    func: sharpa_rl_unilab.tasks.sharpa_inhand.terms.rewards.object_position_reward
-    weight: 0.003
-    params:
-      state_term_name: dropped

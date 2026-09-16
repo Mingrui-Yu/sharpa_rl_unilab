@@ -31,9 +31,7 @@ def _variants() -> FixedModelVariantCatalogCfg:
 class SharpaInhandRotationCfg(ManagerBasedRlEnvCfg):
     """Common typed owner for Hydra Manager-Based term declarations."""
 
-    fixed_model_variants: FixedModelVariantCatalogCfg | None = field(
-        default_factory=_variants
-    )
+    fixed_model_variants: FixedModelVariantCatalogCfg | None = field(default_factory=_variants)
     sim_dt: float = 1.0 / 240.0
     ctrl_dt: float = 12.0 / 240.0
     max_episode_seconds: float = 20.0  # pyright: ignore[reportIncompatibleVariableOverride]

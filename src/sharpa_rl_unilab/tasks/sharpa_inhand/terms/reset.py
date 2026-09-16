@@ -12,6 +12,7 @@ from unilab.utils.geometry import np_normalize_axis
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.cache import (
     resolve_grasp_cache_file,
     sample_scale_grasp_caches,
+    validate_grasp_caches,
 )
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.constants import (
     ACTUATOR_NAMES,
@@ -112,7 +113,11 @@ class SharpaHandObjectReset(ManagerTermBase):
             caches: list[np.ndarray] = []
             missing: list[str] = []
             for scale in self.scale_values:
-                path = resolve_grasp_cache_file(prefix, float(scale))
+                try:
+                    path = resolve_grasp_cache_file(prefix, float(scale))
+                except FileNotFoundError:
+                    missing.append(f"{prefix} (scale={scale:g})")
+                    continue
                 if not path.is_file():
                     missing.append(str(path))
                     continue
@@ -120,6 +125,7 @@ class SharpaHandObjectReset(ManagerTermBase):
             if missing:
                 raise FileNotFoundError(f"{term} missing grasp cache(s): {', '.join(missing)}")
             self._grasp_caches = tuple(caches)
+            validate_grasp_caches(self._grasp_caches)
 
     def _resolve_variant_ids(self, env: SharpaEnv) -> np.ndarray:
         scene = env.cfg.scene

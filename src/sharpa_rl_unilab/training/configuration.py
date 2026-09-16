@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
+import math
+from typing import Any, cast
+
 import torch
 from omegaconf import DictConfig, OmegaConf
 from uni_rl.offpolicy.thread_budget import apply_torch_thread_runtime, resolve_torch_thread_runtime
@@ -29,6 +33,10 @@ def migrate_checkpoint_config(config) -> DictConfig:
     cfg = OmegaConf.create(config)
     assert isinstance(cfg, DictConfig)
     OmegaConf.resolve(cfg)
+    # This field never affected observations. Drop it from supported old snapshots.
+    for group in cfg.get("env", {}).get("observations", {}).values():
+        for term in group.get("terms", {}).values():
+            term.get("params", {}).pop("disable_tactile_ids", None)
     if cfg.algo.algo in {"ppo", "appo"}:
         algorithm = cfg.algo.get("algorithm", {})
         if algorithm.get("kl_mode") == "legacy":
@@ -84,3 +92,49 @@ def migrate_checkpoint_config(config) -> DictConfig:
         }
         cfg.algo.setdefault("exploration", old_exploration)
     return cfg
+
+
+def config_dict(cfg) -> dict[str, Any]:
+    return cast(dict[str, Any], OmegaConf.to_container(cfg, resolve=True))
+
+
+def algorithm_options(cfg, cls, *, extra_options=()):
+    params = config_dict(cfg.algo.algorithm)
+    allowed = set(inspect.signature(cls.__init__).parameters) | set(extra_options)
+    if unsupported := params.keys() - allowed:
+        raise ValueError(f"Unsupported algorithm options: {sorted(unsupported)}")
+    return {k: v for k, v in params.items() if k in allowed}
+
+
+def training_budget(cfg):
+    """Exactly one stopping budget; all teacher snapshots use update rounds."""
+    iterations = cfg.algo.get("max_iterations")
+    transitions = cfg.training.max_transitions
+    if cfg.algo.algo == "flashsac" and (iterations is None or transitions is not None):
+        raise ValueError(
+            "FlashSAC requires algo.max_iterations > 0 and training.max_transitions=null"
+        )
+    if (iterations is None) == (transitions is None):
+        raise ValueError(
+            "Select exactly one budget: algo.max_iterations or training.max_transitions; "
+            "set the other to null"
+        )
+    if cfg.algo.algo == "appo":
+        if (
+            min(
+                int(cfg.algo.async_queue_size),
+                int(cfg.algo.staging_pool_size),
+                int(cfg.algo.steps_per_env),
+            )
+            < 1
+        ):
+            raise ValueError(
+                "APPO queue capacity, staging capacity and rollout length must be positive"
+            )
+    if int(cfg.algo.save_interval) < 0:
+        raise ValueError("algo.save_interval must be nonnegative")
+    n = int(cfg.algo.num_envs)
+    target = int(iterations) if iterations is not None else math.ceil(int(transitions) / n) * n
+    if target <= 0:
+        raise ValueError("Training budget must be positive")
+    return ("policy_version" if iterations is not None else "received"), target

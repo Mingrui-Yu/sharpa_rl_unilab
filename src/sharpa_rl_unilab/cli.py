@@ -35,6 +35,10 @@ def compose_config(
         cfg = compose(config_name="config", overrides=[f"task={owner}", *overrides])
     if cfg.training.task_name != TASK_NAMES[task] or cfg.training.sim_backend != sim:
         raise ValueError("Overrides must preserve the selected task owner identity")
+    if task == "sharpa_inhand":
+        from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import validate_observation_config
+
+        validate_observation_config(cfg)
     return cfg
 
 

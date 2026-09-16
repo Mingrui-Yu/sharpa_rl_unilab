@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
     from sharpa_rl_unilab.tasks.sharpa_inhand.terms.types import SharpaEnv
 
+
 class SharpaDropTermination(ManagerTermBase):
     """Terminate when the object leaves its sampled reset-height band."""
 
@@ -47,8 +48,7 @@ class SharpaDropTermination(ManagerTermBase):
         del params
         state = self.observation.snapshot(env)
         self.dropped[:] = (
-            (state.object_pos[:, 2] > self.observation.task_state.reset_height_upper)
-            | (state.object_pos[:, 2] < self.observation.task_state.reset_height_lower)
-        )
+            state.object_pos[:, 2] > self.observation.task_state.reset_height_upper
+        ) | (state.object_pos[:, 2] < self.observation.task_state.reset_height_lower)
         self._last_counter = int(env.common_step_counter)
         return self.dropped

@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from unilab.base.entity import Entity
     from unilab.managers._types import ManagerBasedRlEnv
 
+
 @dataclass(kw_only=True)
 class SharpaIncrementalPositionActionCfg(ActionTermCfg):
     actuator_names: tuple[str, ...] | list[str]

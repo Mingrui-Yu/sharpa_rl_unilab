@@ -71,4 +71,3 @@ def object_position_reward(env: SharpaEnv, state_term_name: str) -> np.ndarray:
     _, state = _rotation_state(env, state_term_name)
     delta = state.object_pos - state.task_state.object_pos_anchor
     return np.asarray(1.0 / (np.linalg.norm(delta, axis=1) + 0.001), dtype=get_global_dtype())
-

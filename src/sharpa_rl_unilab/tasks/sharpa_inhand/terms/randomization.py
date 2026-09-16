@@ -217,9 +217,6 @@ class SharpaDomainRandomization(ManagerTermBase):
         if scale_catalog is not None and env.cfg.scene is not None:
             if env.cfg.scene.fixed_variant_plan is None:
                 raise ValueError(f"{term} fixed variant plan was not materialized")
-            variant_index = {
-                variant.name: index for index, variant in enumerate(scale_catalog.variants)
-            }
             scales = np.asarray(
                 [
                     float(variant.name.removeprefix("scene_scale_").replace("_", "."))
@@ -229,11 +226,10 @@ class SharpaDomainRandomization(ManagerTermBase):
             )
             ids = np.asarray(env.cfg.scene.fixed_variant_plan.assignment, dtype=np.intp)
             self.scale[:] = scales[ids][:, None]
-            del variant_index
 
     @property
     def privileged_dim(self) -> int:
-        return 9 + (3 if self._include_gravity else 0)
+        return 8 + int(self._include_friction) + (3 if self._include_gravity else 0)
 
     def _sample_split_around_one(
         self, rng: np.random.Generator, bounds: tuple[float, float], shape: tuple[int, int]

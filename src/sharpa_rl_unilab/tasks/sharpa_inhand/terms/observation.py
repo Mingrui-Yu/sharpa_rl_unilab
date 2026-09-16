@@ -9,6 +9,7 @@ from unilab.dtype_config import get_global_dtype
 from unilab.managers import ManagerTermBase
 from unilab.utils.geometry import np_quat_angular_velocity_from_pair
 
+from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import FRAME_DIM, PRIV_DIM
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.action import SharpaIncrementalPositionAction
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.constants import (
     HAND_JOINT_NAMES,
@@ -49,7 +50,6 @@ class SharpaRotationObservation(ManagerTermBase):
         "binary_contact",
         "contact_threshold",
         "tactile_force_clip_max",
-        "disable_tactile_ids",
         "enable_tactile",
         "clip_obs",
     }
@@ -112,9 +112,6 @@ class SharpaRotationObservation(ManagerTermBase):
             term, "tactile_force_clip_max", cfg.params.get("tactile_force_clip_max", 4.0)
         )
         self._clip_obs = require_real(term, "clip_obs", cfg.params.get("clip_obs", 5.0))
-        disabled = np.asarray(cfg.params.get("disable_tactile_ids", ()), dtype=np.intp)
-        if np.any(disabled < 0) or np.any(disabled >= len(sensor_names)):
-            raise ValueError(f"{term} disable_tactile_ids are out of range: {disabled.tolist()}")
 
         dtype = get_global_dtype()
         self.dof_pos = np.asarray(
@@ -137,7 +134,7 @@ class SharpaRotationObservation(ManagerTermBase):
         self._clean_tactile = np.zeros_like(self._prev_tactile_force)
         self._actor_frame = np.zeros((env.num_envs, self.frame_dim), dtype=dtype)
         self._clean_frame = np.zeros_like(self._actor_frame)
-        self.priv_info = np.zeros((env.num_envs, 9), dtype=dtype)
+        self.priv_info = np.zeros((env.num_envs, PRIV_DIM), dtype=dtype)
 
         ranges = np.asarray(self._entity.data.actuator_ctrl_range, dtype=get_global_dtype())
         actuator_indices = np.arange(NUM_HAND_JOINTS, dtype=np.intp)
@@ -309,7 +306,7 @@ class _SharpaObservationView(ManagerTermBase):
         if manager is None:
             return np.zeros((env.num_envs, self.output_dim), dtype=get_global_dtype())
         source = manager.get_term_cfg(self._group, self._term).func
-        if not isinstance(source, SharpaRotationObservation) or source.frame_dim != 49:
+        if not isinstance(source, SharpaRotationObservation) or source.frame_dim != FRAME_DIM:
             raise ValueError(f"{type(self).__name__} requires a 49D Sharpa frame owner")
         return self._read(source.snapshot(env))
 
@@ -320,7 +317,7 @@ class _SharpaObservationView(ManagerTermBase):
 class SharpaCriticObservation(_SharpaObservationView):
     """Current clean 49D frame plus current 9D privileged information."""
 
-    output_dim = 58
+    output_dim = FRAME_DIM + PRIV_DIM
 
     def _read(self, source: SharpaRotationObservation) -> np.ndarray:
         return np.concatenate((source._clean_frame, source.priv_info), axis=1)
@@ -329,7 +326,7 @@ class SharpaCriticObservation(_SharpaObservationView):
 class SharpaPrivilegedObservation(_SharpaObservationView):
     """Explicit current privileged vector, independent of critic history layout."""
 
-    output_dim = 9
+    output_dim = PRIV_DIM
 
     def _read(self, source: SharpaRotationObservation) -> np.ndarray:
         return source.priv_info
@@ -338,7 +335,7 @@ class SharpaPrivilegedObservation(_SharpaObservationView):
 class SharpaProprioObservation(_SharpaObservationView):
     """Same noisy frame as the Actor; configure a 30-frame manager history."""
 
-    output_dim = 49
+    output_dim = FRAME_DIM
 
     def _read(self, source: SharpaRotationObservation) -> np.ndarray:
         return source._actor_frame

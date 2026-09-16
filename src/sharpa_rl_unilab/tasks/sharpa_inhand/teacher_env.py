@@ -14,8 +14,7 @@ from unilab.envs import ManagerBasedRlEnv
 
 from sharpa_rl_unilab.assets import ASSETS_ROOT_PATH
 
-OBS_SHAPES = {"obs": (147,), "critic": (174,), "priv_info": (9,), "proprio_hist": (30, 49)}
-CONTRACT_VERSION = "sharpa-hora-v2"
+from .protocol import CONTRACT_VERSION, OBS_SHAPES, validate_observation_config
 
 
 class SharpaTeacherEnv:
@@ -29,6 +28,7 @@ class SharpaTeacherEnv:
     def __init__(
         self, cfg: DictConfig, num_envs: int, *, scale: float | None = None, auto_reset: bool = True
     ):
+        validate_observation_config(cfg)
         overrides = BackendAdapter(
             cfg, root_dir=".", algo_name=str(cfg.algo.algo)
         ).build_task_env_cfg_override()
