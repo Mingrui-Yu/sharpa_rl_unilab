@@ -53,6 +53,17 @@ uv run sharpa-train --algo appo model.action_mapping=tanh \
 裁剪会改变区间外的梯度。网络保留各算法原有 AMP 设置，采样、密度、熵和 KL
 使用 FP32 计算。更完整的 AMP 数值审计仍为后续专项 TODO。
 
+PPO/APPO 也支持 `model.std_parameterization=direct`（别名 `legacy_scalar`）：
+每个关节直接学习一个 std 参数，以 `model.initial_std`（默认 1）初始化，
+前向使用 `std=clamp(parameter, 1e-6, 1e6)`。要求
+`model.std_mode=state_independent`、`model.log_std_bounds=null`，且初值有限并处于
+`[1e-6, 1e6]` 内。clamp 不修改参数本身，区间外的梯度为零。
+FlashSAC 新训练仍要求 `log`；`legacy_tanh` 仅用于加载旧 checkpoint。
+
+```bash
+uv run sharpa-train --algo appo model.std_parameterization=direct
+```
+
 tanh 的确定性动作为 `tanh(mean)`，熵奖励使用当前策略新采样估计变换后的动作熵。
 clip 的训练密度、熵和 KL 指潜在高斯分布。PPO/APPO 均保存映射前的原始样本、
 行为 log-prob 和 mean/std。自适应学习率保留原有规则，使用 `KL(old || current)`；

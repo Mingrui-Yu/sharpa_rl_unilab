@@ -1,18 +1,15 @@
-"""Checkpoint-only std parameterizations used before the public Actor interface."""
+"""Compatibility names and checkpoint migration for older Actor implementations."""
 
 from __future__ import annotations
 
 import torch
 from torch import nn
 
+from .distribution import DirectStd
 
-class LegacyScalarStd(nn.Module):
-    def __init__(self, action_dim: int):
-        super().__init__()
-        self.std_param = nn.Parameter(torch.ones(action_dim))
 
-    def forward(self, features: torch.Tensor) -> torch.Tensor:
-        return self.std_param.clamp(1e-6, 1e6)
+class LegacyScalarStd(DirectStd):
+    """Compatibility name for direct std parameters."""
 
 
 class LegacyTanhStd(nn.Module):

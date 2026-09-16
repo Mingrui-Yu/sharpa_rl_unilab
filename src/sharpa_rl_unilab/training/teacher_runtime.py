@@ -95,10 +95,21 @@ def training_budget(cfg):
 
 def make_models(cfg, device):
     model = config_dict(cfg.model)
-    if model.get("std_parameterization") != "log":
+    parameterization = model.get("std_parameterization")
+    if parameterization not in {"log", "direct", "legacy_scalar"}:
         raise ValueError(
-            "Legacy std parameterizations are checkpoint-only; new training requires log"
+            "New training requires model.std_parameterization=log or direct "
+            "(legacy_scalar is an alias); legacy_tanh is checkpoint-only"
         )
+    if parameterization in {"direct", "legacy_scalar"}:
+        if cfg.algo.algo not in {"ppo", "appo"}:
+            raise ValueError("Direct std new training is supported only for PPO/APPO")
+        if model.get("std_mode") != "state_independent":
+            raise ValueError("Direct std requires model.std_mode=state_independent")
+        if model.get("log_std_bounds") is not None:
+            raise ValueError("Direct std requires model.log_std_bounds=null; std uses [1e-6, 1e6]")
+        # Canonicalize only new construction; old checkpoints retain their semantics.
+        model["std_parameterization"] = "direct"
     if cfg.algo.algo == "flashsac":
         params = config_dict(cfg.algo.algo_params)
         for key in (

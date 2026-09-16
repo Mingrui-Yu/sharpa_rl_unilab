@@ -258,11 +258,11 @@ protocol:
   version: sharpa-hora-v2
   stage: teacher
 model:
-  action_mapping: tanh
-  std_mode: state_independent
-  std_parameterization: log
-  initial_std: 1.0
-  log_std_bounds: null
+  action_mapping: tanh  # tanh / clip; FlashSAC requires tanh
+  std_mode: state_independent  # state_independent / state_dependent; direct requires state_independent
+  std_parameterization: log  # log / direct (PPO/APPO); legacy_scalar aliases direct; legacy_tanh is checkpoint-only
+  initial_std: 1.0  # Initial std; direct requires [1e-6, 1e6]
+  log_std_bounds: null  # Optional log-std clamp; must be null for direct
   actor_hidden_dims: [512, 256, 128]
   critic_hidden_dims: [512, 256, 128]
   priv_mlp_hidden_dims: [256, 128, 9]

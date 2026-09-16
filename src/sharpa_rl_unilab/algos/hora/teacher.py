@@ -15,7 +15,7 @@ from uni_rl.algos.flash_sac.learner import FlashSACLearner
 from uni_rl.algos.flash_sac.network import FlashSACDoubleCritic
 from uni_rl.algos.flash_sac.update import build_lr_lambda
 
-from .distribution import LogStd, PolicyDistribution, validate_kl_mode
+from .distribution import DirectStd, LogStd, PolicyDistribution, validate_kl_mode
 from .legacy import LegacyScalarStd, LegacyTanhStd
 from .models import _MLP, HoraCoreOutput, ProprioAdaptTConv
 
@@ -103,6 +103,8 @@ class HoraActor(nn.Module):
         self.std_module: nn.Module
         if parameterization == "log":
             self.std_module = LogStd(width, 22, model)
+        elif parameterization == "direct":
+            self.std_module = DirectStd(22, model.get("initial_std", 1.0))
         elif parameterization == "legacy_scalar":
             self.std_module = LegacyScalarStd(22)
         elif parameterization == "legacy_tanh":

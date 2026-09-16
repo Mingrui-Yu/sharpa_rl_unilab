@@ -145,7 +145,7 @@ def test_old_noise_config_keeps_custom_duration_distribution():
 
 
 @pytest.mark.parametrize(
-    "override", ["model.std_parameterization=legacy_scalar", "~model.std_parameterization"]
+    "override", ["model.std_parameterization=legacy_tanh", "~model.std_parameterization"]
 )
 def test_legacy_parameterization_cannot_be_selected_for_new_training(override):
     cfg = compose_config("ppo", "mujoco", [override])

@@ -65,6 +65,18 @@ the interval. Network computation retains the algorithm's AMP settings; sampling
 and density, entropy and KL calculations use FP32. A broader AMP numerical audit
 remains a separate TODO.
 
+PPO/APPO also support `model.std_parameterization=direct` (alias `legacy_scalar`):
+one learnable std parameter per joint, initialized to `model.initial_std` (default 1),
+with `std=clamp(parameter, 1e-6, 1e6)` on each forward pass. This requires
+`model.std_mode=state_independent`, `model.log_std_bounds=null`, and a finite initial
+std within `[1e-6, 1e6]`. The clamp does not modify the parameter itself; its gradient
+is zero outside the interval. FlashSAC new training still requires `log`;
+`legacy_tanh` is only supported for loading old checkpoints.
+
+```bash
+uv run sharpa-train --algo appo model.std_parameterization=direct
+```
+
 For tanh, deterministic actions are `tanh(mean)` and the entropy bonus estimates
 transformed action entropy using fresh current-policy samples. For clip, the
 training density, entropy and KL refer to the latent Gaussian. PPO/APPO always

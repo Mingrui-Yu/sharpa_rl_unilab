@@ -99,6 +99,23 @@ class PolicyDistribution:
         ).sum(-1)
 
 
+class DirectStd(nn.Module):
+    """State-independent std parameters with the original forward clamp."""
+
+    def __init__(self, action_dim: int, initial_std: float = 1.0):
+        super().__init__()
+        try:
+            initial = float(initial_std)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("model.initial_std must be finite and within [1e-6, 1e6]") from exc
+        if not math.isfinite(initial) or not 1e-6 <= initial <= 1e6:
+            raise ValueError("model.initial_std must be finite and within [1e-6, 1e6]")
+        self.std_param = nn.Parameter(torch.full((action_dim,), initial))
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        return self.std_param.clamp(1e-6, 1e6)
+
+
 class LogStd(nn.Module):
     """Direct log-std parameters; an optional clamp is separate numerical policy."""
 
