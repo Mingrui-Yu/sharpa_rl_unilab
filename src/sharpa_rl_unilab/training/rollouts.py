@@ -11,7 +11,7 @@ from uni_rl.algos.common.collector_timing import extract_env_step_breakdown_timi
 
 from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import transition_next
 
-from .policy import policy_td
+from .policy import inference_distribution
 
 
 def collect(env, obs, actor, horizon, device, *, count=None, metrics=None, store_distribution=True):
@@ -20,9 +20,8 @@ def collect(env, obs, actor, horizon, device, *, count=None, metrics=None, store
     totals = defaultdict(float)
     for _ in range(horizon):
         inference_started = time.perf_counter()
-        td = policy_td(obs, device)
         with torch.no_grad():
-            sample = actor.policy(td).sample()
+            sample = inference_distribution(actor, obs, device).sample()
         sampled_actions = sample.raw.cpu().numpy().copy()
         executed_actions = sample.action.cpu().numpy()
         inference_seconds = time.perf_counter() - inference_started

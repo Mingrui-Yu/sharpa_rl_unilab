@@ -6,26 +6,15 @@ import torch
 from tensordict import TensorDict
 
 from sharpa_rl_unilab.algos.hora.flashsac import CleanQ, TeacherFlashActor, TeacherFlashLearner
-from sharpa_rl_unilab.algos.hora.models import pack_actor, split_actor
+from sharpa_rl_unilab.algos.hora.models import split_actor
 from sharpa_rl_unilab.algos.hora.on_policy import CleanValue, TeacherActor
-from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import (
-    ACTOR_DIM,
-    CRITIC_DIM,
-    validate_observation_config,
-)
+from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import ACTOR_DIM, CRITIC_DIM
 
 from .configuration import config_dict
 
 
 def tensor_obs(obs, device):
     return {k: torch.as_tensor(v, dtype=torch.float32, device=device) for k, v in obs.items()}
-
-
-def policy_td(obs, device):
-    data = tensor_obs({k: obs[k] for k in ("obs", "priv_info", "critic")}, device)
-    return TensorDict(
-        {"policy": pack_actor(data), "critic": data["critic"]}, batch_size=data["obs"].shape[0]
-    )
 
 
 def make_actor(cfg, device="cpu", *, student=False, model=None):
@@ -41,7 +30,6 @@ def make_actor(cfg, device="cpu", *, student=False, model=None):
 
 
 def make_models(cfg, device):
-    validate_observation_config(cfg)
     model = config_dict(cfg.model)
     parameterization = model.get("std_parameterization")
     if parameterization not in {"log", "direct", "legacy_scalar"}:
@@ -97,7 +85,7 @@ def observe_new_samples(actor, critic, packed: torch.Tensor, clean: torch.Tensor
 
 
 @torch.no_grad()
-def evaluation_distribution(actor, obs, device, history_normalizer=None):
+def inference_distribution(actor, obs, device, history_normalizer=None):
     keys = ("obs", "priv_info") if history_normalizer is None else ("obs", "proprio_hist")
     data = tensor_obs({key: obs[key] for key in keys}, device)
     inputs = {"actor": data["obs"]}
@@ -111,8 +99,5 @@ def evaluation_distribution(actor, obs, device, history_normalizer=None):
 @torch.no_grad()
 def deterministic_actions(actor, obs, device, history_normalizer=None):
     return (
-        evaluation_distribution(actor, obs, device, history_normalizer)
-        .deterministic()
-        .cpu()
-        .numpy()
+        inference_distribution(actor, obs, device, history_normalizer).deterministic().cpu().numpy()
     )

@@ -18,7 +18,7 @@ from sharpa_rl_unilab.tasks.sharpa_inhand.terms.cache import resolve_grasp_cache
 from .action_diagnostics import DIAGNOSTIC_METRICS, EpisodeActionDiagnostics
 from .checkpoints import file_digest, load_policy
 from .logging import write_json
-from .policy import evaluation_distribution
+from .policy import inference_distribution
 
 METRICS = (
     "return",
@@ -192,7 +192,7 @@ def evaluate_checkpoint(checkpoint, *, output=None, device: str | None = "cpu", 
                     )
                 for step in range(400):
                     set_step_rng(env, episode["perturbation_seed"], step)
-                    distribution = evaluation_distribution(actor, obs, device, hist_norm)
+                    distribution = inference_distribution(actor, obs, device, hist_norm)
                     actions = distribution.deterministic().cpu().numpy()
                     state = env.step(actions)
                     if diagnostics is not None:

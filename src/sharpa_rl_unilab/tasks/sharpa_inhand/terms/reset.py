@@ -118,9 +118,6 @@ class SharpaHandObjectReset(ManagerTermBase):
                 except FileNotFoundError:
                     missing.append(f"{prefix} (scale={scale:g})")
                     continue
-                if not path.is_file():
-                    missing.append(str(path))
-                    continue
                 caches.append(np.load(path).astype(np.float64))
             if missing:
                 raise FileNotFoundError(f"{term} missing grasp cache(s): {', '.join(missing)}")

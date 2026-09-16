@@ -168,7 +168,7 @@ class SharpaGraspRecorder(RecorderTerm):
     def _save(self, *, force: bool = False) -> None:
         if self._saved or not self._rows or (not force and self.total_saved < self._target):
             return
-        rows = np.concatenate(self._rows, axis=0)[: self._target].astype(np.float32)
+        rows = np.concatenate(self._rows, axis=0)
         scale = float(np.asarray(self.task_state.scale_values)[0])
         output = grasp_cache_output_file(self._prefix, scale)
         output.parent.mkdir(parents=True, exist_ok=True)

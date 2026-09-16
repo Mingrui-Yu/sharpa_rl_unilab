@@ -4,6 +4,43 @@ Entries below describe the code and settings at their recorded dates. Current
 usage and implementation contracts are in the [training guide](en/training.md)
 and [architecture](en/architecture.md). Historical commands may no longer be supported.
 
+## 2026-09-16 Cleanup review and ablation
+
+Reviewed all 58 files changed by `3dafca7` and `c26bfd5` against the cleanup plan.
+The [itemized review](CODEBASE_CLEAN_REVIEW.md) records requirement coverage and
+the reason for deleting or retaining each helper, adapter and compatibility path.
+Generated grasp data now survives manifest changes, and protocol validation also
+rejects privilege history and non-concatenated observation groups.
+
+Removed four helpers, duplicate validation/filtering, redundant grasp conversions,
+and unused actor/critic input transfers. Source functions/methods went from 266 to
+262, with 21 fewer source lines including the correctness fixes. Existing KL,
+termination, normalization, queue and supported-checkpoint semantics remain intact.
+
+- Baseline fast suite: 186 passed. Added regressions reproduced the two omissions
+  before their fixes; the resulting fast suite passed 196 tests.
+- Final combined run: `.venv/bin/python -m pytest -q -p no:cacheprovider -m ''`
+  — **216 passed in 141.33 seconds**, including all 20 slow tests and both CUDA
+  FlashSAC teacher/save/load/evaluate/distill cases, with no skips.
+- Combining fast and slow tests exposed an existing rendering-test environment
+  leak that produced six MuJoCo import failures. Isolating the test's environment
+  mapping fixed it; no production rendering fallback was added.
+- `make check` passed Ruff lint/format, Mypy and Pyright. The final test-only
+  isolation change also passed Ruff lint/format. `git diff --check` passed.
+- Seed-19 comparisons against both `bbd18bc` and `c26bfd5` preserved model states,
+  fixed-input/noise teacher and student outputs, and RNG state bitwise across all
+  three algorithms. Resolved task configs matched after removing only the known
+  unused baseline fields. The merged input-conversion path separately matched raw
+  samples, actions, means, std and log probabilities bitwise on CPU/CUDA for both
+  state-independent and state-dependent std.
+- `uv build` produced the sdist and wheel. Wheel Python sources matched the final
+  checkout and contained no temporary XML. Extracted outside the workspace, it
+  passed isolated imports, bundled-asset presence, configuration composition and
+  all three policy construction/inference checks using existing dependencies.
+
+No long training, learning-quality comparison, fresh dependency installation or
+throughput benchmark was run in this review.
+
 ## 2026-09-16 Codebase cleanup
 
 Based on `bbd18bc`, this cleanup separates shared HORA models, algorithm adapters,

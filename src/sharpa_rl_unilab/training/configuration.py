@@ -34,9 +34,7 @@ def migrate_checkpoint_config(config) -> DictConfig:
     assert isinstance(cfg, DictConfig)
     OmegaConf.resolve(cfg)
     # This field never affected observations. Drop it from supported old snapshots.
-    for group in cfg.get("env", {}).get("observations", {}).values():
-        for term in group.get("terms", {}).values():
-            term.get("params", {}).pop("disable_tactile_ids", None)
+    cfg.env.observations.actor.terms.frame.params.pop("disable_tactile_ids", None)
     if cfg.algo.algo in {"ppo", "appo"}:
         algorithm = cfg.algo.get("algorithm", {})
         if algorithm.get("kl_mode") == "legacy":
@@ -103,7 +101,7 @@ def algorithm_options(cfg, cls, *, extra_options=()):
     allowed = set(inspect.signature(cls.__init__).parameters) | set(extra_options)
     if unsupported := params.keys() - allowed:
         raise ValueError(f"Unsupported algorithm options: {sorted(unsupported)}")
-    return {k: v for k, v in params.items() if k in allowed}
+    return params
 
 
 def training_budget(cfg):

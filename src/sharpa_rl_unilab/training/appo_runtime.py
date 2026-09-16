@@ -22,10 +22,8 @@ from .rollouts import timeout_rewards
 def stage_rollout(stages, raw, last_obs, version, actor, critic, device, capacity=8):
     """Stage raw inputs once; reused pool views never update statistics."""
     fields = {
-        key: value
-        for key, value in raw.items()
-        if key
-        in (
+        key: raw[key]
+        for key in (
             "critic",
             "rewards",
             "next_critic",
@@ -61,53 +59,6 @@ def stage_rollout(stages, raw, last_obs, version, actor, critic, device, capacit
     rows = slice(slot * n, (slot + 1) * n)
     observe_new_samples(actor, critic, batch["observations"][:, rows], batch["critic"][:, rows])
     return stages, t * n
-
-
-def update_appo(cfg, actor, critic, learner, stages, packets, counters, timings, device):
-    n = int(cfg.algo.num_envs)
-    assert isinstance(learner, TeacherAPPOLearner)
-    stage_started = time.perf_counter()
-    for raw, last_obs, version, packet_end, _ in packets:
-        size = raw["obs"].shape[0] * n
-        if packet_end != counters["received"] + size:
-            raise RuntimeError(
-                "Collector packet gap or duplicate; refusing to recount normalization samples"
-            )
-        stages, size = stage_rollout(
-            stages,
-            raw,
-            last_obs,
-            version,
-            actor,
-            critic,
-            device,
-            capacity=int(cfg.algo.staging_pool_size),
-        )
-        counters["received"] += size
-    timings["learner_replay_stage_time"] = time.perf_counter() - stage_started
-    learner.sync_target_actor_buffers()
-    assert stages is not None
-    sample_started = time.perf_counter()
-    combined = stages.batch()
-    timings["learner_replay_sample_time"] = time.perf_counter() - sample_started
-    train_started = time.perf_counter()
-    combined["rewards"] = timeout_rewards(combined, critic, float(cfg.algo.algorithm.gamma))
-    learner.process_batch(combined)
-    metrics = learner.update(combined)
-    timings["train_time"] = time.perf_counter() - train_started
-    updates = int(metrics["appo/updates_executed"])
-    batch_size = combined["observations"].shape[0] * combined["observations"].shape[1]
-    counters["training_samples"] += batch_size // int(cfg.algo.algorithm.num_mini_batches) * updates
-    lag = counters["policy_version"] - combined["behavior_version"]
-    metrics["policy_lag_mean"] = float(lag.mean())
-    metrics["policy_lag_max"] = float(lag.max())
-    metrics["staging_rollouts"] = stages.active_count
-    metrics["staging_pool_capacity"] = stages.capacity
-    metrics["rollouts_read"] = len(packets)
-    counters["optimizer_updates"] += updates
-    counters["actor_updates"] += updates
-    counters["critic_updates"] += updates
-    return stages, metrics
 
 
 def train_appo(cfg, progress_key, target, started):
@@ -147,9 +98,49 @@ def train_appo(cfg, progress_key, target, started):
                 for key, value in fresh_metrics.items():
                     if key.startswith("reward/"):
                         reward_sums[key] += value * size
-            stages, metrics = update_appo(
-                cfg, actor, critic, learner, stages, packets, counters, timings, device
+            stage_started = time.perf_counter()
+            for raw, last_obs, version, packet_end, _ in packets:
+                size = raw["obs"].shape[0] * n
+                if packet_end != counters["received"] + size:
+                    raise RuntimeError(
+                        "Collector packet gap or duplicate; refusing to recount normalization samples"
+                    )
+                stages, size = stage_rollout(
+                    stages,
+                    raw,
+                    last_obs,
+                    version,
+                    actor,
+                    critic,
+                    device,
+                    capacity=int(cfg.algo.staging_pool_size),
+                )
+                counters["received"] += size
+            timings["learner_replay_stage_time"] = time.perf_counter() - stage_started
+            learner.sync_target_actor_buffers()
+            assert stages is not None
+            sample_started = time.perf_counter()
+            combined = stages.batch()
+            timings["learner_replay_sample_time"] = time.perf_counter() - sample_started
+            train_started = time.perf_counter()
+            combined["rewards"] = timeout_rewards(combined, critic, float(cfg.algo.algorithm.gamma))
+            learner.process_batch(combined)
+            metrics = learner.update(combined)
+            timings["train_time"] = time.perf_counter() - train_started
+            updates = int(metrics["appo/updates_executed"])
+            batch_size = combined["observations"].shape[0] * combined["observations"].shape[1]
+            counters["training_samples"] += (
+                batch_size // int(cfg.algo.algorithm.num_mini_batches) * updates
             )
+            lag = counters["policy_version"] - combined["behavior_version"]
+            metrics["policy_lag_mean"] = float(lag.mean())
+            metrics["policy_lag_max"] = float(lag.max())
+            metrics["staging_rollouts"] = stages.active_count
+            metrics["staging_pool_capacity"] = stages.capacity
+            metrics["rollouts_read"] = len(packets)
+            counters["optimizer_updates"] += updates
+            counters["actor_updates"] += updates
+            counters["critic_updates"] += updates
             counters["policy_version"] += 1
             publish_started = time.perf_counter()
             collector.publish(counters["policy_version"], actor)

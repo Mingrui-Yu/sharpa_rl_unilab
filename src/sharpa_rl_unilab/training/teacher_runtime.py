@@ -5,8 +5,6 @@ import time
 import numpy as np
 import torch
 
-from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import validate_observation_config
-
 from .configuration import configure_threads, resolve_device, training_budget
 
 
@@ -16,7 +14,6 @@ def train_teacher(cfg):
         raise ValueError(
             "algo.checkpoint selects evaluation weights; training resume is not supported"
         )
-    validate_observation_config(cfg)
     progress_key, target = training_budget(cfg)
     if cfg.algo.algo == "flashsac":
         from .flashsac_runtime import train_flashsac
