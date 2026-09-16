@@ -11,9 +11,12 @@
 bash src/sharpa_rl_unilab/tools/sharpa_collect_grasps.sh 0.8 0.9 1 1.1 1.2 1.3 1.4 1.5
 ```
 
-生成脚本逐尺度运行独立的 PPO 抓取任务，默认输出为 `caches/sharpa_grasp_linspace_<尺度>.npy`。
+生成脚本逐尺度运行独立的 PPO 抓取任务，默认输出到可写资产缓存下的
+`generated/caches/sharpa_grasp_linspace_<尺度>.npy`。
 如需自定义位置，用环境变量 `SHARPA_GRASP_CACHE_PATH` 指定输出前缀，
 训练 teacher 时再通过 `env.events.reset.params.grasp_cache_path` 指定相同前缀。
+
+生成的数据优先于内置缓存，资产修复不会覆盖它；采集进度与停止目标按抓取条数统计。
 
 ## 2. 训练 teacher
 
@@ -188,3 +191,8 @@ uv run sharpa-train --algo appo training.num_envs=1024
 当前入口仅支持单 learner 和从头训练，不支持训练断点恢复或 v2 的 JIT/ONNX 导出。
 
 实现约定见[架构说明](architecture.md)，验证范围见[验证记录](../VALIDATION.md)。
+
+无效选项 `disable_tactile_ids` 已移除。加载受支持的旧 checkpoint 时会删除该字段，
+因为它从未影响观测。v2 要求启用触觉和摩擦特权信息、不加入重力特权信息，
+actor/critic 历史为 3 帧，proprio 历史为 30 帧。不兼容组合在构建阶段报错，
+当前接口不支持可变维度。

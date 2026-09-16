@@ -5,13 +5,9 @@ import torch
 from omegaconf import OmegaConf
 
 from sharpa_rl_unilab.cli import compose_config
-from sharpa_rl_unilab.training.configuration import migrate_checkpoint_config
-from sharpa_rl_unilab.training.teacher_runtime import (
-    load_policy,
-    make_models,
-    save_teacher,
-    training_budget,
-)
+from sharpa_rl_unilab.training.checkpoints import load_policy, save_teacher
+from sharpa_rl_unilab.training.configuration import migrate_checkpoint_config, training_budget
+from sharpa_rl_unilab.training.policy import make_models
 
 
 @pytest.mark.parametrize("algo", ["ppo", "appo", "flashsac"])

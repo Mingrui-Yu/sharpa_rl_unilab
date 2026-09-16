@@ -2,24 +2,23 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sys
 import time
 from pathlib import Path
 
 import numpy as np
-import torch
 from omegaconf import OmegaConf
-from tensordict import TensorDict
 from uni_rl.algos.common.normalization import EmpiricalNormalization
 
-from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import CONTRACT_VERSION, SharpaTeacherEnv
+from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import CONTRACT_VERSION, HISTORY_SHAPE
+from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import SharpaTeacherEnv
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.cache import resolve_grasp_cache_file
 
 from .action_diagnostics import DIAGNOSTIC_METRICS, EpisodeActionDiagnostics
+from .checkpoints import file_digest, load_policy
 from .logging import write_json
-from .teacher_runtime import load_policy, tensor_obs
+from .policy import evaluation_distribution
 
 METRICS = (
     "return",
@@ -29,14 +28,6 @@ METRICS = (
     "speed_fixed_window",
     "speed_alive",
 )
-
-
-def file_digest(path):
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def scene_protocol(cfg):
@@ -140,28 +131,6 @@ def set_step_rng(env, episode_seed, step):
         )
 
 
-@torch.no_grad()
-def evaluation_distribution(actor, obs, device, history_normalizer=None):
-    keys = ("obs", "priv_info") if history_normalizer is None else ("obs", "proprio_hist")
-    data = tensor_obs({key: obs[key] for key in keys}, device)
-    inputs = {"actor": data["obs"]}
-    if history_normalizer is None:
-        inputs["priv_info"] = data["priv_info"]
-    else:
-        inputs["proprio_hist"] = history_normalizer(data["proprio_hist"], update=False)
-    return actor.policy(TensorDict(inputs, batch_size=data["obs"].shape[0]))
-
-
-@torch.no_grad()
-def deterministic_actions(actor, obs, device, history_normalizer=None):
-    return (
-        evaluation_distribution(actor, obs, device, history_normalizer)
-        .deterministic()
-        .cpu()
-        .numpy()
-    )
-
-
 def evaluate_checkpoint(checkpoint, *, output=None, device: str | None = "cpu", evaluation=None):
     print(f"[eval] Loading checkpoint: {checkpoint}", file=sys.stderr, flush=True)
     actor, cfg, snapshot = load_policy(checkpoint, device)
@@ -186,7 +155,7 @@ def evaluate_checkpoint(checkpoint, *, output=None, device: str | None = "cpu", 
     )
     hist_norm = None
     if snapshot["stage"] == "student":
-        hist_norm = EmpiricalNormalization((30, 49), device).eval()
+        hist_norm = EmpiricalNormalization(HISTORY_SHAPE, device).eval()
         hist_norm.load_state_dict(snapshot["history_normalizer"], strict=True)
     results = []
     diagnostics_enabled = bool(OmegaConf.select(cfg, "evaluation.diagnostics", default=False))

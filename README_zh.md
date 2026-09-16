@@ -10,6 +10,8 @@ legacy/direct `NpEnv` 实现和 compatibility factory 已移除。
 
 ## 安装与校验
 
+源码开发需要先准备兼容 UniLab 1.2 的兄弟目录 `../UniLab`，再执行 `uv sync`。
+
 ```bash
 git clone https://github.com/unilabsim/sharpa_rl_unilab.git
 cd sharpa_rl_unilab
@@ -19,7 +21,8 @@ uv run pyright
 ```
 
 开发环境通过兄弟目录 `../UniLab` 作为 `unilab` source；包依赖仍是外部的
-`unilab>=1.2.0,<1.3`，`unilab-rl>=1.2.0,<1.3` 来自发布包。
+`unilab>=1.2.0,<1.3`，`unilab-rl>=1.2.0,<1.3` 来自发布包。若要使用发布版依赖，可在独立虚拟环境中
+运行 `pip install ".[mujoco]"`；pip 不采用 `tool.uv.sources` 中的本地目录映射。
 
 `uv run pytest` 默认运行快速回归测试；仿真与训练冒烟测试使用
 `uv run pytest -m slow`，其中 FlashSAC 冒烟测试需要 CUDA。

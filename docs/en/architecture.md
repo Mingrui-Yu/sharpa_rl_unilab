@@ -23,13 +23,19 @@ Paths below are relative to [`src/sharpa_rl_unilab/`](../../src/sharpa_rl_unilab
 | Area to change | Location |
 | --- | --- |
 | CLI arguments and configuration merging | `cli.py` |
-| Common task, model and runtime parameters | `conf/common/sharpa_inhand.yaml` |
+| Shared physical task | `conf/common/sharpa_task.yaml` |
+| HORA observations, model and runtime parameters | `conf/common/sharpa_inhand.yaml` |
 | Algorithm parameters and grasp configuration | `conf/{ppo,appo,flashsac}/` |
 | Task registration, fixed scales and time steps | `tasks/sharpa_inhand/{config,rotation_registry,grasp_registry}.py` |
 | Actions, observations, rewards, resets and randomization | `tasks/sharpa_inhand/terms/` |
-| Four observation groups and terminal snapshots | `tasks/sharpa_inhand/teacher_env.py` |
-| HORA models, V/Q networks and algorithm adaptation | `algos/hora/{models,teacher,distribution,legacy}.py` |
-| PPO/APPO training and common checkpoints | `training/teacher_runtime.py` |
+| Fixed observation protocol and early validation | `tasks/sharpa_inhand/protocol.py` |
+| Observation groups and terminal snapshots | `tasks/sharpa_inhand/teacher_env.py` |
+| Shared HORA models and distributions | `algos/hora/{models,distribution,legacy}.py` |
+| Algorithm adapters and KL feedback | `algos/hora/{on_policy,flashsac,kl_schedule}.py` |
+| Teacher dispatch and PPO/APPO training | `training/{teacher_runtime,ppo_runtime,appo_runtime}.py` |
+| Rollout collection and APPO process lifecycle | `training/{rollouts,appo_collector}.py` |
+| Model construction, inputs and inference | `training/policy.py` |
+| Shared checkpoint format and loading | `training/checkpoints.py` |
 | Native FlashSAC runner adaptation | `training/flashsac_runtime.py` |
 | Student distillation | `training/student_runtime.py` |
 | Devices, threads and checkpoint configuration migration | `training/configuration.py` |
@@ -54,8 +60,8 @@ The teacher encodes privileged information, concatenates it with base
 observations and produces actions. The student replaces the privilege encoder
 with a history encoder and inherits the rest of the teacher's policy. PPO/APPO
 use independent V networks; FlashSAC uses distributional double Q and target Q
-networks. Network depth and optimizer parameters are defined in the configuration
-and model source code.
+networks. The v2 layout is fixed; incompatible tactile, privilege or history settings are
+rejected during construction with the offending field and required value.
 
 Sensors are read only once per control step. Clean tactile values retain
 magnitude computation and deterministic clipping, without the actor's smoothing,
@@ -127,3 +133,14 @@ evaluation algorithms and statistical functions live in `training/evaluation.py`
 See [compatibility](training.md#5-common-settings-and-compatibility) for
 checkpoint support and the [validation record](../VALIDATION.md) for historical
 tests and experiments.
+
+## Assets and generated grasp caches
+
+`ensure_assets()` repairs only manifest-managed copies of bundled assets. Recorder
+outputs use the `generated/` subdirectory of the writable cache; reads prefer these
+files. Absolute custom output prefixes remain supported. Cache contents are validated
+once on loading, and reset sampling only checks variant indices.
+
+FlashSAC checkpoints keep top-level actor/critic states for inference and reference
+the same tensor storage from the archived learner state. Existing v2 checkpoints
+still load; the CLI does not provide training resume.

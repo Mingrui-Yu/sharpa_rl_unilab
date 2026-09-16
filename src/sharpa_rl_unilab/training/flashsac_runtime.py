@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import math
 import time
 from functools import partial
-from pathlib import Path
 
 import numpy as np
 import torch
@@ -15,13 +13,14 @@ from uni_rl.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
 from uni_rl.offpolicy.thread_budget import apply_torch_thread_runtime, resolve_torch_thread_runtime
 from unilab.base.np_env import NpEnvState
 
-from sharpa_rl_unilab.algos.hora.teacher import ACTOR_DIM, CRITIC_DIM, PRIV_DIM, observe_new_samples
+from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import ACTOR_DIM, CRITIC_DIM, PRIV_DIM
 from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import SharpaTeacherEnv
 
+from .checkpoints import save_teacher
 from .configuration import resolve_device
 from .exploration import HeldGaussianNoise
-from .logging import write_json, write_run_metadata
-from .teacher_runtime import make_models, save_teacher
+from .logging import append_metrics, create_run, write_json
+from .policy import make_models, observe_new_samples
 
 
 def transport_obs(obs):
@@ -176,8 +175,7 @@ class TeacherDoubleBufferRunner(DoubleBufferOffPolicyRunner):
             "perf/iter_ms": payload["iteration_time"] * 1000,
             "wall_seconds": time.monotonic() - self.started,
         }
-        with (self.run / "metrics.jsonl").open("a") as stream:
-            stream.write(json.dumps(row) + "\n")
+        append_metrics(self.run, row)
         return payload
 
     def _save_checkpoint(self, *, log_dir, iteration, logger):
@@ -220,9 +218,7 @@ def train_flashsac(cfg):
     torch.manual_seed(int(cfg.algo.seed))
     np.random.seed(int(cfg.algo.seed))
     _, _, learner = make_models(cfg, device)
-    run = Path(cfg.training.log_dir or f"logs/flashsac/seed_{cfg.algo.seed}_{time.time_ns()}")
-    run.mkdir(parents=True, exist_ok=False)
-    write_run_metadata(run, cfg)
+    run = create_run(cfg)
     runner = TeacherDoubleBufferRunner(
         cfg=cfg,
         run=run,

@@ -6,15 +6,15 @@
 
 An independent UniLab task package for Sharpa Wave in-hand manipulation. It
 provides a MuJoCo-ready hand/object task, bundled robot assets, grasp caches,
-and training entrypoints for PPO, APPO, HORA APPO, FlashSAC, and HORA student
-distillation.
+and PPO, APPO and FlashSAC teacher training with a shared HORA model and student
+distillation pipeline.
 
 ## Highlights and demonstration
 
 - Train policies that rotate a free cylinder inside a 22-DoF Sharpa Wave hand.
 - Use tactile history, privileged critic information, and object-scale
   randomization.
-- Export FlashSAC actors to ONNX and record evaluation videos.
+- Evaluate versioned teacher/student checkpoints and record videos.
 - Train a HORA teacher and distill an actor-observation student.
 
 | Real robot | APPO | FlashSAC |
@@ -36,6 +36,9 @@ the V/Q structure required by each algorithm.
 
 ## Installation and validation
 
+The source development setup requires a UniLab 1.2-compatible checkout at
+`../UniLab` beside this repository. Prepare that checkout before `uv sync`.
+
 ```bash
 git clone https://github.com/unilabsim/sharpa_rl_unilab.git
 cd sharpa_rl_unilab
@@ -46,7 +49,9 @@ uv run pyright
 
 Development uses the sibling checkout `../UniLab` as the `unilab` source; the
 package dependency is still external (`unilab>=1.2.0,<1.3`), and
-`unilab-rl>=1.2.0,<1.3` resolves from its release.
+`unilab-rl>=1.2.0,<1.3` resolves from its release. To install this source tree
+against published dependencies instead, use `pip install ".[mujoco]"` in a
+separate virtual environment; pip does not apply the local `tool.uv.sources` mapping.
 
 `uv run pytest` runs fast regression tests by default; use
 `uv run pytest -m slow` for simulation and training smoke tests.

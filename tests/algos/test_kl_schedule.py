@@ -5,14 +5,16 @@ import torch
 from rsl_rl.algorithms import PPO
 from tensordict import TensorDict
 
-from sharpa_rl_unilab.algos.hora.kl_schedule import (
+from sharpa_rl_unilab.algos.hora.kl_schedule import adaptive_learning_rate
+from sharpa_rl_unilab.algos.hora.on_policy import (
+    TeacherAPPOLearner,
     TeacherPPO,
     TeacherRolloutStorage,
-    adaptive_learning_rate,
 )
-from sharpa_rl_unilab.algos.hora.teacher import TeacherAPPOLearner
 from sharpa_rl_unilab.cli import compose_config
-from sharpa_rl_unilab.training.teacher_runtime import load_policy, make_models, train_teacher
+from sharpa_rl_unilab.training.checkpoints import load_policy
+from sharpa_rl_unilab.training.policy import make_models
+from sharpa_rl_unilab.training.teacher_runtime import train_teacher
 
 
 @pytest.mark.parametrize(

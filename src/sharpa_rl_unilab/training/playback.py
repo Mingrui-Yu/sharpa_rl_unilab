@@ -7,11 +7,12 @@ from uni_rl.algos.common.normalization import EmpiricalNormalization
 from unilab.training import should_run_playback
 from unilab.visualization.playback import camera_cfg_from_training
 
+from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import HISTORY_SHAPE
 from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import SharpaTeacherEnv
 
+from .checkpoints import load_policy
 from .configuration import resolve_device
-from .evaluation import deterministic_actions
-from .teacher_runtime import load_policy
+from .policy import deterministic_actions
 
 
 def play_checkpoint(checkpoint, *, device=None):
@@ -29,7 +30,7 @@ def play_checkpoint(checkpoint, *, device=None):
     actor.to(device)
     history_normalizer = None
     if snapshot["stage"] == "student":
-        history_normalizer = EmpiricalNormalization((30, 49), device).eval()
+        history_normalizer = EmpiricalNormalization(HISTORY_SHAPE, device).eval()
         history_normalizer.load_state_dict(snapshot["history_normalizer"], strict=True)
     output = Path(checkpoint).parent / "play_video.mp4"
     env = SharpaTeacherEnv(cfg, num_envs)

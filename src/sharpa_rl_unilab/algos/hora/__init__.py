@@ -1,1 +1,1 @@
-"""Protocol-v2 HORA models live in .teacher; import them explicitly."""
+"""Shared HORA models with separate on-policy and FlashSAC adapters."""

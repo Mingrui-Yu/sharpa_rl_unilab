@@ -19,13 +19,19 @@ YAML 声明场景实体和 manager terms；Python term 通过 Entity API 访问�
 | 修改内容 | 位置 |
 | --- | --- |
 | CLI 参数与配置合并 | `cli.py` |
-| 公共任务、模型和运行参数 | `conf/common/sharpa_inhand.yaml` |
+| 公共物理任务 | `conf/common/sharpa_task.yaml` |
+| HORA 观测、模型和运行参数 | `conf/common/sharpa_inhand.yaml` |
 | 算法参数、抓取配置 | `conf/{ppo,appo,flashsac}/` |
 | 任务注册、固定尺度与时间步 | `tasks/sharpa_inhand/{config,rotation_registry,grasp_registry}.py` |
 | 动作、观测、奖励、重置和随机化 | `tasks/sharpa_inhand/terms/` |
+| 固定观测协议与构建期校验 | `tasks/sharpa_inhand/protocol.py` |
 | 四组观测与终止快照 | `tasks/sharpa_inhand/teacher_env.py` |
-| HORA 模型、V/Q 与算法适配 | `algos/hora/{models,teacher,distribution,legacy}.py` |
-| PPO/APPO 训练、公共 checkpoint | `training/teacher_runtime.py` |
+| 公共 HORA 模型与分布 | `algos/hora/{models,distribution,legacy}.py` |
+| 算法适配与 KL 调度 | `algos/hora/{on_policy,flashsac,kl_schedule}.py` |
+| Teacher 分发与 PPO/APPO 训练 | `training/{teacher_runtime,ppo_runtime,appo_runtime}.py` |
+| 公共采样与 APPO 进程生命周期 | `training/{rollouts,appo_collector}.py` |
+| 模型构建、输入转换与推理 | `training/policy.py` |
+| 公共 checkpoint 格式与加载 | `training/checkpoints.py` |
 | 原生 FlashSAC 运行器适配 | `training/flashsac_runtime.py` |
 | Student 蒸馏 | `training/student_runtime.py` |
 | 设备、线程与 checkpoint 配置迁移 | `training/configuration.py` |
@@ -48,7 +54,7 @@ YAML 声明场景实体和 manager terms；Python term 通过 Entity API 访问�
 Teacher 将特权信息编码后与基础观测拼接，输出动作。
 Student 用历史编码器替代特权编码器；其余策略部分继承 teacher。
 PPO/APPO 使用独立的 V 网络，FlashSAC 使用分布式双 Q 和目标 Q。
-网络层数与优化器参数由配置和模型源码定义。
+v2 维度固定；不兼容的触觉、特权信息和历史设置在构建阶段拒绝，错误会指出字段及协议要求。
 
 一次控制步只读取一次传感器。Clean 触觉保留取模和确定性限幅，
 不经过 Actor 的平滑、延迟和噪声；clean 观测不代表完整的马尔可夫状态。
@@ -100,3 +106,12 @@ APPO 只覆盖策略/价值前向及分布钩子，保留上游损失实现。
 
 Checkpoint 使用范围见[兼容性说明](training.md#5-常用设置与兼容性)，
 历史测试与实验结果见[验证记录](../VALIDATION.md)。
+
+## 资产与生成的抓取缓存
+
+`ensure_assets()` 只修复 manifest 管理的内置资产副本。Recorder 默认输出到可写
+缓存的 `generated/` 子目录，读取时优先选择这些用户数据；仍支持绝对路径前缀。
+缓存内容在加载时完整校验一次，reset 采样时只检查 variant 索引。
+
+FlashSAC checkpoint 的顶层 actor/critic 用于推理，归档的 learner 状态引用同一份
+张量存储，避免重复保存模型。现有 v2 checkpoint 继续支持加载，CLI 仍不提供训练恢复。

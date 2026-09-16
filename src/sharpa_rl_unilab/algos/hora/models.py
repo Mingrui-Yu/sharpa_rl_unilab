@@ -1,9 +1,23 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import copy
+from typing import Any
 
 import torch
-import torch.nn as nn
+from rsl_rl.modules import EmpiricalNormalization
+from tensordict import TensorDict
+from torch import nn
+
+from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import (
+    ACTION_DIM,
+    ACTOR_DIM,
+    FRAME_DIM,
+    HISTORY_SHAPE,
+    PRIV_DIM,
+)
+
+from .distribution import DirectStd, LogStd, PolicyDistribution
+from .legacy import LegacyScalarStd, LegacyTanhStd
 
 
 def _build_activation(name: str) -> nn.Module:
@@ -74,9 +88,100 @@ class ProprioAdaptTConv(nn.Module):
         return self.low_dim_proj(x.flatten(1))
 
 
-@dataclass
-class HoraCoreOutput:
-    policy_obs: torch.Tensor
-    trunk_latent: torch.Tensor
-    privileged_latent: torch.Tensor
-    privileged_target: torch.Tensor
+def pack_actor(obs: dict[str, torch.Tensor] | TensorDict) -> torch.Tensor:
+    """Declared transport layout: raw base history followed by current privilege."""
+    return torch.cat((obs["obs"], obs["priv_info"]), dim=-1)
+
+
+def split_actor(packed: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    if packed.shape[-1] != ACTOR_DIM + PRIV_DIM:
+        raise ValueError("HORA transport requires [actor_obs147, priv_info9]")
+    return packed[..., :ACTOR_DIM], packed[..., ACTOR_DIM:]
+
+
+class TeacherCore(nn.Module):
+    def __init__(self, model: dict[str, Any], *, student: bool = False):
+        super().__init__()
+        if (
+            model["actor_hidden_dims"] != [512, 256, 128]
+            or model["priv_mlp_hidden_dims"] != [256, 128, 9]
+            or model["activation"] != "elu"
+            or not model["actor_normalization"]
+        ):
+            raise ValueError(
+                "Protocol v2 fixes the common HORA Actor architecture and normalization"
+            )
+        self.obs_normalizer = EmpiricalNormalization(ACTOR_DIM)
+        self.priv_encoder = _MLP(PRIV_DIM, model["priv_mlp_hidden_dims"], model["activation"])
+        self.trunk = _MLP(ACTOR_DIM + PRIV_DIM, model["actor_hidden_dims"], model["activation"])
+        self.mu_head = nn.Linear(self.trunk.output_dim, ACTION_DIM)
+        self.adapt_tconv = ProprioAdaptTConv(FRAME_DIM, PRIV_DIM) if student else None
+        for module in self.modules():
+            if isinstance(module, nn.Linear) and module.bias is not None:
+                nn.init.zeros_(module.bias)
+
+    def encode_privileged_info(self, priv: torch.Tensor) -> torch.Tensor:
+        return torch.tanh(self.priv_encoder(priv))
+
+    def encode_proprio_history(self, hist: torch.Tensor) -> torch.Tensor:
+        if self.adapt_tconv is None or hist.shape[-2:] != HISTORY_SHAPE:
+            raise ValueError("Student requires the adaptation encoder and [N,30,49] history")
+        return torch.tanh(self.adapt_tconv(hist))
+
+    def policy_mean(self, obs: TensorDict, *, prefer_student: bool):
+        if "policy" in obs:
+            actor, priv = split_actor(obs["policy"])
+        else:
+            actor, priv = obs["actor"], obs.get("priv_info")
+        normalized = self.obs_normalizer(actor)
+        if prefer_student:
+            latent = self.encode_proprio_history(obs["proprio_hist"])
+        else:
+            if priv is None:
+                raise ValueError("Teacher inference requires explicit priv_info")
+            latent = self.encode_privileged_info(priv)
+        trunk = self.trunk(torch.cat((normalized, latent), dim=-1))
+        return self.mu_head(trunk), trunk
+
+
+class HoraActor(nn.Module):
+    """Common teacher/student network. Policy results never depend on a past call."""
+
+    def __init__(self, model: dict[str, Any], *, student: bool = False):
+        super().__init__()
+        self.shared = TeacherCore(model, student=student)
+        self.prefer_student = student
+        self.action_mapping = str(model.get("action_mapping", "tanh"))
+        if self.action_mapping not in {"clip", "tanh"}:
+            raise ValueError("model.action_mapping must be clip or tanh")
+        parameterization = model.get("std_parameterization", "log")
+        width = self.shared.trunk.output_dim
+        self.std_module: nn.Module
+        if parameterization == "log":
+            self.std_module = LogStd(width, ACTION_DIM, model)
+        elif parameterization == "direct":
+            self.std_module = DirectStd(ACTION_DIM, model.get("initial_std", 1.0))
+        elif parameterization == "legacy_scalar":
+            self.std_module = LegacyScalarStd(ACTION_DIM)
+        elif parameterization == "legacy_tanh":
+            self.std_module = LegacyTanhStd(width, ACTION_DIM)
+        else:
+            raise ValueError(f"Unsupported std parameterization: {parameterization}")
+
+    def policy(self, obs: TensorDict | torch.Tensor) -> PolicyDistribution:
+        if isinstance(obs, torch.Tensor):
+            obs = TensorDict({"policy": obs}, batch_size=obs.shape[:-1])
+        mean, features = self.shared.policy_mean(obs, prefer_student=self.prefer_student)
+        return PolicyDistribution(mean, self.std_module(features), self.action_mapping)
+
+
+def make_student(teacher: HoraActor) -> HoraActor:
+    student = copy.deepcopy(teacher)
+    student.prefer_student = True
+    student.shared.adapt_tconv = ProprioAdaptTConv(FRAME_DIM, PRIV_DIM).to(
+        next(teacher.parameters()).device
+    )
+    student.requires_grad_(False)
+    student.shared.adapt_tconv.requires_grad_(True)
+    student.shared.obs_normalizer.eval()
+    return student

@@ -4,6 +4,37 @@ Entries below describe the code and settings at their recorded dates. Current
 usage and implementation contracts are in the [training guide](en/training.md)
 and [architecture](en/architecture.md). Historical commands may no longer be supported.
 
+## 2026-09-16 Codebase cleanup
+
+Based on `bbd18bc`, this cleanup separates shared HORA models, algorithm adapters,
+policy helpers, checkpoints, PPO/APPO loops and the APPO collector. The teacher
+entry point only validates and dispatches. Generated grasp caches are isolated
+from manifest repair, recorder progress counts individual rows, and incompatible
+v2 observation settings fail before simulation. The unused tactile-mask option
+is removed; supported checkpoint migration discards its formerly ineffective value.
+
+- `make check`: Ruff lint and full-source formatting, Mypy and Pyright passed.
+- `.venv/bin/python -m pytest -q`: 186 passed, 20 slow cases deselected.
+- Slow tests: 18 passed across the existing suite and the added grasp-reset case;
+  2 FlashSAC CUDA integration cases skipped because CUDA was unavailable.
+  Coverage includes PPO/APPO training, saving, loading, evaluation and distillation,
+  real MuJoCo reset boundaries, asset repair and exact grasp collection limits.
+- CPU FlashSAC tests cover learner updates and checkpoint restoration. Serialized
+  top-level and learner actor/critic states share storage without changing the schema.
+- Resolved PPO/APPO/FlashSAC and grasp configurations match the baseline after
+  excluding the intentionally removed unused options. With seed 19, all three
+  model initialization states and fixed-input/noise policy results are bitwise equal.
+- `uv build` produced the sdist and wheel. An isolated wheel install imported from
+  outside the checkout and passed task registration, bundled asset, configuration
+  and all three policy construction/inference smoke checks. Dependencies came from
+  the existing environment; this was not a fresh dependency-resolution test.
+- `git diff --check` passed. No dependency sources were changed.
+
+FlashSAC's upstream constructor still creates its default actor before replacement;
+this remains localized until upstream exposes an actor factory. Initialization RNG,
+native losses and supported checkpoint semantics are preserved. These checks do
+not measure long-run learning quality or GPU throughput.
+
 ## 2026-09-16 Common Actor and policy distribution
 
 PPO/APPO and FlashSAC now share `HoraActor`, `PolicyDistribution` and

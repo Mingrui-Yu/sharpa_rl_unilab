@@ -16,7 +16,7 @@ from uni_rl.logging.common import _fmt_time
 from uni_rl.logging.offpolicy import OffPolicyLogger
 from unilab.training.experiment import get_git_info, write_run_config_snapshot
 
-from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import CONTRACT_VERSION
+from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import CONTRACT_VERSION
 
 # Native log_step arguments (seconds) and their backend metric names.
 LEARNER_TIMINGS = {
@@ -32,6 +32,37 @@ def write_json(path, data):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, allow_nan=False) + "\n")
+
+
+def append_metrics(run, metrics):
+    """Use the same JSONL format across native and local training runners."""
+    with (Path(run) / "metrics.jsonl").open("a") as stream:
+        stream.write(json.dumps(metrics) + "\n")
+
+
+def create_run(cfg):
+    run = Path(
+        cfg.training.log_dir or f"logs/{cfg.algo.algo}/seed_{cfg.algo.seed}_{time.time_ns()}"
+    )
+    run.mkdir(parents=True, exist_ok=False)
+    write_run_metadata(run, cfg)
+    return run
+
+
+def training_counters() -> dict[str, int]:
+    return dict.fromkeys(
+        (
+            "collected",
+            "received",
+            "training_samples",
+            "optimizer_updates",
+            "actor_updates",
+            "critic_updates",
+            "temperature_updates",
+            "policy_version",
+        ),
+        0,
+    )
 
 
 def write_run_metadata(run, cfg):
@@ -173,8 +204,7 @@ class TrainingLogger(OffPolicyLogger):
                 * 1000
             )
         self._previous_steps, self._previous_seconds = steps, seconds
-        with (Path(self._log_dir) / "metrics.jsonl").open("a") as stream:
-            stream.write(json.dumps(metrics) + "\n")
+        append_metrics(self._log_dir, metrics)
         self.log_collector(steps, 0)
         self.update_ep_length(metrics.get("episode/length", 0))
         self.update_timeout_rate(metrics.get("episode/timeout_rate", 0))

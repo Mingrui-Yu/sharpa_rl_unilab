@@ -6,9 +6,9 @@ import torch
 from omegaconf import OmegaConf
 from uni_rl.algos.common.normalization import EmpiricalNormalization
 
-from sharpa_rl_unilab.algos.hora.teacher import TeacherActor
+from sharpa_rl_unilab.algos.hora.on_policy import TeacherActor
 from sharpa_rl_unilab.cli import compose_config
-from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import CONTRACT_VERSION
+from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import CONTRACT_VERSION
 from sharpa_rl_unilab.training import playback
 
 

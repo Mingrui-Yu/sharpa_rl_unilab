@@ -12,13 +12,20 @@ from uni_rl.algos.appo.learner import APPOLearner
 from uni_rl.algos.flash_sac.network import FlashSACActor
 
 from sharpa_rl_unilab.algos.hora.distribution import PolicyDistribution
-from sharpa_rl_unilab.algos.hora.kl_schedule import TeacherPPO, TeacherRolloutStorage
-from sharpa_rl_unilab.algos.hora.teacher import TeacherActor, TeacherAPPOLearner, TeacherFlashActor
+from sharpa_rl_unilab.algos.hora.flashsac import TeacherFlashActor
+from sharpa_rl_unilab.algos.hora.on_policy import (
+    TeacherActor,
+    TeacherAPPOLearner,
+    TeacherPPO,
+    TeacherRolloutStorage,
+)
 from sharpa_rl_unilab.cli import compose_config
-from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import CONTRACT_VERSION
+from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import CONTRACT_VERSION
 from sharpa_rl_unilab.training.action_diagnostics import EpisodeActionDiagnostics
+from sharpa_rl_unilab.training.checkpoints import load_policy
+from sharpa_rl_unilab.training.configuration import algorithm_options
 from sharpa_rl_unilab.training.exploration import HeldGaussianNoise
-from sharpa_rl_unilab.training.teacher_runtime import algorithm_options, load_policy, make_models
+from sharpa_rl_unilab.training.policy import make_models
 
 
 @pytest.mark.parametrize("mapping", ["clip", "tanh"])

@@ -14,20 +14,21 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 from uni_rl.algos.common.normalization import EmpiricalNormalization
 
-from sharpa_rl_unilab.algos.hora.teacher import frozen_weights, make_student
-from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import CONTRACT_VERSION, SharpaTeacherEnv
+from sharpa_rl_unilab.algos.hora.models import make_student
+from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import CONTRACT_VERSION, HISTORY_SHAPE
+from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import SharpaTeacherEnv
 
+from .checkpoints import file_digest, frozen_weights, load_policy
 from .configuration import configure_threads, resolve_device
-from .evaluation import deterministic_actions, file_digest
 from .logging import EpisodeStatistics, TrainingLogger, write_run_metadata
-from .teacher_runtime import load_policy, tensor_obs
+from .policy import deterministic_actions, tensor_obs
 
 
 class StudentTrainer:
     def __init__(self, teacher, learning_rate, device):
         self.actor = make_student(teacher).eval()
         assert self.actor.shared.adapt_tconv is not None
-        self.history_normalizer = EmpiricalNormalization((30, 49), device)
+        self.history_normalizer = EmpiricalNormalization(HISTORY_SHAPE, device)
         self.optimizer = torch.optim.Adam(
             self.actor.shared.adapt_tconv.parameters(), lr=learning_rate
         )

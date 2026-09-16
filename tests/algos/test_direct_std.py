@@ -5,9 +5,11 @@ import torch
 from omegaconf import OmegaConf
 
 from sharpa_rl_unilab.algos.hora.distribution import DirectStd
-from sharpa_rl_unilab.algos.hora.teacher import TeacherActor, TeacherAPPOLearner
+from sharpa_rl_unilab.algos.hora.on_policy import TeacherActor, TeacherAPPOLearner
 from sharpa_rl_unilab.cli import compose_config
-from sharpa_rl_unilab.training.teacher_runtime import load_policy, make_models, train_teacher
+from sharpa_rl_unilab.training.checkpoints import load_policy
+from sharpa_rl_unilab.training.policy import make_models
+from sharpa_rl_unilab.training.teacher_runtime import train_teacher
 
 
 def test_direct_std_preserves_original_forward_and_gradient():

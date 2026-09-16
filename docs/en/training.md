@@ -14,7 +14,9 @@ bash src/sharpa_rl_unilab/tools/sharpa_collect_grasps.sh 0.8 0.9 1 1.1 1.2 1.3 1
 ```
 
 The script runs an independent PPO grasp task for each scale and writes to
-`caches/sharpa_grasp_linspace_<scale>.npy` by default. To use a custom location,
+`generated/caches/sharpa_grasp_linspace_<scale>.npy` under the writable asset
+cache by default. Generated data takes precedence over bundled caches and survives
+asset repair. Progress and the stop target count individual grasps, not batches. To use a custom location,
 set the output prefix with the `SHARPA_GRASP_CACHE_PATH` environment variable,
 then set `env.events.reset.params.grasp_cache_path` to the same prefix when
 training the teacher.
@@ -238,3 +240,9 @@ models are not supported.
 
 See the [architecture](architecture.md) for implementation contracts and the
 [validation record](../VALIDATION.md) for validation coverage.
+
+The unused `disable_tactile_ids` option has been removed. Loading supported older
+checkpoints discards this field because it never affected their observations.
+The v2 layout requires tactile inputs, friction privilege, no gravity privilege,
+three actor/critic history frames and 30 proprioceptive history frames. Incompatible
+combinations fail during construction; this interface does not support variable dimensions.

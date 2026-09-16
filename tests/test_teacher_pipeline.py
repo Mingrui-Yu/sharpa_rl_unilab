@@ -8,7 +8,10 @@ import torch
 
 from sharpa_rl_unilab.cli import compose_config
 from sharpa_rl_unilab.training import teacher_runtime as runtime
+from sharpa_rl_unilab.training.appo_collector import AsyncRollouts
+from sharpa_rl_unilab.training.checkpoints import load_policy, save_teacher
 from sharpa_rl_unilab.training.evaluation import evaluate_checkpoint
+from sharpa_rl_unilab.training.policy import make_models
 from sharpa_rl_unilab.training.student_runtime import train_student
 
 
@@ -28,12 +31,12 @@ def test_diagnostics_measure_environment_applied_actions(tmp_path):
             "evaluation.episodes_per_scale=1",
         ],
     )
-    actor, critic, _ = runtime.make_models(cfg, "cpu")
+    actor, critic, _ = make_models(cfg, "cpu")
     with torch.no_grad():
         actor.shared.mu_head.weight.zero_()
         actor.shared.mu_head.bias.fill_(10.0)  # The policy requests saturated actions.
     path = tmp_path / "zero_action.pt"
-    runtime.save_teacher(
+    save_teacher(
         path,
         cfg,
         actor,
@@ -99,17 +102,17 @@ def test_train_checkpoint_evaluate_distill(tmp_path, monkeypatch, algo, mapping,
         else:
             overrides += ["algo.steps_per_env=2"]
         closed = []
-        original_close = runtime.AsyncRollouts.close
+        original_close = AsyncRollouts.close
 
         def close(rollouts):
             original_close(rollouts)
             assert not rollouts.process.is_alive() and rollouts.process.exitcode == 0
             closed.append(True)
 
-        monkeypatch.setattr(runtime.AsyncRollouts, "close", close)
+        monkeypatch.setattr(AsyncRollouts, "close", close)
         path = runtime.train_teacher(compose_config(algo, "mujoco", overrides))
         assert bool(closed) == (algo == "appo")
-    actor, _, snapshot = runtime.load_policy(path)
+    actor, _, snapshot = load_policy(path)
     counters = snapshot["counters"]
     assert counters["policy_version"] == 2
     assert counters["collected"] >= counters["received"] > 0
@@ -147,7 +150,7 @@ def test_train_checkpoint_evaluate_distill(tmp_path, monkeypatch, algo, mapping,
             f"training.log_dir={tmp_path / 'student'}",
         ],
     )
-    student, _, state = runtime.load_policy(student_path, stage="student")
+    student, _, state = load_policy(student_path, stage="student")
     assert student.shared.obs_normalizer.count.item() == counters["received"]
     assert state["history_normalizer"]["count"].item() == 16
     measured = evaluate_checkpoint(student_path, device="cpu")

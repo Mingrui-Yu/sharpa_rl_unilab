@@ -3,23 +3,16 @@ import pytest
 import torch
 from tensordict import TensorDict
 
-from sharpa_rl_unilab.algos.hora.teacher import (
-    TeacherActor,
-    TeacherFlashActor,
-    frozen_weights,
-    observe_new_samples,
-    pack_actor,
-)
+from sharpa_rl_unilab.algos.hora.flashsac import TeacherFlashActor
+from sharpa_rl_unilab.algos.hora.models import pack_actor
+from sharpa_rl_unilab.algos.hora.on_policy import TeacherActor
 from sharpa_rl_unilab.cli import compose_config
-from sharpa_rl_unilab.training.evaluation import deterministic_actions
+from sharpa_rl_unilab.training.appo_runtime import stage_rollout
+from sharpa_rl_unilab.training.checkpoints import frozen_weights, load_policy
+from sharpa_rl_unilab.training.configuration import config_dict
+from sharpa_rl_unilab.training.policy import deterministic_actions, make_models, observe_new_samples
+from sharpa_rl_unilab.training.rollouts import timeout_rewards
 from sharpa_rl_unilab.training.student_runtime import StudentTrainer
-from sharpa_rl_unilab.training.teacher_runtime import (
-    config_dict,
-    load_policy,
-    make_models,
-    stage_rollout,
-    timeout_rewards,
-)
 
 
 def observations(n=8):

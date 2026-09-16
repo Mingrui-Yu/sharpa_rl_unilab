@@ -12,7 +12,7 @@ def test_runner_noise_is_not_touched_by_learning_or_deterministic_inference():
     from sharpa_rl_unilab.cli import compose_config
     from sharpa_rl_unilab.training.exploration import HeldGaussianNoise
     from sharpa_rl_unilab.training.flashsac_runtime import TeacherDoubleBufferRunner
-    from sharpa_rl_unilab.training.teacher_runtime import make_models
+    from sharpa_rl_unilab.training.policy import make_models
 
     cfg = compose_config("flashsac", "mujoco", [])
     actor, _, learner = make_models(cfg, "cpu")
