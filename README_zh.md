@@ -1,12 +1,44 @@
-# UniLab Sharpa 手内操作与 HORA
+# UniLab Sharpa 手内操作
 
-Sharpa Wave 手内旋转任务使用 UniLab 当前 **Manager-Based API**。任务只
+本仓库是一套面向 Sharpa Wave 22 自由度灵巧手的 UniLab 触觉手内操作研究栈，
+包含 Manager-Based MuJoCo/MJWarp 任务、机器人与物体资产、grasp cache、
+固定场景确定性评估、checkpoint 工具和视频回放。SuperMimic、PPO、APPO、
+FlashSAC 训练同一个圆柱旋转任务：标准流程先训练特权 HORA teacher，再蒸馏
+为仅观测 student；SuperMimic 也可通过可微世界模型单阶段直接训练可部署 actor。
+
+## 结果
+
+### SuperMimic 单阶段训练
+
+可选 SuperMimic 单阶段路径直接训练仅观测、可部署的 actor，无需
+teacher/student 蒸馏；actor 使用 147 维观测历史，训练 critic 保留特权状态。
+在单卡 RTX 4090 与 MJWarp 上，它完成 3000 iterations、3,971,072 transitions，
+用时 686 秒，吞吐量 5,789 transitions/s。
+
+两个策略均使用同一份固定 240 场景清单和 20 秒评估窗口：
+
+| SuperMimic 策略 | 蒸馏 | Return | 固定窗口转速 (rad/s) | 旋转角 (rad) | 存活时间 (s) | 掉落率 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 特权 teacher | 部署前需要蒸馏 | 45.33 | 0.784 | 15.68 | 19.56 | 1.25% |
+| 单阶段 direct actor | 无 | 43.59 | 0.671 | 13.42 | 19.41 | 2.08% |
+
+direct actor 取得 43.59 return，完成 13.42 rad 旋转，存活 19.41 秒，同时省去了
+独立蒸馏阶段。
+
+## 演示
+
+| 真实机器人 | APPO | FlashSAC | SuperMimic direct |
+| --- | --- | --- | --- |
+| ![真实机器人部署 rollout](docs/media/sharpa-real-eval.gif) | ![APPO 评估 rollout](docs/media/sharpa-appo-eval.gif) | ![FlashSAC 评估 rollout](docs/media/sharpa-flashsac-eval.gif) | ![单阶段 SuperMimic rollout](docs/media/sharpa-supermimic-direct-rollout.gif) |
+
+## Manager-Based API
+
+Sharpa Wave 灵巧手手内旋转任务使用 UniLab 当前 **Manager-Based API**。任务
 拥有 action / observation / reset / event / termination / reward terms；
 UniLab 保持外部依赖，负责 manager 生命周期与仿真后端。
 
-SuperMimic、PPO、APPO、FlashSAC 默认使用 HORA teacher/student 流程。
-SuperMimic 另提供显式可选的单阶段训练：actor 只依赖可测观测历史，critic 使用特权信息
-辅助训练，通过真实回放学习可微世界模型并直接优化最终策略，无需蒸馏。
+四种算法默认共享 HORA teacher 训练与 student 蒸馏流程。SuperMimic 额外
+支持带特权训练 critic 的仅观测单阶段 actor；各算法保留自己的 V/Q critic 结构。
 
 ## 安装与校验
 
