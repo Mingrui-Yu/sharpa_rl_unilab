@@ -8,6 +8,21 @@ SuperMimic、PPO、APPO、FlashSAC 默认使用 HORA teacher/student 流程。
 SuperMimic 另提供显式可选的单阶段训练：actor 只依赖可测观测历史，critic 使用特权信息
 辅助训练，通过真实回放学习可微世界模型并直接优化最终策略，无需蒸馏。
 
+## SuperMimic 训练亮点
+
+可选 direct 路径无需 teacher/student 蒸馏，但训练时仍保留特权 critic。在单
+seed、单卡 RTX 4090 的 MJWarp 验证中，该路径完成 3000 iterations
+（3,971,072 transitions）用时 686 秒。下表两个策略均使用同一份固定 240 场景
+清单评估：
+
+| SuperMimic 路径 | Return | 固定窗口转速 (rad/s) | 旋转角 (rad) | 存活时间 (s) | 掉落率 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 默认特权 HORA teacher | 45.33 | 0.784 | 15.68 | 19.56 | 1.25% |
+| 可选仅观测 direct actor | 43.59 | 0.671 | 13.42 | 19.41 | 2.08% |
+
+以上为单 seed 的任务内仿真结果。与 [Awesome SuperMimic](https://github.com/miao-org/awesome-supermimic)
+收录的其他社区报告一样，跨项目比较前必须考虑奖励、任务时域与评测协议差异。
+
 ## 安装与校验
 
 UniLab 1.5.4 及其 CUDA Torch wheel 会从已配置的包索引解析。
