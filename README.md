@@ -23,12 +23,10 @@ distillation pipeline.
 
 ## Manager-Based API
 
-Sharpa Wave dexterous in-hand rotation now uses UniLab's current
-**Manager-Based API**. The task owns action, observation, reset, event,
-termination and reward terms while UniLab remains an external dependency and
-owns the manager lifecycle and simulation backends. The former task-owned
-legacy/direct `NpEnv` implementation and its compatibility factory have been
-removed.
+Sharpa Wave dexterous in-hand rotation uses UniLab's **Manager-Based API**. The
+task owns action, observation, reset, event, termination and reward terms while
+UniLab remains an external dependency and owns the manager lifecycle and
+simulation backends.
 
 Supported teacher entrypoints are PPO, APPO and FlashSAC. All three algorithms
 share the default HORA policy and student distillation pipeline; critics retain
@@ -36,8 +34,8 @@ the V/Q structure required by each algorithm.
 
 ## Installation and validation
 
-The source development setup resolves the pinned UniLab release from the
-configured package indexes; no sibling UniLab checkout is required.
+UniLab 1.5.4 and its CUDA Torch wheels are resolved from the configured package
+indexes.
 
 ```bash
 git clone https://github.com/unilabsim/sharpa_rl_unilab.git
@@ -47,25 +45,15 @@ uv run pytest
 uv run pyright
 ```
 
-The dependency contract pins `unilab==1.5.4` (including its integrated
-tensor-native RL runtime) and uses UniLab's CUDA wheel index for Torch. To
-install this source tree with pip instead, use `pip install ".[mujoco]"` in a
-separate virtual environment. PPO/APPO collection and FlashSAC inference/replay
-keep observations, actions, rewards, and done flags Torch-tensor native; CUDA
-runs keep the training hot path device-resident. The remote validation and
-throughput record is in `docs/validation/unilab-1.5.4-20261031.json`.
+To install the source tree with pip instead, use `pip install ".[mujoco]"` in a
+separate virtual environment. Training uses UniLab's integrated tensor-native
+RL runtime: PPO/APPO collection and FlashSAC inference/replay keep observations,
+actions, rewards, and done flags on Torch tensors, and CUDA runs keep the
+training hot path device-resident.
 
 `uv run pytest` runs fast regression tests by default; use
 `uv run pytest -m slow` for simulation and training smoke tests.
 The FlashSAC smoke test requires CUDA.
-
-To validate two already-recorded FlashSAC benchmark directories, set
-`SHARPA_OFFPOLICY_BENCHMARK_TENSOR_NATIVE` and
-`SHARPA_OFFPOLICY_BENCHMARK_LEGACY` to their run paths, optionally set
-`SHARPA_OFFPOLICY_BENCHMARK_MIN_SPEEDUP`, and run
-`uv run pytest -m slow tests/test_offpolicy_throughput.py`. The comparison
-checks identical transition/update budgets, CUDA tensor-native runtime
-topology, and incremental steady-state throughput.
 
 ## Quick start
 
@@ -119,16 +107,18 @@ See [in-hand rotation](docs/en/task.md) for task background and the
 [training guide](docs/en/training.md) for detailed steps, runtime limitations
 and checkpoint compatibility.
 
-## Correctness notes
+## Task contract
 
-- Object size DR uses UniLab's fixed model-variant catalog
-  (`scene_scale_0.8.xml` … `scene_scale_1.5.xml`), not mutable geom-size DR.
-- Every fixed-variant body geom has a unique name, which is required by
-  `mjbatch.VariantPack`.
-- Each variant retains `simple="false"` on the free object. This avoids the
-  reset-time mass/CoM `mj_setConst` sameframe crash.
+- Object-scale randomization uses the fixed model-variant catalog
+  `scene_scale_0.8.xml` … `scene_scale_1.5.xml`, keeping scene topology stable
+  across scale samples.
+- Fixed-variant body geoms have unique names for reliable
+  `mjbatch.VariantPack` selection.
+- Each variant retains `simple="false"` on the free object so reset-time mass
+  and center-of-mass sampling remains consistent.
 - Tactile smoothing/latency, privileged state, incremental position targets,
   randomized actuator gains, object mass/CoM/friction/gravity and decaying
-  object forces are explicit manager terms accessing state only through the Entity facade.
+  object forces are explicit manager terms that access state through the Entity
+  facade.
 
 See [architecture](docs/en/architecture.md) and [validation](docs/VALIDATION.md).

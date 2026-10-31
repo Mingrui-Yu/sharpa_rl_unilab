@@ -1,17 +1,15 @@
 # UniLab Sharpa 手内操作与 HORA
 
-Sharpa Wave 手内旋转任务已迁移到 UniLab 当前 **Manager-Based API**。任务只
+Sharpa Wave 手内旋转任务使用 UniLab 当前 **Manager-Based API**。任务只
 拥有 action / observation / reset / event / termination / reward terms；
-UniLab 保持外部依赖，负责 manager 生命周期与仿真后端。此前任务自有的
-legacy/direct `NpEnv` 实现和 compatibility factory 已移除。
+UniLab 保持外部依赖，负责 manager 生命周期与仿真后端。
 
 支持 PPO、APPO、FlashSAC teacher，三种算法默认共用 HORA 策略与 student
 蒸馏流程；Critic 保留各算法所需的 V/Q 结构。
 
 ## 安装与校验
 
-源码开发会直接从已配置的包索引解析 pinned 版本，不需要兄弟目录
-`../UniLab`。
+UniLab 1.5.4 及其 CUDA Torch wheel 会从已配置的包索引解析。
 
 ```bash
 git clone https://github.com/unilabsim/sharpa_rl_unilab.git
@@ -21,22 +19,13 @@ uv run pytest
 uv run pyright
 ```
 
-依赖契约固定 `unilab==1.5.4`（包含集成的前后端 tensor-native RL runtime），
-Torch 使用 UniLab 的 CUDA wheel 索引。若使用 pip，可在独立虚拟环境中运行
-`pip install ".[mujoco]"`。PPO/APPO 采样与 FlashSAC 推理/replay 的观测、动作、
-奖励和结束标志均保持 Torch tensor 边界，CUDA 训练热路径驻留 GPU。远端验证和
-吞吐记录见 `docs/validation/unilab-1.5.4-20261031.json`。
+若使用 pip，可在独立虚拟环境中运行 `pip install ".[mujoco]"`。训练使用
+UniLab 集成的 tensor-native RL runtime：PPO/APPO 采样与 FlashSAC
+推理/replay 的观测、动作、奖励和结束标志均保持 Torch tensor 边界，CUDA
+训练热路径驻留 GPU。
 
 `uv run pytest` 默认运行快速回归测试；仿真与训练冒烟测试使用
 `uv run pytest -m slow`，其中 FlashSAC 冒烟测试需要 CUDA。
-
-若要校验两个已生成的 FlashSAC benchmark 目录，可分别设置
-`SHARPA_OFFPOLICY_BENCHMARK_TENSOR_NATIVE` 与
-`SHARPA_OFFPOLICY_BENCHMARK_LEGACY`，可选设置
-`SHARPA_OFFPOLICY_BENCHMARK_MIN_SPEEDUP`，然后运行
-`uv run pytest -m slow tests/test_offpolicy_throughput.py`。该对比会检查
-transition/update 预算一致、CUDA tensor-native runtime 拓扑，以及按增量行
-计算的 steady-state 吞吐。
 
 ## 快速上手
 
@@ -85,13 +74,14 @@ uv run sharpa-eval --checkpoint /absolute/path/to/student_final.pt
 任务背景见[手内旋转](docs/zh_CN/task.md)，操作步骤、运行限制和 checkpoint 兼容范围
 见[训练指南](docs/zh_CN/training.md)。
 
-## 正确性说明
+## 任务契约
 
-- 物体尺寸随机化使用 UniLab fixed model variants
-  （`scene_scale_0.8.xml` … `scene_scale_1.5.xml`），不再运行时改 geom size。
-- fixed variant 中所有 body geom 均唯一命名，满足 `mjbatch.VariantPack`。
-- 所有 variant 的自由物体保留 `simple="false"`，避免 reset 时 mass/CoM DR 触发
-  `mj_setConst` sameframe 崩溃。
+- 物体尺寸随机化使用 fixed model variants
+  （`scene_scale_0.8.xml` … `scene_scale_1.5.xml`），使不同 scale 样本保持稳定的
+  scene topology。
+- fixed variant 中所有 body geom 均唯一命名，保证
+  `mjbatch.VariantPack` 选择可靠。
+- 所有 variant 的自由物体保留 `simple="false"`，使 reset 时的质量与质心采样保持一致。
 - 触觉平滑/延迟、特权信息、位置目标、执行器增益、物体质量/质心/摩擦/重力与
   衰减外力均为显式 manager terms，仅通过 Entity facade 访问状态。
 
