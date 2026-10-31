@@ -1,10 +1,8 @@
 from types import SimpleNamespace
 
-import numpy as np
 import torch
-from unilab.base.np_env import NpEnvState
 
-from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import transition_next
+from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import TorchEnvState, transition_next
 from sharpa_rl_unilab.training.flashsac_runtime import FlashTeacherEnv
 
 
@@ -59,24 +57,24 @@ def test_runner_noise_is_not_touched_by_learning_or_deterministic_inference():
 def test_transport_preserves_terminal_privilege_and_clean_critic():
     def observations(offset):
         return {
-            key: np.full((2, width), offset + i, dtype=np.float32)
+            key: torch.full((2, width), float(offset + i), dtype=torch.float32)
             for i, (key, width) in enumerate((("obs", 147), ("priv_info", 9), ("critic", 174)))
         }
 
-    state = NpEnvState(
+    state = TorchEnvState(
         observations(0),
-        np.ones(2),
-        np.array([True, False]),
-        np.array([False, True]),
+        torch.ones(2),
+        torch.tensor([True, False]),
+        torch.tensor([False, True]),
         {},
         observations(10),
     )
     env = FlashTeacherEnv.__new__(FlashTeacherEnv)
     env.teacher = SimpleNamespace(step=lambda _: state)
-    packed = env.step(np.zeros((2, 22)))
+    packed = env.step(torch.zeros((2, 22)))
     assert packed.obs["obs"].shape == (2, 156)
     nxt = transition_next(packed)
-    np.testing.assert_array_equal(nxt["obs"][:, :147], state.final_observation["obs"])
-    np.testing.assert_array_equal(nxt["obs"][:, 147:], state.final_observation["priv_info"])
-    np.testing.assert_array_equal(nxt["critic"], state.final_observation["critic"])
-    np.testing.assert_array_equal(packed.obs["obs"][:, 147:], state.obs["priv_info"])
+    torch.testing.assert_close(nxt["obs"][:, :147], state.final_observation["obs"])
+    torch.testing.assert_close(nxt["obs"][:, 147:], state.final_observation["priv_info"])
+    torch.testing.assert_close(nxt["critic"], state.final_observation["critic"])
+    torch.testing.assert_close(packed.obs["obs"][:, 147:], state.obs["priv_info"])

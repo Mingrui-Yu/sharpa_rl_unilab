@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import torch
-from uni_rl.algos.common.normalization import EmpiricalNormalization
+from unilab.rl.algos.common.normalization import EmpiricalNormalization
 from unilab.training import should_run_playback
 from unilab.visualization.playback import camera_cfg_from_training
 

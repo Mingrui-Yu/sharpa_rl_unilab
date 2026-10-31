@@ -5,17 +5,26 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
+import torch
 from unilab.dtype_config import get_global_dtype
 from unilab.managers import ManagerTermBase
-from unilab.utils.geometry import np_quat_angular_velocity_from_pair
 
 from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import FRAME_DIM, PRIV_DIM
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.action import SharpaIncrementalPositionAction
+from sharpa_rl_unilab.tasks.sharpa_inhand.terms.compat import (
+    entity_host_data,
+    host_numpy,
+    manager_tensor,
+    numpy_dtype,
+    rng_numpy,
+    rng_uniform,
+)
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.constants import (
     HAND_JOINT_NAMES,
     NUM_HAND_JOINTS,
     TACTILE_SENSOR_NAMES,
 )
+from sharpa_rl_unilab.tasks.sharpa_inhand.terms.geometry import np_quat_angular_velocity_from_pair
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.randomization import SharpaDomainRandomization
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.reset import SharpaHandObjectReset
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.validation import (
@@ -113,13 +122,17 @@ class SharpaRotationObservation(ManagerTermBase):
         )
         self._clip_obs = require_real(term, "clip_obs", cfg.params.get("clip_obs", 5.0))
 
-        dtype = get_global_dtype()
+        dtype = numpy_dtype(get_global_dtype())
         self.dof_pos = np.asarray(
-            self._entity.data.joint_pos[:, self._joint_ids_array], dtype=dtype
+            entity_host_data(self._entity, "joint_pos")[:, self._joint_ids_array], dtype=dtype
         ).copy()
         self.dof_vel = np.zeros_like(self.dof_pos)
-        self.object_pos = np.asarray(self._entity.data.root_link_pos_w, dtype=dtype).copy()
-        self.object_quat = np.asarray(self._entity.data.root_link_quat_w, dtype=dtype).copy()
+        self.object_pos = np.asarray(
+            entity_host_data(self._entity, "root_link_pos_w"), dtype=dtype
+        ).copy()
+        self.object_quat = np.asarray(
+            entity_host_data(self._entity, "root_link_quat_w"), dtype=dtype
+        ).copy()
         self.object_linvel = np.zeros_like(self.object_pos)
         self.object_angvel = np.zeros_like(self.object_pos)
         self.torques = np.zeros_like(self.dof_pos)
@@ -136,7 +149,10 @@ class SharpaRotationObservation(ManagerTermBase):
         self._clean_frame = np.zeros_like(self._actor_frame)
         self.priv_info = np.zeros((env.num_envs, PRIV_DIM), dtype=dtype)
 
-        ranges = np.asarray(self._entity.data.actuator_ctrl_range, dtype=get_global_dtype())
+        ranges = np.asarray(
+            entity_host_data(self._entity, "actuator_ctrl_range"),
+            dtype=numpy_dtype(get_global_dtype()),
+        )
         actuator_indices = np.arange(NUM_HAND_JOINTS, dtype=np.intp)
         self._dof_mid = (ranges[actuator_indices, 1] + ranges[actuator_indices, 0]) / 2.0
         self._dof_range = ranges[actuator_indices, 1] - ranges[actuator_indices, 0]
@@ -185,9 +201,11 @@ class SharpaRotationObservation(ManagerTermBase):
             return self
 
         reset_ids = ids[self._needs_reset[ids]]
-        self.dof_pos[ids] = self._entity.data.joint_pos[ids][:, self._joint_ids_array]
-        self.object_pos[ids] = self._entity.data.root_link_pos_w[ids]
-        self.object_quat[ids] = self._entity.data.root_link_quat_w[ids]
+        self.dof_pos[ids] = entity_host_data(self._entity, "joint_pos")[ids][
+            :, self._joint_ids_array
+        ]
+        self.object_pos[ids] = entity_host_data(self._entity, "root_link_pos_w")[ids]
+        self.object_quat[ids] = entity_host_data(self._entity, "root_link_quat_w")[ids]
         self.dof_vel[ids] = (self.dof_pos[ids] - self._previous_dof_pos[ids]) / env.step_dt
         self.object_linvel[ids] = (
             self.object_pos[ids] - self._previous_object_pos[ids]
@@ -203,7 +221,8 @@ class SharpaRotationObservation(ManagerTermBase):
             self.torques[ids] = 0.0
         else:
             self.torques[ids] = (
-                self.domain_randomization.kp[ids] * (action.target[ids] - self.dof_pos[ids])
+                self.domain_randomization.kp[ids]
+                * (host_numpy(action.target[ids]) - self.dof_pos[ids])
                 - self.domain_randomization.kd[ids] * self.dof_vel[ids]
             )
         self._previous_dof_pos[ids] = self.dof_pos[ids]
@@ -216,11 +235,13 @@ class SharpaRotationObservation(ManagerTermBase):
         if self._enable_tactile:
             self._tactile_output[ids] = self._process_tactile(env, ids)
         normalized = 2.0 * (self.dof_pos[ids] - self._dof_mid) / (self._dof_range + 1.0e-8)
-        target = action.target[ids] if action is not None else np.zeros_like(normalized)
+        target = host_numpy(action.target[ids]) if action is not None else np.zeros_like(normalized)
         clean_parts = [normalized, target]
         noisy = normalized.copy()
         if self._joint_noise > 0.0:
-            noisy += env.rng.uniform(-self._joint_noise, self._joint_noise, size=noisy.shape)
+            noisy += rng_uniform(
+                env.rng, -self._joint_noise, self._joint_noise, noisy.shape
+            ).astype(noisy.dtype, copy=False)
         actor_parts = [noisy, target]
         if self._enable_tactile:
             clean_parts.append(self._clean_tactile[ids])
@@ -238,7 +259,7 @@ class SharpaRotationObservation(ManagerTermBase):
         return self
 
     def _read_tactile(self, env: SharpaEnv) -> np.ndarray:
-        dtype = get_global_dtype()
+        dtype = numpy_dtype(get_global_dtype())
         raw = self._sensor_view.read()
         result = np.zeros((env.num_envs, len(self._sensor_view.names)), dtype=dtype)
         offset = 0
@@ -256,16 +277,16 @@ class SharpaRotationObservation(ManagerTermBase):
             1.0 - self._contact_smoothing
         )
         self._prev_tactile_force[ids] = current
-        delayed = env.rng.random(smooth.shape) < self._contact_latency
+        delayed = rng_numpy(env.rng.random(smooth.shape)) < self._contact_latency
         contact = (
-            (smooth > self._contact_threshold).astype(get_global_dtype())
+            (smooth > self._contact_threshold).astype(numpy_dtype(get_global_dtype()))
             if self._binary_contact
             else smooth
         )
         self.last_contacts[ids] = np.where(delayed, self.last_contacts[ids], contact)
         result = self.last_contacts[ids].copy()
         if self._binary_contact:
-            keep = env.rng.random(result.shape) >= self._contact_noise
+            keep = rng_numpy(env.rng.random(result.shape)) >= self._contact_noise
             result = np.where(result > 0.1, keep * result, result)
         return result
 
@@ -273,17 +294,19 @@ class SharpaRotationObservation(ManagerTermBase):
         self.snapshot(env)
         return self._actor_frame if noisy else self._clean_frame
 
-    def __call__(self, env: SharpaEnv, **params: Any) -> np.ndarray:
+    def __call__(self, env: SharpaEnv, **params: Any) -> torch.Tensor:
         del params
-        return self.frame(env, noisy=True)
+        return manager_tensor(env, self.frame(env, noisy=True))
 
 
 class SharpaFlattenedObservation(SharpaRotationObservation):
     """Legacy noisy policy frame plus privileged channels."""
 
-    def __call__(self, env: SharpaEnv, **params: Any) -> np.ndarray:
+    def __call__(self, env: SharpaEnv, **params: Any) -> torch.Tensor:
         del params
-        return np.concatenate((self.frame(env, noisy=True), self.priv_info), axis=1)
+        return manager_tensor(
+            env, np.concatenate((self.frame(env, noisy=True), self.priv_info), axis=1)
+        )
 
 
 class _SharpaObservationView(ManagerTermBase):
@@ -298,17 +321,19 @@ class _SharpaObservationView(ManagerTermBase):
         self._group = require_name(term, "observation_group", cfg.params.get("observation_group"))
         self._term = require_name(term, "observation_term", cfg.params.get("observation_term"))
 
-    def __call__(self, env: SharpaEnv, **params: Any) -> np.ndarray:
+    def __call__(self, env: SharpaEnv, **params: Any) -> torch.Tensor:
         del params
         # ObservationManager probes dimensions before env.observation_manager
         # is assigned. Dependencies are resolved on the first real compute.
         manager = getattr(env, "observation_manager", None)
         if manager is None:
-            return np.zeros((env.num_envs, self.output_dim), dtype=get_global_dtype())
+            return torch.zeros(
+                (env.num_envs, self.output_dim), dtype=torch.float32, device=env.device
+            )
         source = manager.get_term_cfg(self._group, self._term).func
         if not isinstance(source, SharpaRotationObservation) or source.frame_dim != FRAME_DIM:
             raise ValueError(f"{type(self).__name__} requires a 49D Sharpa frame owner")
-        return self._read(source.snapshot(env))
+        return manager_tensor(env, self._read(source.snapshot(env)))
 
     def _read(self, source: SharpaRotationObservation) -> np.ndarray:
         raise NotImplementedError

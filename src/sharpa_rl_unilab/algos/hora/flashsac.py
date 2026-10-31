@@ -8,9 +8,9 @@ from typing import Any, cast
 import torch
 from rsl_rl.modules import EmpiricalNormalization
 from torch import nn
-from uni_rl.algos.flash_sac.learner import FlashSACLearner
-from uni_rl.algos.flash_sac.network import FlashSACDoubleCritic
-from uni_rl.algos.flash_sac.update import build_lr_lambda
+from unilab.rl.algos.flash_sac.learner import FlashSACLearner
+from unilab.rl.algos.flash_sac.network import FlashSACDoubleCritic
+from unilab.rl.algos.flash_sac.objectives import build_lr_lambda
 
 from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import (
     ACTION_DIM,
@@ -73,6 +73,9 @@ class CleanQ(nn.Module):
 
 class TeacherFlashLearner(FlashSACLearner):
     def __init__(self, model, **kwargs):
+        kwargs.setdefault("use_compile", False)
+        kwargs.setdefault("compile_full_objectives", False)
+        kwargs.setdefault("use_whole_cycle_cuda_graph", False)
         super().__init__(
             obs_dim=ACTOR_DIM + PRIV_DIM,
             action_dim=ACTION_DIM,
@@ -101,9 +104,12 @@ class TeacherFlashLearner(FlashSACLearner):
             decay_steps=kwargs.get("learning_rate_decay_steps", 500000),
         )
         self.actor_scheduler = torch.optim.lr_scheduler.LambdaLR(self.actor_optimizer, schedule)
-        self.saturation_metrics: dict[str, float] = {}
+        self.saturation_metrics: dict[str, float | torch.Tensor] = {}
 
-    def _critic_loss_tensors(
+    def inference_startup_memory_categories(self, batch_size: int) -> dict[str, int]:
+        return {"persistent_exploration_scratch": 0}
+
+    def _critic_objective(
         self,
         next_q_values,
         next_q_log_probs_full,
@@ -123,11 +129,10 @@ class TeacherFlashLearner(FlashSACLearner):
             self.saturation_metrics = {
                 "q/target_out_of_support": ((target < support[0]) | (target > support[-1]))
                 .float()
-                .mean()
-                .item(),
-                "q/boundary_mass": pred_log_probs.exp()[..., [0, -1]].sum(-1).mean().item(),
+                .mean(),
+                "q/boundary_mass": pred_log_probs.exp()[..., [0, -1]].sum(-1).mean(),
             }
-        return super()._critic_loss_tensors(
+        return super()._critic_objective(
             next_q_values,
             next_q_log_probs_full,
             support,

@@ -5,10 +5,18 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
+import torch
+from unilab.base.rotation import np_quat_apply
 from unilab.dtype_config import get_global_dtype
 from unilab.managers import ManagerTermBase
-from unilab.utils.rotation import np_quat_apply
 
+from sharpa_rl_unilab.tasks.sharpa_inhand.terms.compat import (
+    manager_tensor,
+    numpy_dtype,
+    rng_numpy,
+    rng_uniform,
+    torch_ids,
+)
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.constants import NUM_HAND_JOINTS
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.validation import (
     require_bool,
@@ -120,7 +128,7 @@ class SharpaDomainRandomization(ManagerTermBase):
         self._actuator_ids, bound_kp, bound_kd = self._entity.bind_actuator_gain_write(
             None, term_name=term
         )
-        dtype = get_global_dtype()
+        dtype = numpy_dtype(get_global_dtype())
         bound_kp_array = np.asarray(bound_kp, dtype=dtype)
         bound_kd_array = np.asarray(bound_kd, dtype=dtype)
         self._default_kp = (
@@ -155,7 +163,8 @@ class SharpaDomainRandomization(ManagerTermBase):
         )
         self.mass = np.full((env.num_envs,), float(self._default_mass), dtype=dtype)
         self.com_offset = np.zeros((env.num_envs, 3), dtype=dtype)
-        default_gravity = np.asarray(env.scene.bind_gravity_write(term_name=term), dtype=dtype)
+        bind_gravity = cast(Any, env.scene).bind_gravity_write(term_name=term)
+        default_gravity = np.asarray(bind_gravity, dtype=dtype)
         self._default_gravity = (
             default_gravity[0] if default_gravity.ndim > 1 else default_gravity
         ).reshape(3)
@@ -232,14 +241,15 @@ class SharpaDomainRandomization(ManagerTermBase):
         return 8 + int(self._include_friction) + (3 if self._include_gravity else 0)
 
     def _sample_split_around_one(
-        self, rng: np.random.Generator, bounds: tuple[float, float], shape: tuple[int, int]
+        self, rng: Any, bounds: tuple[float, float], shape: tuple[int, int]
     ) -> np.ndarray:
         lower, upper = bounds
         if lower > 1.0 or upper < 1.0:
             raise ValueError(f"gain scale bounds must satisfy lower <= 1 <= upper: {bounds}")
-        small = rng.uniform(lower, 1.0, size=shape)
-        large = rng.uniform(1.0, upper, size=shape)
-        return np.where(rng.random(shape) > 0.5, small, large).astype(get_global_dtype())
+        small = rng_uniform(rng, lower, 1.0, shape)
+        large = rng_uniform(rng, 1.0, upper, shape)
+        coin = rng_numpy(rng.random(shape, dtype=torch.float32))
+        return np.where(coin > 0.5, small, large).astype(numpy_dtype(get_global_dtype()))
 
     def __call__(
         self,
@@ -251,7 +261,7 @@ class SharpaDomainRandomization(ManagerTermBase):
         ids = resolve_env_ids(env, env_ids)
         if ids.size == 0:
             return
-        dtype = get_global_dtype()
+        dtype = numpy_dtype(get_global_dtype())
         count = ids.size
 
         if self._randomize_pd:
@@ -267,18 +277,24 @@ class SharpaDomainRandomization(ManagerTermBase):
             kp = np.broadcast_to(self.kp[ids], (count, NUM_HAND_JOINTS)).copy()
             kd = np.broadcast_to(self.kd[ids], (count, NUM_HAND_JOINTS)).copy()
         self._entity.write_actuator_gains_to_sim(
-            kp,
-            kd,
+            manager_tensor(env, kp),
+            manager_tensor(env, kd),
             actuator_ids=self._actuator_ids,
-            env_ids=ids,
+            env_ids=torch_ids(ids, env.device),
             term_name=type(self).__name__,
         )
         self.kp[ids] = kp
         self.kd[ids] = kd
 
         if self._randomize_friction:
-            self.friction_scale[ids] = env.rng.uniform(
-                self._friction_range[0], self._friction_range[1], size=(count, 1)
+            self.friction_scale[ids] = rng_numpy(
+                env.rng.uniform(
+                    self._friction_range[0],
+                    self._friction_range[1],
+                    size=(count, 1),
+                    dtype=torch.float32,
+                ),
+                dtype=np.dtype(dtype),
             )
             friction = np.asarray(self._default_friction, dtype=np.float64).copy()
             friction = np.broadcast_to(friction, (count, friction.shape[-2], 3)).copy()
@@ -292,31 +308,40 @@ class SharpaDomainRandomization(ManagerTermBase):
                 profile = template / sliding[:, :, None] * self._friction_bases[material]
                 friction[:, mask, :] = profile * scale[:, None]
             self._entity.write_geom_friction_to_sim(
-                np.asarray(friction, dtype=dtype),
-                geom_ids=self._friction_geom_ids,
-                env_ids=ids,
+                manager_tensor(env, np.asarray(friction, dtype=dtype)),
+                geom_ids=tuple(int(value) for value in self._friction_geom_ids),
+                env_ids=torch_ids(ids, env.device),
                 term_name=type(self).__name__,
             )
         else:
             self.friction_scale[ids] = 1.0
 
         if self._randomize_mass:
-            mass = env.rng.uniform(self._mass_range[0], self._mass_range[1], size=count).astype(
-                dtype
+            mass = rng_numpy(
+                env.rng.uniform(
+                    self._mass_range[0], self._mass_range[1], size=count, dtype=torch.float32
+                ),
+                dtype=np.dtype(dtype),
             )
         else:
             mass = np.full((count,), float(self._default_mass), dtype=dtype)
         self._entity.write_body_mass_to_sim(
-            mass[:, None],
+            manager_tensor(env, mass[:, None]),
             body_ids=self._object_body_ids,
-            env_ids=ids,
+            env_ids=torch_ids(ids, env.device),
             term_name=type(self).__name__,
         )
         self.mass[ids] = mass
 
         if self._randomize_com:
-            com = env.rng.uniform(self._com_range[0], self._com_range[1], size=(count, 3)).astype(
-                dtype
+            com = rng_numpy(
+                env.rng.uniform(
+                    self._com_range[0],
+                    self._com_range[1],
+                    size=(count, 3),
+                    dtype=torch.float32,
+                ),
+                dtype=np.dtype(dtype),
             )
         else:
             com = np.zeros((count, 3), dtype=dtype)
@@ -324,9 +349,9 @@ class SharpaDomainRandomization(ManagerTermBase):
             np.asarray(self._default_ipos, dtype=np.float64).reshape(1, 3), (count, 3)
         ).copy()
         self._entity.write_body_ipos_to_sim(
-            np.asarray(default_ipos + com, dtype=dtype)[:, None, :],
+            manager_tensor(env, np.asarray(default_ipos + com, dtype=dtype)[:, None, :]),
             body_ids=self._object_body_ids,
-            env_ids=ids,
+            env_ids=torch_ids(ids, env.device),
             term_name=type(self).__name__,
         )
         self.com_offset[ids] = com
@@ -335,8 +360,10 @@ class SharpaDomainRandomization(ManagerTermBase):
             downward = np.zeros((count, 3), dtype=np.float64)
             downward[:, 2] = -self._gravity_magnitude
             # Shoemake's uniform rotation, using the environment's explicit RNG.
-            u1 = env.rng.random(count)
-            u2, u3 = env.rng.random((2, count)) * (2.0 * np.pi)
+            u1 = rng_numpy(env.rng.random(count, dtype=torch.float32), dtype=np.float64)
+            u2, u3 = rng_numpy(
+                env.rng.random((2, count), dtype=torch.float32), dtype=np.float64
+            ) * (2.0 * np.pi)
             r1, r2 = np.sqrt(1.0 - u1), np.sqrt(u1)
             quat = np.stack(
                 (r2 * np.cos(u3), r1 * np.sin(u2), r1 * np.cos(u2), r2 * np.sin(u3)), axis=-1
@@ -344,16 +371,20 @@ class SharpaDomainRandomization(ManagerTermBase):
             gravity = np_quat_apply(quat, downward).astype(dtype)
         else:
             gravity = np.broadcast_to(self._default_gravity, (count, 3)).copy()
-        env.scene.write_gravity_to_sim(gravity, ids, term_name=type(self).__name__)
+        env.scene.write_gravity_to_sim(
+            manager_tensor(env, gravity),
+            torch_ids(ids, env.device),
+            term_name=type(self).__name__,
+        )
         self.gravity[ids] = gravity
 
     def privileged_info(self, object_pos: np.ndarray, anchor: np.ndarray) -> np.ndarray:
-        object_pos = np.asarray(object_pos, dtype=get_global_dtype())
-        anchor = np.asarray(anchor, dtype=get_global_dtype())
+        object_pos = np.asarray(object_pos, dtype=numpy_dtype(get_global_dtype()))
+        anchor = np.asarray(anchor, dtype=numpy_dtype(get_global_dtype()))
         parts = [object_pos - anchor]
         if self._include_friction:
             parts.append(self.friction_scale)
         parts.extend((self.mass[:, None], self.com_offset, self.scale))
         if self._include_gravity:
             parts.append(self.gravity)
-        return np.concatenate(parts, axis=1, dtype=get_global_dtype())
+        return np.concatenate(parts, axis=1, dtype=numpy_dtype(get_global_dtype()))

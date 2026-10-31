@@ -5,8 +5,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
+import torch
 from unilab.dtype_config import get_global_dtype
 
+from sharpa_rl_unilab.tasks.sharpa_inhand.terms.compat import manager_tensor, numpy_dtype
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.constants import SOURCE_DEFAULT_HAND_JOINT_POS
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation import SharpaRotationObservation
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.termination import SharpaDropTermination
@@ -29,45 +31,71 @@ def _rotation_state(
     return state, state.observation
 
 
-def rotate_reward(env: SharpaEnv, state_term_name: str) -> np.ndarray:
+def rotate_reward(env: SharpaEnv, state_term_name: str) -> torch.Tensor:
     _, state = _rotation_state(env, state_term_name)
-    return np.asarray(
-        np.clip(
-            np.sum(state.object_angvel * state.task_state.rotation_axis, axis=1),
-            -0.5,
-            0.5,
+    return manager_tensor(
+        env,
+        np.asarray(
+            np.clip(
+                np.sum(state.object_angvel * state.task_state.rotation_axis, axis=1),
+                -0.5,
+                0.5,
+            ),
+            dtype=numpy_dtype(get_global_dtype()),
         ),
-        dtype=get_global_dtype(),
     )
 
 
-def object_linear_velocity_l1(env: SharpaEnv, state_term_name: str) -> np.ndarray:
+def object_linear_velocity_l1(env: SharpaEnv, state_term_name: str) -> torch.Tensor:
     _, state = _rotation_state(env, state_term_name)
-    return np.asarray(np.sum(np.abs(state.object_linvel), axis=1), dtype=get_global_dtype())
+    return manager_tensor(
+        env,
+        np.asarray(
+            np.sum(np.abs(state.object_linvel), axis=1), dtype=numpy_dtype(get_global_dtype())
+        ),
+    )
 
 
-def hand_pose_deviation_l2(env: SharpaEnv, state_term_name: str) -> np.ndarray:
+def hand_pose_deviation_l2(env: SharpaEnv, state_term_name: str) -> torch.Tensor:
     _, state = _rotation_state(env, state_term_name)
     default = np.broadcast_to(
-        SOURCE_DEFAULT_HAND_JOINT_POS.astype(get_global_dtype()),
+        SOURCE_DEFAULT_HAND_JOINT_POS.astype(numpy_dtype(get_global_dtype())),
         state.dof_pos.shape,
     )
-    return np.asarray(np.sum(np.square(state.dof_pos - default), axis=1), dtype=get_global_dtype())
-
-
-def estimated_torque_l2(env: SharpaEnv, state_term_name: str) -> np.ndarray:
-    _, state = _rotation_state(env, state_term_name)
-    return np.asarray(np.sum(np.square(state.torques), axis=1), dtype=get_global_dtype())
-
-
-def estimated_work_l2(env: SharpaEnv, state_term_name: str) -> np.ndarray:
-    _, state = _rotation_state(env, state_term_name)
-    return np.asarray(
-        np.square(np.sum(state.torques * state.dof_vel, axis=1)), dtype=get_global_dtype()
+    return manager_tensor(
+        env,
+        np.asarray(
+            np.sum(np.square(state.dof_pos - default), axis=1),
+            dtype=numpy_dtype(get_global_dtype()),
+        ),
     )
 
 
-def object_position_reward(env: SharpaEnv, state_term_name: str) -> np.ndarray:
+def estimated_torque_l2(env: SharpaEnv, state_term_name: str) -> torch.Tensor:
+    _, state = _rotation_state(env, state_term_name)
+    return manager_tensor(
+        env,
+        np.asarray(np.sum(np.square(state.torques), axis=1), dtype=numpy_dtype(get_global_dtype())),
+    )
+
+
+def estimated_work_l2(env: SharpaEnv, state_term_name: str) -> torch.Tensor:
+    _, state = _rotation_state(env, state_term_name)
+    return manager_tensor(
+        env,
+        np.asarray(
+            np.square(np.sum(state.torques * state.dof_vel, axis=1)),
+            dtype=numpy_dtype(get_global_dtype()),
+        ),
+    )
+
+
+def object_position_reward(env: SharpaEnv, state_term_name: str) -> torch.Tensor:
     _, state = _rotation_state(env, state_term_name)
     delta = state.object_pos - state.task_state.object_pos_anchor
-    return np.asarray(1.0 / (np.linalg.norm(delta, axis=1) + 0.001), dtype=get_global_dtype())
+    return manager_tensor(
+        env,
+        np.asarray(
+            1.0 / (np.linalg.norm(delta, axis=1) + 0.001), dtype=numpy_dtype(get_global_dtype())
+        ),
+    )

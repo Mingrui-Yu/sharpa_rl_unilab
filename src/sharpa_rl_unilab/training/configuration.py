@@ -8,7 +8,10 @@ from typing import Any, cast
 
 import torch
 from omegaconf import DictConfig, OmegaConf
-from uni_rl.offpolicy.thread_budget import apply_torch_thread_runtime, resolve_torch_thread_runtime
+from unilab.rl.runtime.offpolicy.thread_budget import (
+    apply_torch_thread_runtime,
+    resolve_torch_thread_runtime,
+)
 
 
 def resolve_device(device=None):

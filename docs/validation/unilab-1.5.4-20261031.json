@@ -1,0 +1,112 @@
+{
+  "contract": "sharpa-hora-v2 teacher",
+  "date": "2026-10-31",
+  "dependency_pin": {
+    "unilab": "1.5.4",
+    "unilab_rl_package": "removed; use unilab.rl runtime integrated in unilab==1.5.4",
+    "torch": "2.11.0+cu128",
+    "mujoco": "3.11.0",
+    "unisim_core": "2.2.5",
+    "mjbatch_uni": "0.2.5",
+    "rsl_rl_lib": "5.5.2"
+  },
+  "hot_path": {
+    "environment_boundary": "TorchEnvState",
+    "ppo_rollout": "preallocated time-major CUDA tensors; observations/actions/rewards/dones stay device-resident",
+    "appo_rollout": "CUDA tensor IPC with consumption acknowledgments plus TensorRolloutStagingPool GPU-to-GPU staging; policy weights sync once per rollout on a cold CPU boundary",
+    "flashsac": "unilab.rl CUDA inference ring and device-authoritative replay",
+    "static_selectors": "reset joint/geom selectors are converted once on reset, outside step hot loop",
+    "diagnostics": "scalar host reads occur only at logging/evaluation boundaries"
+  },
+  "correctness": {
+    "local": "222 passed and 1 opt-in off-policy artifact comparison skipped (without benchmark path env vars); ruff, ruff-format, mypy, pyright passed",
+    "remote": "223 passed (including slow/CUDA tests and the opt-in off-policy throughput comparison) on pc825 / RTX 4090",
+    "gpu_residency_test": "tests/envs/test_observation_contract.py::test_ppo_collection_hot_path_remains_gpu_resident"
+  },
+  "benchmark": {
+    "host": "ssh pc825",
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "cpu": "AMD Ryzen 9 9950X",
+    "command": "python -m sharpa_rl_unilab.cli --algo ppo training.num_envs=2048 training.device=cuda:0 algo.max_iterations=10 algo.save_interval=0 training.no_play=true training.logger=no_print",
+    "transitions": 163840,
+    "steady_state_iterations": "2-10 (iteration 1 excluded)",
+    "new": {
+      "path": "pc825:/home/pc8-25/ws/sharpa_rl_unilab/benchmarks/unilab154_ppo",
+      "steady_transitions_per_second": 22655.4846,
+      "steady_collector_active_steps_per_second": 24005.3234,
+      "steady_env_step_ms": 85.2116,
+      "steady_mlp_inference_ms": 0.4,
+      "metrics_wall_seconds": 8.0464,
+      "time_wall_seconds": 9.76,
+      "max_rss_kib": 2320660
+    },
+    "legacy_numpy_adapter": {
+      "path": "pc825:/home/pc8-25/ws/sharpa_rl_unilab_baseline/benchmarks/unilab_legacy_numpy_ppo",
+      "stack": "pre-migration NumPy-bound adapter, unilab==1.3.0, unilab-rl==1.2.0, torch==2.11.0+cu128",
+      "steady_transitions_per_second": 7545.8952,
+      "steady_collector_active_steps_per_second": 7702.6018,
+      "steady_env_step_ms": 266.2556,
+      "steady_mlp_inference_ms": 0.7469,
+      "metrics_wall_seconds": 22.335,
+      "time_wall_seconds": 24.92,
+      "max_rss_kib": 2570656
+    },
+    "relative": {
+      "steady_transitions_per_second_speedup": 3.0,
+      "steady_transitions_per_second_change": "+200.24%",
+      "steady_collector_active_steps_speedup": 3.12,
+      "metrics_wall_time_speedup": 2.78
+    },
+    "baseline_caveat": "The pre-migration source declared unilab<1.3, but its editable UniLab sibling was not reproducible from the remote tree. Published unilab==1.2.0 cannot import with the published unisim-core selected by that old lock. The closest runnable legacy NumPy-bound published stack used unilab==1.3.0 and unilab-rl==1.2.0; Torch, MuJoCo, model, seed, env count, and budget were held constant.",
+    "secondary_appo": {
+      "path": "pc825:/home/pc8-25/ws/sharpa_rl_unilab/benchmarks/unilab154_appo",
+      "steady_transitions_per_second": 24114.3617,
+      "steady_collector_active_steps_per_second": 24457.7678,
+      "metrics_wall_seconds": 9.8391,
+      "time_wall_seconds": 11.33,
+      "legacy_path": "pc825:/home/pc8-25/ws/sharpa_rl_unilab_baseline/benchmarks/unilab_legacy_numpy_appo",
+      "legacy_steady_transitions_per_second": 8132.9089,
+      "legacy_steady_collector_active_steps_per_second": 8306.1642,
+      "legacy_metrics_wall_seconds": 24.0478,
+      "legacy_time_wall_seconds": 25.52,
+      "steady_transitions_per_second_speedup": 2.97,
+      "shutdown": "clean; no CUDA IPC producer-terminated warning"
+    },
+    "secondary_flashsac": {
+      "path": "pc825:/home/pc8-25/ws/sharpa_rl_unilab/benchmarks/unilab154_flashsac",
+      "command": "python -m sharpa_rl_unilab.cli --algo flashsac training.num_envs=2048 training.device=cuda:0 algo.max_iterations=10 algo.save_interval=0 algo.replay_buffer_n=128 training.no_play=true training.logger=no_print",
+      "steady_transitions_per_second": 14014.0449,
+      "legacy_path": "pc825:/home/pc8-25/ws/sharpa_rl_unilab_baseline/benchmarks/unilab_legacy_numpy_flashsac",
+      "legacy_steady_transitions_per_second": 8447.13,
+      "steady_transitions_per_second_speedup": 1.659,
+      "metrics_wall_seconds": 5.705,
+      "legacy_metrics_wall_seconds": 7.1281,
+      "time_wall_seconds": 7.74,
+      "legacy_time_wall_seconds": 9.13,
+      "max_rss_kib": 2228408,
+      "legacy_max_rss_kib": 2332924,
+      "runtime_manifest": "CUDA tensor-native collector, cuda_no_host_boundary inference ring, device_ingress replay",
+      "comparison_test": "tests/test_offpolicy_throughput.py::test_recorded_offpolicy_throughput_comparison"
+    }
+  },
+  "semantic_caveat": "UniLab 1.5 uses a Torch Manager RNG; identical seeds are not bit-compatible with the legacy NumPy RNG episode stream.",
+  "upstream_issues": {
+    "non_writable_numpy_array": "https://github.com/Motphys/UniLab/issues/2565"
+  },
+  "full_training_rollouts": {
+    "commit": "54850e9b4f9c5c8f19a66cefb4d09f70cdf3f343",
+    "policy": "final teacher checkpoint, deterministic actions",
+    "seed": 1,
+    "envs": 16,
+    "steps": 400,
+    "duration_seconds": 20,
+    "gif_fps": 8,
+    "resolution": "360x202",
+    "appo": "docs/media/sharpa-appo-pr9-rollout.gif",
+    "flashsac": "docs/media/sharpa-flashsac-pr9-rollout.gif",
+    "source_videos": [
+      "pc825:/home/pc8-25/ws/sharpa_rl_unilab/benchmarks/pr9_full_appo_54850e9/appo_final_rollout.mp4",
+      "pc825:/home/pc8-25/ws/sharpa_rl_unilab/benchmarks/pr9_full_flashsac_54850e9/flashsac_final_rollout.mp4"
+    ]
+  }
+}

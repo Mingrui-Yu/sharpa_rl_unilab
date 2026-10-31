@@ -5,8 +5,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
+import torch
 from unilab.managers import ManagerTermBase
 
+from sharpa_rl_unilab.tasks.sharpa_inhand.terms.compat import manager_tensor
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation import SharpaRotationObservation
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.validation import (
     require_name,
@@ -44,11 +46,11 @@ class SharpaDropTermination(ManagerTermBase):
         self.dropped[resolve_env_ids(self._env, env_ids)] = False
         self._last_counter = int(cast("SharpaEnv", self._env).common_step_counter)
 
-    def __call__(self, env: SharpaEnv, **params: Any) -> np.ndarray:
+    def __call__(self, env: SharpaEnv, **params: Any) -> torch.Tensor:
         del params
         state = self.observation.snapshot(env)
         self.dropped[:] = (
             state.object_pos[:, 2] > self.observation.task_state.reset_height_upper
         ) | (state.object_pos[:, 2] < self.observation.task_state.reset_height_lower)
         self._last_counter = int(env.common_step_counter)
-        return self.dropped
+        return manager_tensor(env, self.dropped, dtype=torch.bool)

@@ -5,9 +5,9 @@ from collections import defaultdict
 from contextlib import ExitStack
 from typing import Any, cast
 
-import numpy as np
-from uni_rl.algos.appo.learner import APPOLearner
-from uni_rl.algos.appo.staging import RolloutStagingPool
+import torch
+from unilab.rl.algos.appo.learner import APPOLearner
+from unilab.rl.algos.appo.staging import TensorRolloutStagingPool
 
 from sharpa_rl_unilab.algos.hora.on_policy import TeacherAPPOLearner
 
@@ -20,13 +20,14 @@ from .rollouts import timeout_rewards
 
 
 def stage_rollout(stages, raw, last_obs, version, actor, critic, device, capacity=8):
-    """Stage raw inputs once; reused pool views never update statistics."""
+    """Stage raw time-major tensors once; reused pool views never update statistics."""
+    behavior_version = torch.full_like(raw["rewards"], float(version))
     fields = {
         key: raw[key]
         for key in (
             "critic",
-            "rewards",
             "next_critic",
+            "rewards",
             "truncated",
             "terminated",
             "actions",
@@ -34,27 +35,26 @@ def stage_rollout(stages, raw, last_obs, version, actor, critic, device, capacit
         )
     }
     fields.update(
-        observations=np.concatenate((raw["obs"], raw["priv_info"]), axis=-1),
-        dones=raw["terminated"].astype(bool) | raw["truncated"].astype(bool),
-        behavior_version=np.full_like(raw["rewards"], version),
+        observations=torch.cat((raw["obs"], raw["priv_info"]), dim=-1),
+        dones=(raw["terminated"].to(torch.bool) | raw["truncated"].to(torch.bool)).to(
+            dtype=torch.float32
+        ),
+        behavior_version=behavior_version,
     )
-    fields = {
-        key: value.swapaxes(0, 1).astype(np.float32, copy=False) for key, value in fields.items()
-    }
+    fields = {key: value.transpose(0, 1).to(dtype=torch.float32) for key, value in fields.items()}
     fields.update(
-        last_obs=np.concatenate((last_obs["obs"], last_obs["priv_info"]), axis=-1),
+        last_obs=torch.cat((last_obs["obs"], last_obs["priv_info"]), dim=-1),
         last_critic=last_obs["critic"],
     )
     n, t = fields["observations"].shape[:2]
-    # A final short rollout replaces old full-length stages, as before.
     if stages is None or stages.batch()["observations"].shape[0] != t:
-        stages = RolloutStagingPool(
+        stages = TensorRolloutStagingPool(
             capacity=capacity,
             num_envs=n,
-            slot_shapes={k: v.shape for k, v in fields.items()},
+            slot_shapes={key: tuple(value.shape) for key, value in fields.items()},
             device=device,
         )
-    slot = stages.stage_numpy_views(fields)
+    slot = stages.stage_tensor_views(fields)
     batch = stages.batch()
     rows = slice(slot * n, (slot + 1) * n)
     observe_new_samples(actor, critic, batch["observations"][:, rows], batch["critic"][:, rows])
@@ -83,6 +83,9 @@ def train_appo(cfg, progress_key, target, started):
         resources.callback(logger.close)
         logger.start(status="Waiting for first rollout...")
         save_interval = int(cfg.algo.save_interval)
+        raw: dict[str, torch.Tensor] = {}
+        last_obs: dict[str, torch.Tensor] = {}
+        combined: dict[str, torch.Tensor] = {}
         while counters[progress_key] < target:
             iteration_started = time.perf_counter()
             wait_started = time.perf_counter()
@@ -93,7 +96,7 @@ def train_appo(cfg, progress_key, target, started):
             reward_steps = 0
             for raw, _, _, _, fresh_metrics in packets:
                 episodes.update(raw["rewards"], raw["terminated"], raw["truncated"])
-                size = raw["rewards"].size
+                size = raw["rewards"].numel()
                 reward_steps += size
                 for key, value in fresh_metrics.items():
                     if key.startswith("reward/"):
@@ -127,7 +130,9 @@ def train_appo(cfg, progress_key, target, started):
             learner.process_batch(combined)
             metrics = learner.update(combined)
             timings["train_time"] = time.perf_counter() - train_started
-            updates = int(metrics["appo/updates_executed"])
+            updates = int(cfg.algo.algorithm.num_learning_epochs) * int(
+                cfg.algo.algorithm.num_mini_batches
+            )
             batch_size = combined["observations"].shape[0] * combined["observations"].shape[1]
             counters["training_samples"] += (
                 batch_size // int(cfg.algo.algorithm.num_mini_batches) * updates
@@ -147,16 +152,20 @@ def train_appo(cfg, progress_key, target, started):
             timings["weight_sync_time"] = time.perf_counter() - publish_started
             counters["collected"] = collector.count.value
             timings["iteration_time"] = time.perf_counter() - iteration_started
+            final_packet_metrics = packets[-1][4]
+            first_packet_version = packets[0][2]
             if counters[progress_key] >= target:
                 # Drain before final counters; a last rollout may not reach the learner.
+                packets.clear()
+                raw, last_obs, combined = {}, {}, {}
                 collector.close()
                 counters["collected"] = collector.count.value
             metrics.update(counters)
-            metrics.update(packets[-1][4])
+            metrics.update(final_packet_metrics)
             metrics.update({key: value / reward_steps for key, value in reward_sums.items()})
             metrics.update(episodes.metrics())
             metrics.update(
-                policy_lag=counters["policy_version"] - packets[0][2] - 1,
+                policy_lag=counters["policy_version"] - first_packet_version - 1,
                 wall_seconds=time.monotonic() - started,
                 reuse_ratio=counters["training_samples"] / counters["received"],
             )
