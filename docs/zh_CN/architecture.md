@@ -46,14 +46,14 @@ YAML 声明场景实体和 manager terms；Python term 通过 Entity API 访问�
 
 | 输入 | 形状 | 内容与使用方 |
 | --- | --- | --- |
-| `obs` | `[N,147]` | 带噪基础帧 49 × 3；teacher/student Actor 共用 |
+| `obs` | `[N,147]` | 带噪基础帧 49 × 3；SuperMimic 直接 Actor 与 HORA teacher/student Actor 使用 |
 | `critic` | `[N,174]` | 每帧 clean 基础 49 + 特权 9，堆叠 3 帧；仅 Critic 使用 |
-| `priv_info` | `[N,9]` | 当前原始特权信息；teacher 编码器使用 |
-| `proprio_hist` | `[N,30,49]` | 与 `obs` 同源的带噪历史，从旧到新；student 编码器使用 |
+| `priv_info` | `[N,9]` | 当前原始特权信息；HORA teacher 编码器使用，SuperMimic Actor 不读取 |
+| `proprio_hist` | `[N,30,49]` | 与 `obs` 同源的带噪历史，从旧到新；HORA student 编码器使用 |
 
-Teacher 将特权信息编码后与基础观测拼接，输出动作。
-Student 用历史编码器替代特权编码器；其余策略部分继承 teacher。
-PPO/APPO 使用独立的 V 网络，FlashSAC 使用分布式双 Q 和目标 Q。
+SuperMimic 默认使用 HORA 特权编码器；设置 `algo.single_stage=true` 后，Actor 直接将
+基础观测历史映射为动作，特权状态只进入 critic 与世界模型训练。HORA Student 用历史编码器
+替代特权编码器。PPO/APPO 使用独立的 V 网络，FlashSAC 使用分布式双 Q 和目标 Q。
 v2 维度固定；不兼容的触觉、特权信息和历史设置在构建阶段拒绝，错误会指出字段及协议要求。
 
 一次控制步只读取一次传感器。Clean 触觉保留取模和确定性限幅，
@@ -63,7 +63,7 @@ v2 维度固定；不兼容的触觉、特权信息和历史设置在构建阶�
 
 | 算法 | 复用组件 | Sharpa 负责的适配 |
 | --- | --- | --- |
-| SuperMimic | Uni-SuperMimic 多步世界模型、replay 与可微想象训练 | 物理/触觉状态采集、Sharpa 解析奖励、软掉落终止与 HORA checkpoint |
+| SuperMimic | Uni-SuperMimic 多步世界模型、replay 与可微想象训练 | 物理/触觉状态采集、Sharpa 解析奖励、软掉落终止、HORA teacher checkpoint 与可选无特权 direct checkpoint |
 | PPO | RSL-RL `PPO`、`RolloutStorage` | 四组输入、终止 bootstrap、短 rollout 和预算调度 |
 | APPO | uni_rl APPO/V-trace、`RolloutStagingPool` | 独立 collector、有界队列、策略版本、历史复用及预算调度 |
 | FlashSAC | `DoubleBufferOffPolicyRunner`、原生 replay 与 learner 损失 | 观测传输、新数据统计、公共 checkpoint 和计数 |

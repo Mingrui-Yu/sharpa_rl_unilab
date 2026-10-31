@@ -351,7 +351,7 @@ def aggregate_seeds(paths, output):
 
 
 def plot_learning_curves(paths, output):
-    """Separate teacher/student figures; each line is one training seed."""
+    """Separate direct/teacher and student figures; each line is one training seed."""
     import matplotlib.pyplot as plt
 
     rows = [json.loads(Path(path).read_text()) for path in paths]
@@ -378,7 +378,7 @@ def plot_learning_curves(paths, output):
         label = algorithm if (algorithm, stage) not in labels_seen else "_nolegend_"
         labels_seen.add((algorithm, stage))
         for axis, values in zip(
-            axes[0 if stage == "teacher" else 1],
+            axes[0 if stage in {"teacher", "direct"} else 1],
             (
                 [row["counters"]["collected"] for row in selected],
                 [row["wall_seconds"] for row in selected],
@@ -392,7 +392,7 @@ def plot_learning_curves(paths, output):
                 color=colors[algorithm],
                 label=label,
             )
-    for stage, pair in zip(("Teacher", "Student"), axes):
+    for stage, pair in zip(("Direct / Teacher", "Student"), axes):
         for axis, name in zip(
             pair, ("Collected transitions", "Wall time (seconds, initialization included)")
         ):

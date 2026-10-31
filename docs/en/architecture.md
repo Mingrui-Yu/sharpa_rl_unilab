@@ -51,15 +51,15 @@ N is the number of environments:
 
 | Input | Shape | Contents and consumers |
 | --- | --- | --- |
-| `obs` | `[N,147]` | Three noisy base frames of 49 values each; shared by teacher/student actors |
+| `obs` | `[N,147]` | Three noisy base frames of 49 values each; direct SuperMimic and HORA teacher/student actors |
 | `critic` | `[N,174]` | Three frames, each with 49 clean base values + 9 privileged values; critic only |
-| `priv_info` | `[N,9]` | Current raw privileged information; teacher encoder |
-| `proprio_hist` | `[N,30,49]` | Noisy history from the same source as `obs`, oldest to newest; student encoder |
+| `priv_info` | `[N,9]` | Current raw privileged information; HORA teacher encoder, never read by the SuperMimic actor |
+| `proprio_hist` | `[N,30,49]` | Noisy history from the same source as `obs`, oldest to newest; HORA student encoder |
 
-The teacher encodes privileged information, concatenates it with base
-observations and produces actions. The student replaces the privilege encoder
-with a history encoder and inherits the rest of the teacher's policy. PPO/APPO
-use independent V networks; FlashSAC uses distributional double Q and target Q
+The default SuperMimic teacher uses the HORA privilege encoder. With
+`algo.single_stage=true`, its actor instead maps observation history directly to actions;
+privileged state is used only by its critic and world-model training. The HORA student
+replaces the privilege encoder with a history encoder. PPO/APPO use independent V networks; FlashSAC uses distributional double Q and target Q
 networks. The v2 layout is fixed; incompatible tactile, privilege or history settings are
 rejected during construction with the offending field and required value.
 
@@ -71,7 +71,7 @@ latency or noise. Clean observations do not represent a complete Markov state.
 
 | Algorithm | Reused components | Sharpa adaptation |
 | --- | --- | --- |
-| SuperMimic | Uni-SuperMimic multi-step world model, replay and differentiable imagination | Physical/tactile state capture, analytic Sharpa rewards, soft drop termination and HORA checkpoints |
+| SuperMimic | Uni-SuperMimic multi-step world model, replay and differentiable imagination | Physical/tactile state capture, analytic Sharpa rewards, soft drop termination, HORA teacher checkpoints and optional observation-only direct checkpoints |
 | PPO | RSL-RL `PPO`, `RolloutStorage` | Four inputs, terminal bootstrapping, short rollouts and budget scheduling |
 | APPO | uni_rl APPO/V-trace, `RolloutStagingPool` | Separate collector, bounded queue, policy versions, history reuse and budget scheduling |
 | FlashSAC | `DoubleBufferOffPolicyRunner`, native replay and learner losses | Observation transport, new-data statistics, common checkpoints and counters |

@@ -220,10 +220,11 @@ class TrainingLogger(OffPolicyLogger):
             raise ValueError("training.logger must be tensorboard, none or no_print")
         self.target = target
         self.by_iterations = (
-            cfg.algo.algo in {"ppo", "appo", "supermimic"}
+            cfg.algo.algo in {"ppo", "appo"}
             and cfg.protocol.stage == "teacher"
-            and cfg.algo.get("max_iterations") is not None
-        )
+            or cfg.algo.algo == "supermimic"
+            and cfg.protocol.stage == "direct"
+        ) and cfg.algo.get("max_iterations") is not None
         self._progress = 0
         self._previous_steps = 0
         self._previous_seconds = 0.0

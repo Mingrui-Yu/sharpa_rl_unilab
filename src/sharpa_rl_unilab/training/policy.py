@@ -8,6 +8,7 @@ from tensordict import TensorDict
 from sharpa_rl_unilab.algos.hora.flashsac import CleanQ, TeacherFlashActor, TeacherFlashLearner
 from sharpa_rl_unilab.algos.hora.models import split_actor
 from sharpa_rl_unilab.algos.hora.on_policy import CleanValue, TeacherActor
+from sharpa_rl_unilab.algos.supermimic.networks import SuperMimicActor
 from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import ACTOR_DIM, CRITIC_DIM
 
 from .configuration import config_dict
@@ -22,10 +23,17 @@ def tensor_obs(obs, device):
     }
 
 
-def make_actor(cfg, device="cpu", *, student=False, model=None):
+def make_actor(cfg, device="cpu", *, student=False, model=None, stage=None):
     """Use saved model settings as-is; training validation belongs to make_models."""
     model = config_dict(cfg.model) if model is None else model
-    if cfg.algo.algo == "flashsac":
+    direct = (
+        cfg.algo.algo == "supermimic"
+        and not student
+        and (stage == "direct" or stage is None and bool(cfg.algo.get("single_stage", False)))
+    )
+    if direct:
+        actor = SuperMimicActor(model)
+    elif cfg.algo.algo == "flashsac":
         actor = TeacherFlashActor(model, student=student)
     else:
         actor = TeacherActor(
@@ -83,14 +91,21 @@ def make_models(cfg, device):
 
 @torch.no_grad()
 def observe_new_samples(actor, critic, packed: torch.Tensor, clean: torch.Tensor) -> None:
-    base, _ = split_actor(packed)
-    actor.shared.obs_normalizer.update(base.reshape(-1, ACTOR_DIM))
+    if isinstance(actor, SuperMimicActor):
+        actor.obs_normalizer.update(packed.reshape(-1, ACTOR_DIM))
+    else:
+        base, _ = split_actor(packed)
+        actor.shared.obs_normalizer.update(base.reshape(-1, ACTOR_DIM))
     if isinstance(critic, (CleanValue, CleanQ)):
         critic.obs_normalizer.update(clean.reshape(-1, CRITIC_DIM))
 
 
 @torch.no_grad()
 def inference_distribution(actor, obs, device, history_normalizer=None):
+    if isinstance(actor, SuperMimicActor):
+        data = tensor_obs({"obs": obs["obs"]}, device)
+        inputs = {"actor": data["obs"]}
+        return actor.policy(TensorDict(inputs, batch_size=data["obs"].shape[0]))
     keys = ("obs", "priv_info") if history_normalizer is None else ("obs", "proprio_hist")
     data = tensor_obs({key: obs[key] for key in keys}, device)
     inputs = {"actor": data["obs"]}

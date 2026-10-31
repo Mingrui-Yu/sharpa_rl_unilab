@@ -57,7 +57,55 @@ def test_mjwarp_capture_is_gpu_resident(monkeypatch):
 
 @pytest.mark.slow
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="SuperMimic smoke uses CUDA training")
-def test_train_evaluate_and_distill_supermimic(tmp_path):
+def test_train_and_evaluate_supermimic_direct(tmp_path):
+    run = tmp_path / "direct"
+    overrides = [
+        "training.num_envs=8",
+        "training.device=cuda:0",
+        "training.no_play=true",
+        "training.logger=no_print",
+        f"training.log_dir={run}",
+        "algo.single_stage=true",
+        "algo.max_iterations=2",
+        "algo.save_interval=1",
+        "algo.warmup_steps=4",
+        "algo.wm_window=2",
+        "algo.wm_batches=1",
+        "algo.wm_batch=4",
+        "algo.wm_hidden=[64]",
+        "algo.pi_batch=4",
+        "algo.horizon=2",
+        "algo.critic_epochs=1",
+        "algo.critic_minibatches=2",
+        "algo.wm_only_iters=0",
+        "evaluation.scales=[1.0]",
+        "evaluation.scale_weights=[1.0]",
+        "evaluation.seeds=[10001]",
+        "evaluation.episodes_per_scale=1",
+    ]
+    result = subprocess.run(
+        [sys.executable, "-m", "sharpa_rl_unilab.cli", "--algo", "supermimic", *overrides],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    path = run / "policy_final.pt"
+    rows = [json.loads(line) for line in (run / "metrics.jsonl").read_text().splitlines()]
+    assert len(rows) == 2
+    assert max(row["sim/reward_parity"] for row in rows) < 1e-6
+    assert rows[-1]["policy_version"] == 2
+    assert (run / "policy_iteration_2.pt").is_file()
+    assert not (run / "teacher_final.pt").exists()
+
+    direct = evaluate_checkpoint(path, device="cpu")
+    assert direct["stage"] == "direct"
+    assert len(direct["episodes"]) == 1
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="SuperMimic smoke uses CUDA training")
+def test_default_train_evaluate_and_distill_supermimic(tmp_path):
     run = tmp_path / "teacher"
     overrides = [
         "training.num_envs=8",
@@ -94,8 +142,11 @@ def test_train_evaluate_and_distill_supermimic(tmp_path):
     assert len(rows) == 2
     assert max(row["sim/reward_parity"] for row in rows) < 1e-6
     assert rows[-1]["policy_version"] == 2
+    assert (run / "teacher_iteration_2.pt").is_file()
+    assert not (run / "policy_final.pt").exists()
 
     teacher = evaluate_checkpoint(path, device="cpu")
+    assert teacher["stage"] == "teacher"
     assert len(teacher["episodes"]) == 1
     student_path = train_student(
         path,

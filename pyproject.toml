@@ -5,7 +5,7 @@ build-backend = "uv_build"
 [project]
 name = "sharpa_rl-unilab"
 version = "0.1.0"
-description = "Sharpa Wave in-hand manipulation tasks and the HORA teacher/student algorithms"
+description = "Sharpa Wave in-hand tasks with SuperMimic and HORA algorithms"
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 license = "Apache-2.0"

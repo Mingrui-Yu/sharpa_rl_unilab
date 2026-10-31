@@ -5,9 +5,10 @@
 ## Task overview
 
 An independent UniLab task package for Sharpa Wave in-hand manipulation. It
-provides a MuJoCo-ready hand/object task, bundled robot assets, grasp caches,
-and SuperMimic, PPO, APPO and FlashSAC teacher training with a shared HORA model
-and student distillation pipeline. SuperMimic is the default teacher algorithm.
+provides a MuJoCo-ready hand/object task, bundled robot assets and grasp caches.
+SuperMimic, PPO, APPO and FlashSAC default to the HORA teacher/student pipeline.
+SuperMimic also offers an opt-in single-stage pipeline that trains a deployable
+observation-only actor directly through a learned world model.
 
 ## Highlights and demonstration
 
@@ -28,9 +29,9 @@ task owns action, observation, reset, event, termination and reward terms while
 UniLab remains an external dependency and owns the manager lifecycle and
 simulation backends.
 
-Supported teacher entrypoints are SuperMimic, PPO, APPO and FlashSAC. All four
-algorithms share the default HORA policy and student distillation pipeline;
-critics retain the V/Q structure required by each algorithm.
+All four algorithms share the HORA teacher policy and student distillation pipeline
+by default. SuperMimic additionally supports an observation-only single-stage actor
+with a privileged training critic. Critics retain the V/Q structure required by each algorithm.
 
 ## Installation and validation
 
@@ -78,6 +79,8 @@ Each algorithm saves its playback video after training to
 
 ```bash
 uv run sharpa-train --algo supermimic
+# Optional single-stage SuperMimic without teacher/student distillation:
+uv run sharpa-train --algo supermimic algo.single_stage=true
 uv run sharpa-train --algo appo
 uv run sharpa-train --algo flashsac
 uv run sharpa-train --algo ppo
@@ -86,15 +89,17 @@ uv run sharpa-train --algo ppo
 `--cfg` prints the composed Manager-Based configuration. Append Hydra overrides
 to the command for tuning.
 
-Training saves `teacher_final.pt` on completion and records `play_video.mp4`
-in the same directory. Headless Linux machines use EGL or OSMesa for offscreen
-rendering; on Ubuntu/Debian, install `libegl1` with a working NVIDIA graphics
-driver, or `libosmesa6` for software rendering. `uv sync` does not install these
-system dependencies; set `training.no_play=true` if recording is not needed.
+Default training saves `teacher_final.pt`; optional single-stage SuperMimic saves
+a directly evaluable `policy_final.pt`. Training records `play_video.mp4` in the same
+directory. Headless Linux machines use EGL or OSMesa for offscreen rendering; on
+Ubuntu/Debian, install `libegl1` with a working NVIDIA graphics driver, or `libosmesa6`
+for software rendering. `uv sync` does not install these system dependencies; set
+`training.no_play=true` if recording is not needed.
 
-For evaluation and distillation, specify the checkpoint file directly:
+For evaluation and HORA distillation, specify the checkpoint file directly:
 
 ```bash
+uv run sharpa-eval --checkpoint /absolute/path/to/policy_final.pt
 uv run sharpa-eval --checkpoint /absolute/path/to/teacher_final.pt
 uv run sharpa-distill --checkpoint /absolute/path/to/teacher_final.pt
 uv run sharpa-eval --checkpoint /absolute/path/to/student_final.pt
@@ -102,8 +107,8 @@ uv run sharpa-eval --checkpoint /absolute/path/to/student_final.pt
 
 `uv run sharpa-compare` trains the four algorithms sequentially using their
 default configurations; append `--distill --eval --num-seeds 3` to run distillation
-and evaluation across multiple seeds. Each algorithm uses its own training budget;
-equal sample counts or compute costs are not guaranteed.
+and evaluation across multiple seeds. Each algorithm uses its own training budget; equal sample counts or compute costs
+are not guaranteed.
 
 See [in-hand rotation](docs/en/task.md) for task background and the
 [training guide](docs/en/training.md) for detailed steps, runtime limitations

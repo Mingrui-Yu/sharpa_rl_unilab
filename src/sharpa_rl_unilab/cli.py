@@ -35,6 +35,8 @@ def compose_config(
         cfg = compose(config_name="config", overrides=[f"task={owner}", *overrides])
     if cfg.training.task_name != TASK_NAMES[task] or cfg.training.sim_backend != sim:
         raise ValueError("Overrides must preserve the selected task owner identity")
+    if algo == "supermimic":
+        cfg.protocol.stage = "direct" if bool(cfg.algo.single_stage) else "teacher"
     if task == "sharpa_inhand":
         from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import validate_observation_config
 
@@ -50,7 +52,8 @@ def _main(*, play: bool, argv: list[str] | None = None) -> None:
     parser.add_argument("--sim", choices=["mujoco", "mjwarp"], default="mujoco")
     parser.add_argument("--task", choices=sorted(TASK_NAMES), default="sharpa_inhand")
     parser.add_argument(
-        "--checkpoint", help="Versioned teacher/student checkpoint for quantitative evaluation"
+        "--checkpoint",
+        help="Versioned direct/teacher/student checkpoint for quantitative evaluation",
     )
     parser.add_argument("--output", help="Evaluation JSON output path")
     parser.add_argument(
