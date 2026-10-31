@@ -21,38 +21,47 @@ class SharpaSuperMimicCapture:
         self.reset = env.event_manager.get_term_cfg("reset").func
         self.randomization = env.event_manager.get_term_cfg("domain_randomization").func
 
-    def __call__(self) -> dict[str, np.ndarray]:
+    def __call__(self) -> dict[str, np.ndarray | torch.Tensor]:
         source = self.observation.snapshot(self.env.env)
-        state = np.concatenate(
-            (
-                source.object_pos,
-                source.object_quat,
-                source.object_linvel,
-                source.object_angvel,
-                source.dof_pos,
-                source.dof_vel,
-                source._clean_tactile,
-                source._tactile_output,
-                self.action.target,
-            ),
-            axis=-1,
-        ).astype(np.float32)
+        state_parts = (
+            source.object_pos,
+            source.object_quat,
+            source.object_linvel,
+            source.object_angvel,
+            source.dof_pos,
+            source.dof_vel,
+            source._clean_tactile,
+            source._tactile_output,
+            self.action.target,
+        )
         dr = self.randomization
         task = self.reset
-        context = np.concatenate(
-            (
-                dr.kp,
-                dr.kd,
-                dr.friction_scale,
-                dr.mass[:, None],
-                dr.com_offset,
-                dr.scale,
-                task.object_pos_anchor,
-                task.reset_height_lower[:, None],
-                task.reset_height_upper[:, None],
-            ),
-            axis=-1,
-        ).astype(np.float32)
+        context_parts = (
+            dr.kp,
+            dr.kd,
+            dr.friction_scale,
+            dr.mass[:, None],
+            dr.com_offset,
+            dr.scale,
+            task.object_pos_anchor,
+            task.reset_height_lower[:, None],
+            task.reset_height_upper[:, None],
+        )
+        tensor_parts = [
+            value for value in (*state_parts, *context_parts) if isinstance(value, torch.Tensor)
+        ]
+        if tensor_parts:
+            device = tensor_parts[0].device
+
+            def concatenate(parts):
+                return torch.cat(
+                    [torch.as_tensor(value, dtype=torch.float32, device=device) for value in parts],
+                    dim=-1,
+                )
+
+            return {"s": concatenate(state_parts), "xi": concatenate(context_parts)}
+        state = np.concatenate(state_parts, axis=-1).astype(np.float32)
+        context = np.concatenate(context_parts, axis=-1).astype(np.float32)
         return {"s": state.copy(), "xi": context.copy()}
 
 
@@ -62,6 +71,8 @@ class SharpaSuperMimicMDP:
         action = env.action_manager.get_term("hand")
 
         def tensor(value):
+            if isinstance(value, torch.Tensor):
+                return value.to(device=self.device, dtype=torch.float32)
             return torch.as_tensor(np.asarray(value), dtype=torch.float32, device=self.device)
 
         self.default = tensor(SOURCE_DEFAULT_HAND_JOINT_POS)

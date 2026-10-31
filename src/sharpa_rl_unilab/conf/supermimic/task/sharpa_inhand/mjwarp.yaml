@@ -1,0 +1,6 @@
+# @package _global_
+defaults:
+  - /supermimic/task/sharpa_inhand/mujoco
+  - _self_
+training:
+  sim_backend: mjwarp

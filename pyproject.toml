@@ -19,6 +19,7 @@ dependencies = [
 
 [project.optional-dependencies]
 mujoco = ["unilab[mujoco]"]
+mjwarp = ["unilab[mjwarp]"]
 export = ["onnx", "onnxscript", "onnxruntime"]
 evaluation = ["matplotlib"]
 

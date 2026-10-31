@@ -61,8 +61,13 @@ class SharpaSuperMimicLearner:
         from sharpa_rl_unilab.training.logging import EpisodeStatistics
 
         self.episodes = EpisodeStatistics(env.num_envs)
-        self.episode_steps = np.zeros(env.num_envs, dtype=np.int32)
         self.obs, _ = env.reset(seed=int(cfg.algo.seed))
+        tensor_observation = isinstance(next(iter(self.obs.values())), torch.Tensor)
+        self.episode_steps = (
+            torch.zeros(env.num_envs, dtype=torch.int32, device=self.device)
+            if tensor_observation
+            else np.zeros(env.num_envs, dtype=np.int32)
+        )
         self.received = 0
         self.collected = 0
 
@@ -89,8 +94,7 @@ class SharpaSuperMimicLearner:
             action = (action + float(self.cfg.algo.action_noise) * torch.randn_like(action)).clamp(
                 -1, 1
             )
-            action_np = action.cpu().numpy()
-            state = self.env.step(action_np)
+            state = self.env.step(action)
             following = self._tensors(self.capture())
             done = state.terminated | state.truncated
             transition = {
@@ -121,13 +125,21 @@ class SharpaSuperMimicLearner:
             self.episodes.update(state.reward[None], state.terminated[None], state.truncated[None])
             self.episode_steps += 1
             self.episode_steps[done] = 0
-            if np.any(done):
-                ids = np.flatnonzero(done).astype(np.int32)
-                self.env.reset(ids)
+            if isinstance(done, torch.Tensor):
+                if done.any():
+                    self.env.reset(done.nonzero(as_tuple=False).flatten())
+            elif np.any(done):
+                self.env.reset(np.flatnonzero(done).astype(np.int32))
             self.obs = self.env.state.obs
             self.received += self.env.num_envs
             self.collected += self.env.num_envs
-            rewards.append(float(np.mean(state.reward)))
+            rewards.append(
+                float(
+                    state.reward.mean()
+                    if isinstance(state.reward, torch.Tensor)
+                    else np.mean(state.reward)
+                )
+            )
         return {
             "collected": self.collected,
             "received": self.received,

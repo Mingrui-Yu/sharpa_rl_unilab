@@ -26,6 +26,9 @@ bash src/sharpa_rl_unilab/tools/sharpa_collect_grasps.sh 0.8 0.9 1 1.1 1.2 1.3 1
 
 ```bash
 uv run sharpa-train --algo supermimic
+# CUDA 上也可使用 MJWarp 后端：
+uv sync --extra mjwarp
+uv run sharpa-train --algo supermimic --sim mjwarp
 uv run sharpa-train --algo appo
 uv run sharpa-train --algo ppo
 uv run sharpa-train --algo flashsac

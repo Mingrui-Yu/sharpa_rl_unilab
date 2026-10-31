@@ -32,6 +32,9 @@ FlashSAC remain available as comparison baselines.
 
 ```bash
 uv run sharpa-train --algo supermimic
+# On CUDA, SuperMimic also supports the MJWarp backend:
+uv sync --extra mjwarp
+uv run sharpa-train --algo supermimic --sim mjwarp
 uv run sharpa-train --algo appo
 uv run sharpa-train --algo ppo
 uv run sharpa-train --algo flashsac
