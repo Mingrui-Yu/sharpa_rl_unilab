@@ -10,7 +10,7 @@ from rsl_rl.modules import EmpiricalNormalization
 from rsl_rl.storage import RolloutStorage
 from tensordict import TensorDict
 from torch import nn
-from uni_rl.algos.appo.learner import APPOLearner
+from unilab.rl.algos.appo.learner import APPOLearner
 
 from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import CRITIC_DIM
 
@@ -39,7 +39,14 @@ class TeacherActor(HoraActor):
     @property
     def distribution(self) -> PolicyDistribution:
         if self._distribution is None:
-            raise RuntimeError("Call the adapter before reading its distribution")
+            # UniLab 1.5 reads deferred std diagnostics after an update. A
+            # degenerate empty minibatch loop has no call cache; publish the
+            # authoritative std head without pretending a policy was sampled.
+            features = torch.zeros(
+                1, self.shared.trunk.output_dim, device=next(self.parameters()).device
+            )
+            std = self.std_module(features)
+            return PolicyDistribution(torch.zeros_like(std), std, self.action_mapping)
         return self._distribution
 
     @property
@@ -120,6 +127,19 @@ class TeacherAPPOLearner(APPOLearner):
         self.kl_mode = validate_kl_mode(kl_mode)
         super().__init__(*args, **kwargs)
         self._skip_kl_schedule = True  # The initial target is a copy of the actor.
+
+    def update(self, batch_dict):
+        # UniLab 1.5's deferred policy-std metric reads the actor distribution
+        # after the minibatch loop. Ensure it exists even for a degenerate
+        # empty loop; normal updates replace it with a real minibatch result.
+        if self.actor._distribution is None:
+            actor = cast(TeacherActor, self.actor)
+            sample_obs = batch_dict["observations"].reshape(
+                -1, *batch_dict["observations"].shape[2:]
+            )[:1]
+            with torch.no_grad():
+                actor.policy(sample_obs)
+        return super().update(batch_dict)
 
     def update_target_network(self):
         super().update_target_network()

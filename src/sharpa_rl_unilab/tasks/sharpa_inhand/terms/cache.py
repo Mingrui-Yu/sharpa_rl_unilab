@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
+import torch
 
 from sharpa_rl_unilab.assets import generated_root, resolve_asset
 
@@ -45,7 +47,7 @@ def sample_scale_grasp_caches(
     caches: tuple[np.ndarray, ...],
     variant_ids: np.ndarray,
     *,
-    rng: np.random.Generator | None = None,
+    rng: Any = None,
     selected_rows: np.ndarray | None = None,
 ) -> np.ndarray:
     """Sample prevalidated caches without rescanning their contents on each reset."""
@@ -67,6 +69,9 @@ def sample_scale_grasp_caches(
             if rng is not None
             else np.random.randint(0, cache.shape[0], size=ids.size)
         )
+        if isinstance(choices, torch.Tensor):
+            choices = choices.detach().cpu().numpy()
+        choices = np.asarray(choices, dtype=np.int64)
         if selected_rows is not None:
             selected_rows[ids] = choices
         sampled[ids] = cache[choices]

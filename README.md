@@ -36,8 +36,8 @@ the V/Q structure required by each algorithm.
 
 ## Installation and validation
 
-The source development setup requires a UniLab 1.2-compatible checkout at
-`../UniLab` beside this repository. Prepare that checkout before `uv sync`.
+The source development setup resolves the pinned UniLab release from the
+configured package indexes; no sibling UniLab checkout is required.
 
 ```bash
 git clone https://github.com/unilabsim/sharpa_rl_unilab.git
@@ -47,15 +47,25 @@ uv run pytest
 uv run pyright
 ```
 
-Development uses the sibling checkout `../UniLab` as the `unilab` source; the
-package dependency is still external (`unilab>=1.2.0,<1.3`), and
-`unilab-rl>=1.2.0,<1.3` resolves from its release. To install this source tree
-against published dependencies instead, use `pip install ".[mujoco]"` in a
-separate virtual environment; pip does not apply the local `tool.uv.sources` mapping.
+The dependency contract pins `unilab==1.5.4` (including its integrated
+tensor-native RL runtime) and uses UniLab's CUDA wheel index for Torch. To
+install this source tree with pip instead, use `pip install ".[mujoco]"` in a
+separate virtual environment. PPO/APPO collection and FlashSAC inference/replay
+keep observations, actions, rewards, and done flags Torch-tensor native; CUDA
+runs keep the training hot path device-resident. The remote validation and
+throughput record is in `docs/validation/unilab-1.5.4-20261031.json`.
 
 `uv run pytest` runs fast regression tests by default; use
 `uv run pytest -m slow` for simulation and training smoke tests.
 The FlashSAC smoke test requires CUDA.
+
+To validate two already-recorded FlashSAC benchmark directories, set
+`SHARPA_OFFPOLICY_BENCHMARK_TENSOR_NATIVE` and
+`SHARPA_OFFPOLICY_BENCHMARK_LEGACY` to their run paths, optionally set
+`SHARPA_OFFPOLICY_BENCHMARK_MIN_SPEEDUP`, and run
+`uv run pytest -m slow tests/test_offpolicy_throughput.py`. The comparison
+checks identical transition/update budgets, CUDA tensor-native runtime
+topology, and incremental steady-state throughput.
 
 ## Quick start
 

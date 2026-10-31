@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 from unilab.managers import ManagerTermBase
 
+from sharpa_rl_unilab.tasks.sharpa_inhand.terms.compat import rng_numpy, torch_ids
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.randomization import SharpaDomainRandomization
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.validation import (
     require_name,
@@ -91,13 +92,16 @@ class SharpaPersistentObjectForce(ManagerTermBase):
             if not isinstance(dr, SharpaDomainRandomization):
                 raise TypeError(f"{type(self).__name__} requires SharpaDomainRandomization")
             self._randomization = dr
-        rng = env.rng if self.rng is None else self.rng
         self._force *= self._decay
-        trigger = rng.random(env.num_envs) < self._probability
+        rng = env.rng if self.rng is None else self.rng
+        trigger = rng_numpy(rng.random(env.num_envs)) < self._probability
         if np.any(trigger):
             ids = np.flatnonzero(trigger)
             mass = self._randomization.mass[ids]
-            self._force[ids, 0, :] = rng.standard_normal((ids.size, 3)) * mass[:, None]
+            self._force[ids, 0, :] = (
+                rng_numpy(rng.standard_normal((ids.size, 3)), dtype=self._force.dtype)
+                * mass[:, None]
+            )
             self._force[ids] *= self._force_scale
         self._entity.apply_body_wrench_to_sim(
             self._force,
@@ -115,6 +119,6 @@ class SharpaPersistentObjectForce(ManagerTermBase):
                 self._force[ids],
                 None,
                 self._backend_body_ids,
-                env_ids=ids,
+                env_ids=torch_ids(ids, self._env.device),
                 term_name=type(self).__name__,
             )

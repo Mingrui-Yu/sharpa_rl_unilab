@@ -1,1 +1,1 @@
-"""Sharpa RL algorithms built on top of the uni_rl runtime."""
+"""Sharpa RL algorithms built on top of the UniLab tensor runtime."""

@@ -188,7 +188,7 @@ def test_student_only_trains_history_encoder_then_uses_updated_action(algo):
     assert trainer.history_normalizer.count.item() == 8
     # Deployment has neither privilege nor critic state.
     measurable = {key: arrays[key] for key in ("obs", "proprio_hist")}
-    np.testing.assert_array_equal(
+    torch.testing.assert_close(
         actions, deterministic_actions(trainer.actor, measurable, "cpu", trainer.history_normalizer)
     )
     assert trainer.history_normalizer.count.item() == 8
@@ -204,11 +204,11 @@ def test_old_checkpoint_fails_closed(tmp_path):
 def test_staging_wraparound_and_short_tail_keep_raw_targets():
     cfg = compose_config("appo", "mujoco", [])
     actor, critic, _ = make_models(cfg, "cpu")
-    obs = {k: v.numpy() for k, v in observations().items()}
-    raw = {k: v.numpy().repeat(2, axis=0) for k, v in transitions().items()}
+    obs = observations()
+    raw = {k: v.repeat(2, *(1 for _ in range(v.dim() - 1))) for k, v in transitions().items()}
     pool = None
     for version in range(5):
-        raw["priv_info"].fill(version)
+        raw["priv_info"].fill_(version)
         pool, size = stage_rollout(pool, raw, obs, version, actor, critic, "cpu", capacity=2)
         assert size == 16
     assert pool.active_count == 2

@@ -48,6 +48,6 @@ def test_logs_preserve_sampling_axis_and_flush_tensorboard(tmp_path):
     rows = [json.loads(line) for line in (tmp_path / "metrics.jsonl").read_text().splitlines()]
     assert [row["received"] for row in rows] == [100, 200]
     assert rows[-1]["perf/transitions_per_second"] == 50
-    events = EventAccumulator(str(tmp_path)).Reload().Scalars("episode/return")
+    events = EventAccumulator(str(tmp_path)).Reload().Scalars("Train/mean_reward")
     assert [event.step for event in events] == [100, 200]
     assert [event.value for event in events] == [2.5, 2.5]

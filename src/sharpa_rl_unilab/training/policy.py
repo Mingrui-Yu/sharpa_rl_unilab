@@ -14,7 +14,12 @@ from .configuration import config_dict
 
 
 def tensor_obs(obs, device):
-    return {k: torch.as_tensor(v, dtype=torch.float32, device=device) for k, v in obs.items()}
+    return {
+        k: v.to(device=device, dtype=torch.float32)
+        if isinstance(v, torch.Tensor)
+        else torch.as_tensor(v, dtype=torch.float32, device=device)
+        for k, v in obs.items()
+    }
 
 
 def make_actor(cfg, device="cpu", *, student=False, model=None):
@@ -98,6 +103,4 @@ def inference_distribution(actor, obs, device, history_normalizer=None):
 
 @torch.no_grad()
 def deterministic_actions(actor, obs, device, history_normalizer=None):
-    return (
-        inference_distribution(actor, obs, device, history_normalizer).deterministic().cpu().numpy()
-    )
+    return inference_distribution(actor, obs, device, history_normalizer).deterministic()

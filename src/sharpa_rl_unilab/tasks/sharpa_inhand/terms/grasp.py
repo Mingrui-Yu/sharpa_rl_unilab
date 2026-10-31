@@ -5,11 +5,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
+import torch
+from unilab.base.rotation import np_quat_error_magnitude
 from unilab.base.run_control import RunComplete
 from unilab.managers import ManagerTermBase, RecorderTerm, RecorderTermCfg
-from unilab.utils.rotation import np_quat_error_magnitude
 
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.cache import grasp_cache_output_file
+from sharpa_rl_unilab.tasks.sharpa_inhand.terms.compat import (
+    host_numpy,
+    manager_tensor,
+    numpy_ids,
+)
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation import SharpaRotationObservation
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.reset import SharpaHandObjectReset
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.validation import (
@@ -84,7 +90,7 @@ class SharpaGraspQualityTermination(ManagerTermBase):
         self.invalid[resolve_env_ids(self._env, env_ids)] = False
         self._last_counter = int(cast("SharpaEnv", self._env).common_step_counter)
 
-    def __call__(self, env: SharpaEnv, **params: Any) -> np.ndarray:
+    def __call__(self, env: SharpaEnv, **params: Any) -> torch.Tensor:
         del params
         state = self.observation.snapshot(env)
         height = state.object_pos[:, 2]
@@ -105,7 +111,7 @@ class SharpaGraspQualityTermination(ManagerTermBase):
         )
         self.invalid[:] = ~valid
         self._last_counter = int(env.common_step_counter)
-        return self.invalid
+        return manager_tensor(env, self.invalid, dtype=torch.bool)
 
 
 class SharpaGraspRecorder(RecorderTerm):
@@ -177,10 +183,10 @@ class SharpaGraspRecorder(RecorderTerm):
         self._log("grasp_cache/saved", 1.0)
         self._log("grasp_cache/num_states", float(rows.shape[0]))
 
-    def record_pre_reset(self, env_ids: np.ndarray) -> None:
+    def record_pre_reset(self, env_ids: torch.Tensor) -> None:
         env = cast("SharpaEnv", self._env)
-        ids = np.asarray(env_ids, dtype=np.intp)
-        success = env.reset_time_outs[ids] & ~env.reset_terminated[ids]
+        ids = numpy_ids(env_ids, int(np.asarray(env_ids).size))
+        success = host_numpy(env.reset_time_outs[ids]) & ~host_numpy(env.reset_terminated[ids])
         success_ids = ids[np.flatnonzero(success)]
         if success_ids.size:
             state = self._observation

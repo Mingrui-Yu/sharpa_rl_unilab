@@ -6,14 +6,14 @@ import importlib.metadata
 import json
 import platform
 import time
-from collections import deque
 from pathlib import Path
 
 import numpy as np
 import torch
 from omegaconf import OmegaConf
-from uni_rl.logging.common import _fmt_time
-from uni_rl.logging.offpolicy import OffPolicyLogger
+from unilab.rl.logging.base import _fmt_time
+from unilab.rl.logging.metric_schema import metric_spec
+from unilab.rl.logging.offpolicy import OffPolicyLogger
 from unilab.training.experiment import get_git_info, write_run_config_snapshot
 
 from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import CONTRACT_VERSION
@@ -31,7 +31,15 @@ LEARNER_TIMINGS = {
 def write_json(path, data):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, allow_nan=False) + "\n")
+
+    def json_default(value):
+        if isinstance(value, torch.Tensor):
+            return value.detach().cpu().tolist()
+        if isinstance(value, (torch.dtype, torch.device)):
+            return str(value)
+        return str(value)
+
+    path.write_text(json.dumps(data, indent=2, allow_nan=False, default=json_default) + "\n")
 
 
 def append_metrics(run, metrics):
@@ -66,7 +74,7 @@ def training_counters() -> dict[str, int]:
 
 
 def write_run_metadata(run, cfg):
-    from uni_rl.offpolicy.thread_budget import resolve_torch_thread_runtime
+    from unilab.rl.runtime.offpolicy.thread_budget import resolve_torch_thread_runtime
 
     algorithm = str(cfg.algo.algo)
     teacher = cfg.protocol.stage == "teacher"
@@ -82,6 +90,11 @@ def write_run_metadata(run, cfg):
         "inference_device": str(cfg.algo.collector_device)
         if async_appo
         else str(cfg.training.device),
+        "collector_tensor_device": str(
+            cfg.algo.get("collector_device", None) or cfg.training.device
+        ),
+        "observation_boundary": "torch",
+        "hot_path_host_transfer": "none; reset-static selectors and explicit diagnostics are cold paths",
         "torch_thread_runtime": resolve_torch_thread_runtime(cfg.training.torch_threads),
         "learner_num_threads": torch.get_num_threads(),
         "learner_num_interop_threads": torch.get_num_interop_threads(),
@@ -106,7 +119,7 @@ def write_run_metadata(run, cfg):
             "python": platform.python_version(),
             "dependencies": {
                 name: importlib.metadata.version(name)
-                for name in ("torch", "numpy", "unilab", "unilab-rl", "rsl-rl-lib", "mujoco")
+                for name in ("torch", "numpy", "unilab", "rsl-rl-lib", "mujoco")
             },
             "cuda_devices": [
                 torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())
@@ -127,13 +140,46 @@ class EpisodeStatistics:
     """Track completed episodes across fresh rollout packets, before replay reuse."""
 
     def __init__(self, num_envs: int):
+        self.num_envs = num_envs
         self.returns = np.zeros(num_envs)
         self.lengths = np.zeros(num_envs, dtype=np.int64)
-        self.completed_returns: deque[float] = deque(maxlen=100)
-        self.completed_lengths: deque[int] = deque(maxlen=100)
-        self.completed_timeouts: deque[bool] = deque(maxlen=100)
+        self.completed_returns: list[float] | list[torch.Tensor] = []
+        self.completed_lengths: list[int] | list[torch.Tensor] = []
+        self.completed_timeouts: list[bool] | list[torch.Tensor] = []
+
+    @staticmethod
+    def _append_window(values: list, value):
+        if not value.numel():
+            return
+        values.append(value.detach())
+        if sum(part.numel() for part in values) > 100:
+            values[:] = [torch.cat(values)[-100:]]
 
     def update(self, rewards, terminated, truncated):
+        if isinstance(rewards, torch.Tensor):
+            device = rewards.device
+            returns = (
+                self.returns
+                if isinstance(self.returns, torch.Tensor)
+                else torch.zeros(self.num_envs, dtype=torch.float32, device=device)
+            )
+            lengths = (
+                self.lengths
+                if isinstance(self.lengths, torch.Tensor)
+                else torch.zeros(self.num_envs, dtype=torch.int64, device=device)
+            )
+            returns += rewards.sum(dim=0)
+            lengths += rewards.shape[0]
+            done = terminated.any(dim=0) | truncated.any(dim=0)
+            timeout = (truncated & ~terminated).any(dim=0)
+            self._append_window(self.completed_returns, returns[done])
+            self._append_window(self.completed_lengths, lengths[done])
+            self._append_window(self.completed_timeouts, timeout[done])
+            returns.masked_fill_(done, 0)
+            lengths.masked_fill_(done, 0)
+            self.returns, self.lengths = returns, lengths
+            return
+
         for reward, terminal, timeout in zip(rewards, terminated, truncated):
             done = np.asarray(terminal) | np.asarray(timeout)
             self.returns += reward
@@ -148,10 +194,16 @@ class EpisodeStatistics:
     def metrics(self):
         if not self.completed_returns:
             return {}
+
+        def completed_mean(values):
+            if isinstance(values[0], torch.Tensor):
+                return float(torch.cat(values).float().mean())
+            return float(np.mean(values))
+
         return {
-            "episode/return": float(np.mean(self.completed_returns)),
-            "episode/length": float(np.mean(self.completed_lengths)),
-            "episode/timeout_rate": float(np.mean(self.completed_timeouts)),
+            "episode/return": completed_mean(self.completed_returns),
+            "episode/length": completed_mean(self.completed_lengths),
+            "episode/timeout_rate": completed_mean(self.completed_timeouts),
         }
 
 
@@ -206,7 +258,7 @@ class TrainingLogger(OffPolicyLogger):
         self._previous_steps, self._previous_seconds = steps, seconds
         append_metrics(self._log_dir, metrics)
         self.log_collector(steps, 0)
-        self.update_ep_length(metrics.get("episode/length", 0))
+        self._mean_ep_length = float(metrics.get("episode/length", 0))
         self.update_timeout_rate(metrics.get("episode/timeout_rate", 0))
         self.update_collector_timing(
             {
@@ -214,9 +266,6 @@ class TrainingLogger(OffPolicyLogger):
                 for k, v in metrics.items()
                 if k.startswith("timing/collector_")
             }
-        )
-        self.update_staging_pool(
-            int(metrics.get("staging_rollouts", 0)), int(metrics.get("staging_pool_capacity", 0))
         )
         # Averaging cumulative counters would display transitions never received.
         self._terminal_samples.clear()
@@ -228,7 +277,8 @@ class TrainingLogger(OffPolicyLogger):
             metrics={
                 k: v
                 for k, v in metrics.items()
-                if not k.startswith(("reward/", "timing/"))
+                if metric_spec(k) is not None
+                and not k.startswith(("reward/", "timing/"))
                 and k
                 not in {
                     "perf/iter_ms",
@@ -236,13 +286,10 @@ class TrainingLogger(OffPolicyLogger):
                     "episode/timeout_rate",
                 }
             },
-            reward=metrics.get("episode/return"),
+            return_mean_ep100=metrics.get("episode/return"),
             reward_components={k: v for k, v in metrics.items() if k.startswith("reward/")},
             extra_info={
-                "steps_per_sec": throughput,
-                "collector_active_steps_per_sec": metrics.get(
-                    "perf/collector_active_steps_per_sec"
-                ),
+                "env_steps_per_sec": throughput,
             },
             collector_wait_time=timings.get("collector_wait_time", 0),
             learner_replay_stage_time=timings.get("learner_replay_stage_time", 0),

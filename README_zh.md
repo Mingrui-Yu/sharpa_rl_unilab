@@ -10,7 +10,8 @@ legacy/direct `NpEnv` 实现和 compatibility factory 已移除。
 
 ## 安装与校验
 
-源码开发需要先准备兼容 UniLab 1.2 的兄弟目录 `../UniLab`，再执行 `uv sync`。
+源码开发会直接从已配置的包索引解析 pinned 版本，不需要兄弟目录
+`../UniLab`。
 
 ```bash
 git clone https://github.com/unilabsim/sharpa_rl_unilab.git
@@ -20,12 +21,22 @@ uv run pytest
 uv run pyright
 ```
 
-开发环境通过兄弟目录 `../UniLab` 作为 `unilab` source；包依赖仍是外部的
-`unilab>=1.2.0,<1.3`，`unilab-rl>=1.2.0,<1.3` 来自发布包。若要使用发布版依赖，可在独立虚拟环境中
-运行 `pip install ".[mujoco]"`；pip 不采用 `tool.uv.sources` 中的本地目录映射。
+依赖契约固定 `unilab==1.5.4`（包含集成的前后端 tensor-native RL runtime），
+Torch 使用 UniLab 的 CUDA wheel 索引。若使用 pip，可在独立虚拟环境中运行
+`pip install ".[mujoco]"`。PPO/APPO 采样与 FlashSAC 推理/replay 的观测、动作、
+奖励和结束标志均保持 Torch tensor 边界，CUDA 训练热路径驻留 GPU。远端验证和
+吞吐记录见 `docs/validation/unilab-1.5.4-20261031.json`。
 
 `uv run pytest` 默认运行快速回归测试；仿真与训练冒烟测试使用
 `uv run pytest -m slow`，其中 FlashSAC 冒烟测试需要 CUDA。
+
+若要校验两个已生成的 FlashSAC benchmark 目录，可分别设置
+`SHARPA_OFFPOLICY_BENCHMARK_TENSOR_NATIVE` 与
+`SHARPA_OFFPOLICY_BENCHMARK_LEGACY`，可选设置
+`SHARPA_OFFPOLICY_BENCHMARK_MIN_SPEEDUP`，然后运行
+`uv run pytest -m slow tests/test_offpolicy_throughput.py`。该对比会检查
+transition/update 预算一致、CUDA tensor-native runtime 拓扑，以及按增量行
+计算的 steady-state 吞吐。
 
 ## 快速上手
 

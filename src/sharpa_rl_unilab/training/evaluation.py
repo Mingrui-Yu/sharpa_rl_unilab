@@ -8,12 +8,14 @@ import time
 from pathlib import Path
 
 import numpy as np
+import torch
 from omegaconf import OmegaConf
-from uni_rl.algos.common.normalization import EmpiricalNormalization
+from unilab.rl.algos.common.normalization import EmpiricalNormalization
 
 from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import CONTRACT_VERSION, HISTORY_SHAPE
 from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import SharpaTeacherEnv
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.cache import resolve_grasp_cache_file
+from sharpa_rl_unilab.tasks.sharpa_inhand.terms.compat import entity_host_data
 
 from .action_diagnostics import DIAGNOSTIC_METRICS, EpisodeActionDiagnostics
 from .checkpoints import file_digest, load_policy
@@ -135,6 +137,8 @@ def evaluate_checkpoint(checkpoint, *, output=None, device: str | None = "cpu", 
     print(f"[eval] Loading checkpoint: {checkpoint}", file=sys.stderr, flush=True)
     actor, cfg, snapshot = load_policy(checkpoint, device)
     device = str(next(actor.parameters()).device)
+    cfg.training.device = device
+    cfg.algo.collector_device = device
     print(
         f"[eval] {snapshot['algorithm']} {snapshot['stage']} | device={device}",
         file=sys.stderr,
@@ -180,49 +184,54 @@ def evaluate_checkpoint(checkpoint, *, output=None, device: str | None = "cpu", 
                     raise ValueError(
                         f"Scene {episode['episode_id']} cannot reproduce recorded grasp/DR values"
                     )
-                angle = reward = 0.0
-                dropped = False
+                angle = torch.zeros((), device=device)
+                reward = torch.zeros((), device=device)
+                dropped = torch.zeros((), dtype=torch.bool, device=device)
                 survival = 0.0
                 diagnostics = None
                 term = None
                 if diagnostics_enabled:
                     term = env.action_manager.get_term("hand")
                     diagnostics = EpisodeActionDiagnostics(
-                        term._entity.data.joint_pos[:, term.joint_ids]
+                        entity_host_data(term._entity, "joint_pos")[:, term.joint_ids]
                     )
                 for step in range(400):
                     set_step_rng(env, episode["perturbation_seed"], step)
                     distribution = inference_distribution(actor, obs, device, hist_norm)
-                    actions = distribution.deterministic().cpu().numpy()
+                    actions = distribution.deterministic()
                     state = env.step(actions)
                     if diagnostics is not None:
                         assert term is not None
                         # Evaluation disables autoreset, so terminal q/target are real.
                         diagnostics.record(
-                            term._clipped_action,
+                            term._clipped_action.detach().cpu().numpy(),
                             distribution.std.cpu().numpy(),
-                            term._entity.data.joint_pos[:, term.joint_ids],
-                            term.target,
-                            term._target_lower,
-                            term._target_upper,
+                            entity_host_data(term._entity, "joint_pos")[:, term.joint_ids],
+                            term.target.detach().cpu().numpy(),
+                            term._target_lower.detach().cpu().numpy(),
+                            term._target_upper.detach().cpu().numpy(),
                         )
                     obs = state.obs
-                    angle += float(env.signed_angle_delta[0])
-                    reward += float(state.reward[0])
+                    source = env.observation_manager.get_term_cfg("actor", "frame").func
+                    angle_delta = np.sum(
+                        source.object_angvel * source.task_state.rotation_axis, axis=-1
+                    )
+                    angle += float(angle_delta[0]) * env.step_dt
+                    reward += state.reward[0]
                     survival = (step + 1) * env.step_dt
-                    dropped = bool(state.terminated[0])
+                    dropped |= state.terminated[0]
                     if dropped or state.truncated[0]:
                         break
                 results.append(
                     {
                         "episode_id": episode["episode_id"],
                         "scale": float(scale),
-                        "return": reward,
+                        "return": float(reward),
                         "survival_seconds": survival,
                         "dropped": float(dropped),
-                        "signed_angle": angle,
-                        "speed_fixed_window": angle / 20.0,
-                        "speed_alive": angle / survival,
+                        "signed_angle": float(angle),
+                        "speed_fixed_window": float(angle) / 20.0,
+                        "speed_alive": float(angle) / survival,
                         **(
                             {"diagnostics": diagnostics.result()} if diagnostics is not None else {}
                         ),

@@ -5,14 +5,13 @@ from __future__ import annotations
 import argparse
 import math
 import time
-from collections import defaultdict
 from contextlib import ExitStack
 from pathlib import Path
 
 import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
-from uni_rl.algos.common.normalization import EmpiricalNormalization
+from unilab.rl.algos.common.normalization import EmpiricalNormalization
 
 from sharpa_rl_unilab.algos.hora.models import make_student
 from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import CONTRACT_VERSION, HISTORY_SHAPE
@@ -46,9 +45,9 @@ class StudentTrainer:
         loss.backward()
         self.optimizer.step()
         # Inference reuses the updated history statistics without accumulating them.
-        return deterministic_actions(self.actor, obs, self.device, self.history_normalizer), float(
-            loss.detach()
-        )
+        return deterministic_actions(
+            self.actor, obs, self.device, self.history_normalizer
+        ), loss.detach()
 
 
 def train_student(checkpoint, *, overrides=(), device=None):
@@ -145,19 +144,20 @@ def train_student(checkpoint, *, overrides=(), device=None):
         resources.callback(logger.close)
         logger.start(status="Initializing student rollouts...")
         obs, _ = env.reset(seed=seed)
-        metric_sums = defaultdict(float)
+        metric_sums: dict[str, float | torch.Tensor] = {}
         log_steps = 0
         while counters["collected"] < target:
             actions, loss = trainer.update_and_act(obs)
             step_started = time.perf_counter()
             state = env.step(actions)
-            metric_sums["timing/collector_env_step_ms"] += (
-                time.perf_counter() - step_started
-            ) * 1000
-            metric_sums["latent_mse"] += loss
+            metric_sums["timing/collector_env_step_ms"] = (
+                metric_sums.get("timing/collector_env_step_ms", 0.0)
+                + (time.perf_counter() - step_started) * 1000
+            )
+            metric_sums["latent_mse"] = metric_sums.get("latent_mse", 0.0) + loss
             for key, value in state.info.get("log", {}).items():
                 if key.startswith("reward/"):
-                    metric_sums[key] += float(value)
+                    metric_sums[key] = metric_sums.get(key, 0.0) + value
             log_steps += 1
             episodes.update(state.reward[None], state.terminated[None], state.truncated[None])
             obs = state.obs
@@ -168,7 +168,7 @@ def train_student(checkpoint, *, overrides=(), device=None):
             if counters["collected"] >= next_log or counters["collected"] == target:
                 metrics = {
                     **counters,
-                    **{key: value / log_steps for key, value in metric_sums.items()},
+                    **{key: float(value) / log_steps for key, value in metric_sums.items()},
                     "learning_rate": trainer.optimizer.param_groups[0]["lr"],
                     "wall_seconds": time.monotonic() - started,
                     **episodes.metrics(),

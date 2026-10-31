@@ -18,8 +18,21 @@ from .policy import make_actor
 from .rollouts import collect
 
 
-def _collector(config, initial_weights, output, weights, stop, count):
+def _collector(
+    config, initial_weights, output, weights, stop, count, credit, shutdown_ack, error_event
+):
     env = None
+    outstanding_packets = 0
+
+    def receive_credits():
+        nonlocal outstanding_packets
+        while True:
+            try:
+                credit.get_nowait()
+                outstanding_packets -= 1
+            except queue.Empty:
+                return
+
     try:
         cfg = OmegaConf.create(config)
         assert isinstance(cfg, DictConfig)
@@ -39,6 +52,7 @@ def _collector(config, initial_weights, output, weights, stop, count):
             else None
         )
         while not stop.is_set() and (target is None or count.value < target):
+            receive_credits()
             current_weights = None
             try:
                 while True:
@@ -71,7 +85,7 @@ def _collector(config, initial_weights, output, weights, stop, count):
             collected = count.value
             packet = (
                 batch,
-                {k: obs[k].copy() for k in ("obs", "priv_info", "critic")},
+                {k: obs[k].detach().clone() for k in ("obs", "priv_info", "critic")},
                 version,
                 collected,
                 collector_metrics,
@@ -79,10 +93,12 @@ def _collector(config, initial_weights, output, weights, stop, count):
             while not stop.is_set():
                 try:
                     output.put(packet, timeout=0.5)
+                    outstanding_packets += 1
                     break
                 except queue.Full:
                     pass
     except Exception:
+        error_event.set()
         error = {"error": traceback.format_exc()}
         while not stop.is_set():
             try:
@@ -91,6 +107,16 @@ def _collector(config, initial_weights, output, weights, stop, count):
             except queue.Full:
                 pass
     finally:
+        if shutdown_ack.is_set() and not error_event.is_set():
+            # CUDA IPC file descriptors can be rebuilt only while this producer
+            # is alive. The learner drains/acks every queued packet on close.
+            receive_credits()
+            while outstanding_packets > 0:
+                try:
+                    credit.get(timeout=0.1)
+                    outstanding_packets -= 1
+                except queue.Empty:
+                    pass
         if env is not None:
             env.close()
 
@@ -104,6 +130,9 @@ class AsyncRollouts:
         self.output = ctx.Queue(maxsize=self.capacity)
         self.weights = ctx.Queue(maxsize=1)
         self.stop = ctx.Event()
+        self.credit = ctx.Queue(maxsize=self.capacity + 1)
+        self.shutdown_ack = ctx.Event()
+        self.error_event = ctx.Event()
         self.count = ctx.Value("q", 0)
         self.process = ctx.Process(
             target=_collector,
@@ -114,15 +143,26 @@ class AsyncRollouts:
                 self.weights,
                 self.stop,
                 self.count,
+                self.credit,
+                self.shutdown_ack,
+                self.error_event,
             ),
             daemon=True,
         )
-        from uni_rl.offpolicy.thread_budget import resolve_torch_thread_runtime, torch_thread_env
+        from unilab.rl.runtime.offpolicy.thread_budget import (
+            resolve_torch_thread_runtime,
+            torch_thread_env,
+        )
 
         runtime = resolve_torch_thread_runtime(cfg.training.torch_threads)
         with torch_thread_env(runtime, role="collector"):
             self.process.start()
         self.closed = False
+
+    @staticmethod
+    def _published_weights(actor):
+        """Publish policy state on the cold per-rollout weight-sync boundary."""
+        return frozen_weights(actor)
 
     def receive(self):
         while True:
@@ -130,6 +170,7 @@ class AsyncRollouts:
                 result = self.output.get(timeout=1.0)
                 if isinstance(result, dict) and "error" in result:
                     raise RuntimeError(result["error"])
+                self.credit.put_nowait(1)
                 return result
             except queue.Empty:
                 if not self.process.is_alive():
@@ -145,13 +186,14 @@ class AsyncRollouts:
                 packet = self.output.get_nowait()
                 if isinstance(packet, dict):
                     raise RuntimeError(packet["error"])
+                self.credit.put_nowait(1)
                 packets.append(packet)
             except queue.Empty:
                 break
         return packets
 
     def publish(self, version, actor):
-        snapshot = (version, frozen_weights(actor))
+        snapshot = (version, self._published_weights(actor))
         while True:
             try:
                 self.weights.put_nowait(snapshot)
@@ -169,17 +211,27 @@ class AsyncRollouts:
             return
         self.closed = True
         self.stop.set()
-        # A multiprocessing Queue's feeder may be waiting for the reader.
-        deadline = time.monotonic() + 10
+        self.shutdown_ack.set()
+        # A CUDA IPC packet's resource-sharer lives in the producer process.
+        # Drain and acknowledge queued packets while it is alive, then close all
+        # queues deterministically; error exits skip the producer-side ack wait.
+        deadline = time.monotonic() + 10.0
+        discarded = []
         while self.process.is_alive() and time.monotonic() < deadline:
             try:
-                self.output.get(timeout=0.1)
+                discarded.append(self.output.get(timeout=0.1))
+                try:
+                    self.credit.put_nowait(1)
+                except queue.Full:
+                    pass
             except queue.Empty:
                 pass
-            self.process.join(timeout=0.1)
+            self.process.join(timeout=0.01)
         if self.process.is_alive():
             self.process.terminate()
             self.process.join()
-        for q in (self.output, self.weights):
+        discarded.clear()
+
+        for q in (self.output, self.weights, self.credit):
             q.cancel_join_thread()
             q.close()

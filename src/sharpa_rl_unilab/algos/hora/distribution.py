@@ -36,6 +36,14 @@ class PolicyDistribution:
     std: torch.Tensor
     action_mapping: str
 
+    @property
+    def std_type(self) -> str:
+        return "vector"
+
+    @property
+    def log_std_param(self) -> torch.Tensor:
+        return self.std.log()
+
     def __post_init__(self):
         if self.action_mapping not in {"clip", "tanh"}:
             raise ValueError("model.action_mapping must be clip or tanh")

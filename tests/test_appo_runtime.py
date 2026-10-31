@@ -2,7 +2,6 @@ import multiprocessing as mp
 import queue
 from types import SimpleNamespace
 
-import numpy as np
 import pytest
 import torch
 from tensordict import TensorDict
@@ -84,7 +83,7 @@ def test_collector_switches_complete_policy_only_between_rollouts(monkeypatch, m
             self.num_envs = num_envs
             self.steps = 0
             self.obs = {
-                key: np.zeros((num_envs, dim), np.float32)
+                key: torch.zeros((num_envs, dim))
                 for key, dim in (("obs", 147), ("priv_info", 9), ("critic", 174))
             }
 
@@ -100,9 +99,9 @@ def test_collector_switches_complete_policy_only_between_rollouts(monkeypatch, m
             self.obs = {key: value + 0.1 for key, value in self.obs.items()}
             return SimpleNamespace(
                 obs=self.obs,
-                reward=np.ones(8),
-                terminated=np.zeros(8, bool),
-                truncated=np.zeros(8, bool),
+                reward=torch.ones(8),
+                terminated=torch.zeros(8, dtype=torch.bool),
+                truncated=torch.zeros(8, dtype=torch.bool),
                 info={},
             )
 
@@ -117,7 +116,17 @@ def test_collector_switches_complete_policy_only_between_rollouts(monkeypatch, m
                 stop.set()
 
     monkeypatch.setattr(runtime, "SharpaTeacherEnv", Env)
-    runtime._collector(config_dict(cfg), snapshots[0], Output(), weights, stop, count)
+    runtime._collector(
+        config_dict(cfg),
+        snapshots[0],
+        Output(),
+        weights,
+        stop,
+        count,
+        ctx.Queue(maxsize=5),
+        ctx.Event(),
+        ctx.Event(),
+    )
     assert seeds == [2] and closed == [True]
     assert [packet[2] for packet in packets] == [0, 2]
     assert [packet[3] for packet in packets] == [64, 128]
@@ -130,11 +139,11 @@ def test_collector_switches_complete_policy_only_between_rollouts(monkeypatch, m
         assert set(last_obs) == {"obs", "priv_info", "critic"}
         verifier.load_state_dict(snapshots[version])
         before = frozen_weights(verifier)
-        packed = torch.tensor(np.concatenate((raw["obs"], raw["priv_info"]), axis=-1)).flatten(0, 1)
+        packed = torch.cat((raw["obs"], raw["priv_info"]), dim=-1).flatten(0, 1)
         verifier(TensorDict({"policy": packed}, batch_size=64))
-        logp = verifier.get_output_log_prob(torch.tensor(raw["actions"]).flatten(0, 1))
-        torch.testing.assert_close(logp.view(8, 8), torch.tensor(raw["actions_log_prob"]))
-        assert np.abs(raw["actions"]).max() > 1  # Retain unbounded Gaussian samples.
+        logp = verifier.get_output_log_prob(raw["actions"].flatten(0, 1))
+        torch.testing.assert_close(logp.view(8, 8), raw["actions_log_prob"])
+        assert raw["actions"].abs().max() > 1  # Retain unbounded Gaussian samples.
         for key, value in before.items():
             torch.testing.assert_close(verifier.state_dict()[key], value, rtol=0, atol=0)
         pool, _ = stage_rollout(pool, raw, last_obs, version, actor, critic, "cpu")
