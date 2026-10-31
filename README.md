@@ -1,43 +1,44 @@
-# Sharpa in-hand manipulation and HORA for UniLab
+# Sharpa in-hand manipulation for UniLab
 
 [中文](README_zh.md) | [Documentation](docs/README.md)
 
-## Task overview
+## Overview
 
-An independent UniLab task package for Sharpa Wave in-hand manipulation. It
-provides a MuJoCo-ready hand/object task, bundled robot assets and grasp caches.
-SuperMimic, PPO, APPO and FlashSAC default to the HORA teacher/student pipeline.
-SuperMimic also offers an opt-in single-stage pipeline that trains a deployable
-observation-only actor directly through a learned world model.
+This repository is a complete UniLab research stack for tactile in-hand
+manipulation with a 22-DoF Sharpa Wave hand. It bundles the Manager-Based
+MuJoCo/MJWarp task, robot and object assets, grasp caches, deterministic
+fixed-scene evaluation, checkpoint tooling, and video playback. SuperMimic,
+PPO, APPO and FlashSAC train the same cylinder-rotation task. The standard
+pipeline learns a privileged HORA teacher and distills it into an
+observation-only student; SuperMimic can alternatively train the deployable
+actor directly in one stage through a learned differentiable world model.
 
-## Highlights and demonstration
+## Results
 
-- Train policies that rotate a free cylinder inside a 22-DoF Sharpa Wave hand.
-- Use tactile history, privileged critic information, and object-scale
-  randomization.
-- Evaluate versioned teacher/student checkpoints and record videos.
-- Train a HORA teacher and distill an actor-observation student.
+### SuperMimic single-stage training
 
-### SuperMimic training highlight
+The optional single-stage SuperMimic path trains an observation-only,
+directly deployable actor without teacher/student distillation. Its actor uses
+the 147-dimensional observation history while its training critic retains
+privileged state. On one RTX 4090 with MJWarp, it completed 3,000 iterations
+and 3,971,072 transitions in 686 seconds—5,789 transitions per second.
 
-The optional direct path removes teacher/student distillation while keeping a
-privileged critic for training. In a one-seed MJWarp validation run on one RTX
-4090, it finished 3,000 iterations (3,971,072 transitions) in 686 seconds. Both
-policies below were evaluated on the same fixed 240-scene manifest:
+Both policies use the same fixed 240-scene manifest and 20-second evaluation
+window:
 
-| SuperMimic path | Return | Fixed-window rotation speed (rad/s) | Rotation angle (rad) | Survival (s) | Drop rate |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Privileged HORA teacher (default) | 45.33 | 0.784 | 15.68 | 19.56 | 1.25% |
-| Observation-only direct actor (optional) | 43.59 | 0.671 | 13.42 | 19.41 | 2.08% |
+| SuperMimic policy | Distillation | Return | Fixed-window rotation speed (rad/s) | Rotation angle (rad) | Survival (s) | Drop rate |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Privileged teacher | Required before deployment | 45.33 | 0.784 | 15.68 | 19.56 | 1.25% |
+| Single-stage direct actor | None | 43.59 | 0.671 | 13.42 | 19.41 | 2.08% |
 
-These are task-specific, single-seed simulation results. As with the community
-reports collected in [Awesome SuperMimic](https://github.com/miao-org/awesome-supermimic),
-the reward, task horizon and evaluation protocol must be considered before
-making comparisons across projects.
+The direct actor reaches 43.59 return, rotates the cylinder by 13.42 rad, and
+stays alive for 19.41 seconds while eliminating the separate distillation stage.
 
-| Real robot | APPO | FlashSAC |
-| --- | --- | --- |
-| ![Real-robot deployment rollout](docs/media/sharpa-real-eval.gif) | ![APPO evaluation rollout](docs/media/sharpa-appo-eval.gif) | ![FlashSAC evaluation rollout](docs/media/sharpa-flashsac-eval.gif) |
+## Demonstrations
+
+| Real robot | APPO | FlashSAC | SuperMimic direct |
+| --- | --- | --- | --- |
+| ![Real-robot deployment rollout](docs/media/sharpa-real-eval.gif) | ![APPO evaluation rollout](docs/media/sharpa-appo-eval.gif) | ![FlashSAC evaluation rollout](docs/media/sharpa-flashsac-eval.gif) | ![Single-stage SuperMimic rollout](docs/media/sharpa-supermimic-direct-rollout.gif) |
 
 ## Manager-Based API
 
