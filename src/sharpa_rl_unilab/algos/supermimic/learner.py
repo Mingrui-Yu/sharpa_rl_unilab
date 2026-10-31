@@ -62,6 +62,9 @@ class SharpaSuperMimicLearner:
 
         self.episodes = EpisodeStatistics(env.num_envs)
         self.obs, _ = env.reset(seed=int(cfg.algo.seed))
+        refresh = getattr(self.capture, "refresh", None)
+        if refresh is not None:
+            refresh()
         tensor_observation = isinstance(next(iter(self.obs.values())), torch.Tensor)
         self.episode_steps = (
             torch.zeros(env.num_envs, dtype=torch.int32, device=self.device)
@@ -127,9 +130,17 @@ class SharpaSuperMimicLearner:
             self.episode_steps[done] = 0
             if isinstance(done, torch.Tensor):
                 if done.any():
-                    self.env.reset(done.nonzero(as_tuple=False).flatten())
+                    ids = done.nonzero(as_tuple=False).flatten()
+                    self.env.reset(ids)
+                    refresh = getattr(self.capture, "refresh", None)
+                    if refresh is not None:
+                        refresh(ids)
             elif np.any(done):
-                self.env.reset(np.flatnonzero(done).astype(np.int32))
+                ids = np.flatnonzero(done).astype(np.int32)
+                self.env.reset(ids)
+                refresh = getattr(self.capture, "refresh", None)
+                if refresh is not None:
+                    refresh(ids)
             self.obs = self.env.state.obs
             self.received += self.env.num_envs
             self.collected += self.env.num_envs

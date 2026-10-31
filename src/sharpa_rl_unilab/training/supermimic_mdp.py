@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
+from sharpa_rl_unilab.algos.supermimic.geometry import matmul, quat_to_mat, so3_log
 from sharpa_rl_unilab.algos.supermimic.state import State
 from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import ACTOR_HISTORY, PRIV_DIM
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.constants import SOURCE_DEFAULT_HAND_JOINT_POS
@@ -20,8 +21,91 @@ class SharpaSuperMimicCapture:
         self.action = env.action_manager.get_term("hand")
         self.reset = env.event_manager.get_term_cfg("reset").func
         self.randomization = env.event_manager.get_term_cfg("domain_randomization").func
+        self._gpu_resident = self.observation._entity._backend_type == "mjwarp"
+        if self._gpu_resident:
+            self._backend = self.observation._entity._backend
+            qpos = self._backend._state_torch_views["qpos"]
+            self._previous_qpos = qpos.clone()
+            self._reset_rows = torch.ones(env.num_envs, dtype=torch.bool, device=env.device)
+            self.refresh()
+
+    def refresh(self, env_ids=None):
+        if not self._gpu_resident:
+            return
+        ids = (
+            np.arange(self.env.num_envs, dtype=np.int32)
+            if env_ids is None
+            else np.asarray(
+                env_ids.detach().cpu().numpy() if isinstance(env_ids, torch.Tensor) else env_ids
+            )
+        )
+        if ids.size == 0:
+            return
+        dr = self.randomization
+        task = self.reset
+        context = np.concatenate(
+            (
+                dr.kp[ids],
+                dr.kd[ids],
+                dr.friction_scale[ids],
+                dr.mass[ids, None],
+                dr.com_offset[ids],
+                dr.scale[ids],
+                task.object_pos_anchor[ids],
+                task.reset_height_lower[ids, None],
+                task.reset_height_upper[ids, None],
+            ),
+            axis=-1,
+        ).astype(np.float32)
+        context_tensor = torch.as_tensor(context, device=self.env.device)
+        ids_tensor = torch.as_tensor(ids, device=self.env.device)
+        if env_ids is None:
+            self._context = context_tensor
+        else:
+            self._context[ids_tensor] = context_tensor
+        source = self.observation.snapshot(self.env.env)
+        physical = np.concatenate(
+            (source.dof_pos[ids], source.object_pos[ids], source.object_quat[ids]), axis=-1
+        )
+        self._previous_qpos[ids_tensor] = torch.as_tensor(physical, device=self.env.device)
+        self._reset_rows[ids_tensor] = True
+
+    def _resident_capture(self) -> dict[str, np.ndarray | torch.Tensor]:
+        qpos = self._backend._state_torch_views["qpos"]
+        previous = self._previous_qpos
+        dt = float(self.env.step_dt)
+        lin_vel = (qpos[:, 22:25] - previous[:, 22:25]) / dt
+        joint_vel = (qpos[:, :22] - previous[:, :22]) / dt
+        relative = matmul(
+            quat_to_mat(qpos[:, 25:29]), quat_to_mat(previous[:, 25:29]).transpose(-1, -2)
+        )
+        ang_vel = so3_log(relative) / dt
+        reset = self._reset_rows
+        lin_vel[reset] = 0
+        ang_vel[reset] = 0
+        joint_vel[reset] = 0
+        observations = self.env.state.obs
+        state = torch.cat(
+            (
+                qpos[:, 22:25],
+                qpos[:, 25:29],
+                lin_vel,
+                ang_vel,
+                qpos[:, :22],
+                joint_vel,
+                observations["critic"][:, -14:-9],
+                observations["obs"][:, -5:],
+                self.action.target,
+            ),
+            dim=-1,
+        )
+        self._previous_qpos.copy_(qpos)
+        self._reset_rows.zero_()
+        return {"s": state, "xi": self._context}
 
     def __call__(self) -> dict[str, np.ndarray | torch.Tensor]:
+        if self._gpu_resident:
+            return self._resident_capture()
         source = self.observation.snapshot(self.env.env)
         state_parts = (
             source.object_pos,
