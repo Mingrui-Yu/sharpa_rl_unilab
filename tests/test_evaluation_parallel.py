@@ -41,9 +41,7 @@ class FakeEnv:
             "reset": SimpleNamespace(func=self.reset_term),
             "domain_randomization": SimpleNamespace(func=self.dr),
         }
-        self.event_manager = SimpleNamespace(
-            active_terms={}, get_term_cfg=lambda name: terms[name]
-        )
+        self.event_manager = SimpleNamespace(active_terms={}, get_term_cfg=lambda name: terms[name])
         self.frame = SimpleNamespace(
             object_angvel=np.zeros((num_envs, 3)),
             task_state=SimpleNamespace(rotation_axis=np.array([1.0, 0.0, 0.0])),
@@ -168,9 +166,7 @@ def test_batched_rng_maps_sparse_persistent_force_draws_to_slots():
     torch.testing.assert_close(actual, torch.cat(expected), rtol=0, atol=0)
 
 
-def test_parallel_rollout_matches_serial_with_done_and_manifest_boundaries(
-    tmp_path, monkeypatch
-):
+def test_parallel_rollout_matches_serial_with_done_and_manifest_boundaries(tmp_path, monkeypatch):
     cache = tmp_path / "grasps_1.npy"
     cache.write_bytes(b"fixed cache")
     monkeypatch.setattr(evaluation, "resolve_grasp_cache_file", lambda prefix, scale: cache)
@@ -182,17 +178,13 @@ def test_parallel_rollout_matches_serial_with_done_and_manifest_boundaries(
     owner = _install_evaluation_rng(batched)
     assert batched.env.rng is owner and batched.env._rng_owner is owner
     episodes = fake_episodes(batched, cfg, seeds)
-    parallel = _rollout_episode_batch(
-        batched, cfg, None, episodes, device="cpu"
-    )
+    parallel = _rollout_episode_batch(batched, cfg, None, episodes, device="cpu")
 
     serial = []
     for slot, episode in enumerate(episodes):
         env = FakeEnv(1, done_after=[[2, 4, 3][slot]])
         _install_evaluation_rng(env)
-        serial.extend(
-            _rollout_episode_batch(env, cfg, None, [episode], device="cpu")
-        )
+        serial.extend(_rollout_episode_batch(env, cfg, None, [episode], device="cpu"))
     assert parallel == serial
     assert [row["survival_seconds"] for row in parallel] == [0.1, 0.2, 0.15000000000000002]
     assert [row["dropped"] for row in parallel] == [1.0, 1.0, 1.0]

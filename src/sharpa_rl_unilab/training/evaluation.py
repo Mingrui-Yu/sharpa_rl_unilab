@@ -87,6 +87,7 @@ class BatchedEvaluationRng(ManagerRng):
         **kwargs,
     ):
         shape = self._shape(size)
+        env_axis: int | None
         if len(shape) == 2 and shape == (2, self.num_envs):
             env_axis = 1
         else:
@@ -103,10 +104,9 @@ class BatchedEvaluationRng(ManagerRng):
             slots = (self._last_random < self._force_probability).nonzero(as_tuple=False).flatten()
             if len(shape) != 2 or slots.numel() != shape[0]:
                 raise ValueError("Persistent-force draw does not match its triggered slots")
-            per_slot_shape = (1, shape[1])
+            per_slot_shape: tuple[int, ...] = (1, shape[1])
             draws = [
-                self._streams[int(slot)].standard_normal(per_slot_shape, **kwargs)
-                for slot in slots
+                self._streams[int(slot)].standard_normal(per_slot_shape, **kwargs) for slot in slots
             ]
             self._last_random = None
             return torch.cat(draws, dim=0)
@@ -138,16 +138,11 @@ class BatchedEvaluationRng(ManagerRng):
     def choice(self, a, size, *, p, replacement=True):
         shape = self._shape(size)
         if self._reset_slot is not None and shape != (self.num_envs,):
-            return self._streams[self._reset_slot].choice(
-                a, size, p=p, replacement=replacement
-            )
+            return self._streams[self._reset_slot].choice(a, size, p=p, replacement=replacement)
         if len(shape) != 1 or shape[0] != self.num_envs:
             raise ValueError("Batched choice requires one draw per evaluation slot")
         return torch.cat(
-            [
-                stream.choice(a, 1, p=p, replacement=replacement)
-                for stream in self._streams
-            ],
+            [stream.choice(a, 1, p=p, replacement=replacement) for stream in self._streams],
             dim=0,
         )
 
@@ -182,7 +177,7 @@ def validate_evaluation(cfg):
         )
     if int(cfg.evaluation.episodes_per_scale) < 1 or not cfg.evaluation.seeds:
         raise ValueError("Evaluation episode quotas and seed list must be positive")
-    if int(cfg.evaluation.get("batch_size", 32)) < 1:
+    if int(OmegaConf.select(cfg.evaluation, "batch_size", default=32)) < 1:
         raise ValueError("Evaluation batch size must be positive")
     if float(cfg.evaluation.window_seconds) != 20.0:
         raise ValueError("Protocol v2 uses a fixed 20-second evaluation window")
@@ -300,16 +295,9 @@ def _copy_slot_obs(obs, selected, slot: int) -> None:
         obs[key][slot : slot + 1].copy_(selected[key])
 
 
-def _inference_slots(actor, obs, device, hist_norm):
-    distributions = [
-        inference_distribution(
-            actor, {key: value[slot : slot + 1] for key, value in obs.items()}, device, hist_norm
-        )
-        for slot in range(next(iter(obs.values())).shape[0])
-    ]
-    actions = torch.cat([distribution.deterministic() for distribution in distributions], dim=0)
-    std = torch.cat([distribution.std for distribution in distributions], dim=0)
-    return actions, std
+def _inference_batch(actor, obs, device, hist_norm):
+    distribution = inference_distribution(actor, obs, device, hist_norm)
+    return distribution.deterministic(), distribution.std
 
 
 def _rollout_episode_batch(
@@ -358,8 +346,7 @@ def _rollout_episode_batch(
     if term is not None:
         joint_pos = entity_host_data(term._entity, "joint_pos")[:, term.joint_ids]
         diagnostics = [
-            EpisodeActionDiagnostics(joint_pos[slot : slot + 1])
-            for slot in range(env.num_envs)
+            EpisodeActionDiagnostics(joint_pos[slot : slot + 1]) for slot in range(env.num_envs)
         ]
 
     perturbation_seeds = [episode["perturbation_seed"] for episode in episodes]
@@ -372,7 +359,7 @@ def _rollout_episode_batch(
             _copy_slot_obs(obs, selected, slot)
 
         set_step_rng(env, perturbation_seeds, step)
-        actions, std = _inference_slots(actor, obs, device, hist_norm)
+        actions, std = _inference_batch(actor, obs, device, hist_norm)
         actions[~active] = 0
         state = env.step(actions)
         if diagnostics is not None:
@@ -395,10 +382,10 @@ def _rollout_episode_batch(
         obs = state.obs
         source = env.observation_manager.get_term_cfg("actor", "frame").func
         angle_delta = torch.as_tensor(
-            np.sum(source.object_angvel * source.task_state.rotation_axis, axis=-1),
+            source.object_angvel * source.task_state.rotation_axis,
             device=device,
             dtype=angle.dtype,
-        )
+        ).sum(dim=-1)
         angle += angle_delta * env.step_dt * active
         reward += state.reward * active
         survival_steps += active
@@ -419,11 +406,7 @@ def _rollout_episode_batch(
                 "signed_angle": signed_angle,
                 "speed_fixed_window": signed_angle / 20.0,
                 "speed_alive": signed_angle / survival,
-                **(
-                    {"diagnostics": diagnostics[slot].result()}
-                    if diagnostics is not None
-                    else {}
-                ),
+                **({"diagnostics": diagnostics[slot].result()} if diagnostics is not None else {}),
             }
         )
     return results
@@ -460,7 +443,7 @@ def evaluate_checkpoint(checkpoint, *, output=None, device: str | None = "cpu", 
     results = []
     diagnostics_enabled = bool(OmegaConf.select(cfg, "evaluation.diagnostics", default=False))
     total = len(manifest["episodes"])
-    batch_size = int(cfg.evaluation.get("batch_size", 32))
+    batch_size = int(OmegaConf.select(cfg.evaluation, "batch_size", default=32))
     print(
         f"[eval] Starting {total} episodes across {len(cfg.evaluation.scales)} scales"
         f" | batch_size={batch_size}",
