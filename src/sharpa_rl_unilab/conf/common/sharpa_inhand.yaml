@@ -111,6 +111,7 @@ training:
   cam_azimuth: 45.0
 evaluation:
   diagnostics: false
+  batch_size: 32
   seeds: [10001, 10002, 10003]
   episodes_per_scale: 10
   scales: [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
