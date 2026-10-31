@@ -92,5 +92,21 @@
   "semantic_caveat": "UniLab 1.5 uses a Torch Manager RNG; identical seeds are not bit-compatible with the legacy NumPy RNG episode stream.",
   "upstream_issues": {
     "non_writable_numpy_array": "https://github.com/Motphys/UniLab/issues/2565"
+  },
+  "full_training_rollouts": {
+    "commit": "54850e9b4f9c5c8f19a66cefb4d09f70cdf3f343",
+    "policy": "final teacher checkpoint, deterministic actions",
+    "seed": 1,
+    "envs": 16,
+    "steps": 400,
+    "duration_seconds": 20,
+    "gif_fps": 8,
+    "resolution": "360x202",
+    "appo": "docs/media/sharpa-appo-pr9-rollout.gif",
+    "flashsac": "docs/media/sharpa-flashsac-pr9-rollout.gif",
+    "source_videos": [
+      "pc825:/home/pc8-25/ws/sharpa_rl_unilab/benchmarks/pr9_full_appo_54850e9/appo_final_rollout.mp4",
+      "pc825:/home/pc8-25/ws/sharpa_rl_unilab/benchmarks/pr9_full_flashsac_54850e9/flashsac_final_rollout.mp4"
+    ]
   }
 }
