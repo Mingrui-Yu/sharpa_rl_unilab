@@ -25,12 +25,16 @@ training the teacher.
 
 ## 2. Train a teacher
 
-For APPO, run the following command; replace `--algo appo` with `--algo ppo` or
-`--algo flashsac` to switch algorithms. PPO, APPO and FlashSAC share the same
-HORA actor and Gaussian distribution.
+SuperMimic is the default teacher. It learns a multi-step world model from real
+transitions, then optimizes the shared HORA actor through differentiable imagined
+rollouts with analytic Sharpa rewards and soft drop termination. PPO, APPO and
+FlashSAC remain available as comparison baselines.
 
 ```bash
+uv run sharpa-train --algo supermimic
 uv run sharpa-train --algo appo
+uv run sharpa-train --algo ppo
+uv run sharpa-train --algo flashsac
 ```
 
 The default output directory is `logs/<algorithm>/seed_<seed>_<timestamp>/`.
@@ -70,7 +74,7 @@ and rotation speed calculated over both the fixed window and actual survival
 time. Results are saved beside the checkpoint as `<model_name>.evaluation.json`,
 with the scene manifest in `scenes.json`.
 
-To train all three algorithms:
+To train all four algorithms:
 
 ```bash
 uv run sharpa-compare
@@ -117,8 +121,9 @@ uv run sharpa-train --algo appo training.num_envs=1024
 | Output directory | Created automatically by default; use `training.log_dir=/path/to/new_run` to specify a directory that does not yet exist |
 | Device | `training.device=cuda:0`; `null` selects CUDA, MPS or CPU automatically; APPO's `algo.collector_device=null` follows the learner |
 | Threads per process | `training.torch_threads.*`: 4 intra-op and 1 inter-op thread each for learner and collector |
-| Teacher iterations | `algo.max_iterations`: 501 for PPO/APPO, 2000 for FlashSAC |
-| Teacher save interval | `algo.save_interval`: 50 for PPO/APPO, 500 for FlashSAC; 0 disables intermediate saves, but the final checkpoint is still saved on normal completion |
+| Teacher iterations | `algo.max_iterations`: 3000 for SuperMimic, 2000 for FlashSAC, 501 for PPO/APPO |
+| Teacher save interval | `algo.save_interval`: 50 for PPO/APPO, 1000 for SuperMimic, 500 for FlashSAC; 0 disables intermediate saves, but the final checkpoint is still saved on normal completion |
+| SuperMimic updates and compilation | `algo.utd=1.6` controls updates per real collection step; CUDA defaults to `algo.compile=true` for multi-step world-model and imagination graphs |
 | FlashSAC precision | `algo.use_amp=true`; set to `false` to disable mixed precision |
 | Student budget | `distillation.transitions=100000000`, `distillation.num_envs=4096` |
 | Student learning rate | `distillation.learning_rate=0.0003` |

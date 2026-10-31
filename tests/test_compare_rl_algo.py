@@ -46,7 +46,7 @@ def test_stages_seeds_and_shared_evaluation(monkeypatch, tmp_path, distill, eval
             teacher_runs.append((algorithm, seed, run_dir))
         else:
             stage = "student"
-            assert len(teacher_runs) == 6
+            assert len(teacher_runs) == 8
             checkpoint = Path(command[command.index("--checkpoint") + 1])
             assert checkpoint.is_file()
             run_dir = Path(
@@ -61,11 +61,11 @@ def test_stages_seeds_and_shared_evaluation(monkeypatch, tmp_path, distill, eval
     compare_rl_algo.main()
 
     stages = [stage for stage, _ in calls]
-    assert stages == ["teacher"] * 6 + ["student"] * (6 if distill else 0) + ["eval"] * (
-        (12 if distill else 6) if evaluate else 0
+    assert stages == ["teacher"] * 8 + ["student"] * (8 if distill else 0) + ["eval"] * (
+        (16 if distill else 8) if evaluate else 0
     )
     assert {(algo, seed) for algo, seed, _ in teacher_runs} == {
-        (algo, seed) for algo in ("ppo", "appo", "flashsac") for seed in (1, 2)
+        (algo, seed) for algo in ("supermimic", "ppo", "appo", "flashsac") for seed in (1, 2)
     }
     assert len({run.parent.name.split("_", 2)[2] for _, _, run in teacher_runs}) == 1
     if evaluate:
@@ -88,8 +88,8 @@ def test_defaults_preserve_hydra_parameters(monkeypatch):
     calls = []
     monkeypatch.setattr(compare_rl_algo.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
     compare_rl_algo.main()
-    assert len(calls) == 3
-    for algorithm, command in zip(("ppo", "appo", "flashsac"), calls):
+    assert len(calls) == 4
+    for algorithm, command in zip(("supermimic", "ppo", "appo", "flashsac"), calls):
         cfg = compare_rl_algo.compose_config(algorithm, "mujoco", [])
         assert command[3:6] == ["--algo", algorithm, f"algo.seed={cfg.algo.seed}"]
         assert len(command) == 7

@@ -25,7 +25,7 @@ different objects and sensor conditions.
 
 ## Teacher and student
 
-PPO, APPO and FlashSAC share the HORA teacher/student pipeline:
+SuperMimic, PPO, APPO and FlashSAC share the HORA teacher/student pipeline:
 
 1. **Teacher:** learns a rotation policy using measurable observations and
    privileged simulation information, such as mass and friction.

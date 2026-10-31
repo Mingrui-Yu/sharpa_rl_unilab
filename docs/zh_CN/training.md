@@ -22,10 +22,13 @@ bash src/sharpa_rl_unilab/tools/sharpa_collect_grasps.sh 0.8 0.9 1 1.1 1.2 1.3 1
 
 ## 2. 训练 teacher
 
-以 APPO 为例；将 `--algo appo` 改为 `ppo` 或 `flashsac` 可切换算法。PPO、APPO、FlashSAC 共用 HORA Actor 与高斯分布实现。
+默认使用 SuperMimic：从真实 transition 学习多步可微世界模型，再用 Sharpa 解析奖励和软掉落终止在想象轨迹中优化 HORA Actor。PPO、APPO、FlashSAC 保留为对照基线。
 
 ```bash
+uv run sharpa-train --algo supermimic
 uv run sharpa-train --algo appo
+uv run sharpa-train --algo ppo
+uv run sharpa-train --algo flashsac
 ```
 
 默认输出到 `logs/<算法>/seed_<seed>_<时间戳>/`，最终模型为 `teacher_final.pt`，
@@ -58,7 +61,7 @@ uv run sharpa-eval --checkpoint /path/to/teacher_final.pt
 结果记录回报、存活时间、掉落率、有符号旋转角，以及按固定窗口和实际存活时间计算的转速。
 结果保存为 checkpoint 旁的 `<模型名>.evaluation.json`，场景清单为 `scenes.json`。
 
-统一训练三种算法：
+统一训练四种算法：
 
 ```bash
 uv run sharpa-compare
@@ -94,8 +97,9 @@ uv run sharpa-train --algo appo training.num_envs=1024
 | 输出目录 | 默认自动创建；用 `training.log_dir=/path/to/new_run` 指定尚不存在的目录 |
 | 设备 | `training.device=cuda:0`；`null` 自动选择 CUDA、MPS、CPU；APPO 的 `algo.collector_device=null` 跟随 learner |
 | 每进程线程 | `training.torch_threads.*`：learner/collector 各 4 个 intra-op、1 个 inter-op 线程 |
-| Teacher 轮数 | `algo.max_iterations`：PPO/APPO 为 501，FlashSAC 为 2000 |
-| Teacher 保存间隔 | `algo.save_interval`：PPO/APPO 为 50，FlashSAC 为 500；0 关闭中间保存，正常结束仍保存 final |
+| Teacher 轮数 | `algo.max_iterations`：SuperMimic 为 3000，FlashSAC 为 2000，PPO/APPO 为 501 |
+| Teacher 保存间隔 | `algo.save_interval`：PPO/APPO 为 50，SuperMimic 为 1000，FlashSAC 为 500；0 关闭中间保存，正常结束仍保存 final |
+| SuperMimic 更新与编译 | `algo.utd=1.6` 控制更新/真实采集比；CUDA 默认 `algo.compile=true`，编译多步世界模型与想象步 |
 | FlashSAC 精度 | `algo.use_amp=true`；设为 `false` 关闭混合精度 |
 | Student 预算 | `distillation.transitions=100000000`、`distillation.num_envs=4096` |
 | Student 学习率 | `distillation.learning_rate=0.0003` |

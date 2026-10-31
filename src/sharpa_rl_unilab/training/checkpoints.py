@@ -64,6 +64,11 @@ def save_teacher(path, cfg, actor, critic, learner, counters, elapsed):
         "priv_encoder": sum(p.numel() for p in actor.shared.priv_encoder.parameters()),
         "critic": sum(p.numel() for p in critic.parameters()),
     }
+    if cfg.algo.algo == "supermimic":
+        snapshot["world_model"] = frozen_weights(learner.wm)
+        snapshot["world_model_optimizer"] = learner.opt_wm.state_dict()
+        snapshot["actor_optimizer"] = learner.opt_pi.state_dict()
+        snapshot["critic_optimizer"] = learner.opt_v.state_dict()
     if isinstance(learner, TeacherFlashLearner):
         snapshot["learner"] = learner.get_state_dict()
         for name in ("actor", "critic"):
@@ -85,6 +90,7 @@ def load_policy(path, device: str | None = "cpu", *, stage=None, configure_runti
     if stage is not None and checkpoint.get("stage") != stage:
         raise ValueError(f"Expected a {stage} checkpoint")
     if checkpoint.get("stage") not in ("teacher", "student") or checkpoint.get("algorithm") not in (
+        "supermimic",
         "ppo",
         "appo",
         "flashsac",

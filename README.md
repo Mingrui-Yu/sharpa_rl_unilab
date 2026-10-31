@@ -6,8 +6,8 @@
 
 An independent UniLab task package for Sharpa Wave in-hand manipulation. It
 provides a MuJoCo-ready hand/object task, bundled robot assets, grasp caches,
-and PPO, APPO and FlashSAC teacher training with a shared HORA model and student
-distillation pipeline.
+and SuperMimic, PPO, APPO and FlashSAC teacher training with a shared HORA model
+and student distillation pipeline. SuperMimic is the default teacher algorithm.
 
 ## Highlights and demonstration
 
@@ -30,9 +30,9 @@ owns the manager lifecycle and simulation backends. The former task-owned
 legacy/direct `NpEnv` implementation and its compatibility factory have been
 removed.
 
-Supported teacher entrypoints are PPO, APPO and FlashSAC. All three algorithms
-share the default HORA policy and student distillation pipeline; critics retain
-the V/Q structure required by each algorithm.
+Supported teacher entrypoints are SuperMimic, PPO, APPO and FlashSAC. All four
+algorithms share the default HORA policy and student distillation pipeline;
+critics retain the V/Q structure required by each algorithm.
 
 ## Installation and validation
 
@@ -59,8 +59,8 @@ The FlashSAC smoke test requires CUDA.
 
 ## Quick start
 
-After installation, run from the repository root to train PPO, APPO and FlashSAC
-in sequence for Sharpa Wave in-hand cylinder rotation:
+After installation, run from the repository root to train SuperMimic, PPO, APPO
+and FlashSAC in sequence for Sharpa Wave in-hand cylinder rotation:
 
 ```bash
 uv run sharpa-compare
@@ -78,6 +78,7 @@ Each algorithm saves its playback video after training to
 ## Train, evaluate and distill
 
 ```bash
+uv run sharpa-train --algo supermimic
 uv run sharpa-train --algo appo
 uv run sharpa-train --algo flashsac
 uv run sharpa-train --algo ppo
@@ -100,7 +101,7 @@ uv run sharpa-distill --checkpoint /absolute/path/to/teacher_final.pt
 uv run sharpa-eval --checkpoint /absolute/path/to/student_final.pt
 ```
 
-`uv run sharpa-compare` trains the three algorithms sequentially using their
+`uv run sharpa-compare` trains the four algorithms sequentially using their
 default configurations; append `--distill --eval --num-seeds 3` to run distillation
 and evaluation across multiple seeds. Each algorithm uses its own training budget;
 equal sample counts or compute costs are not guaranteed.

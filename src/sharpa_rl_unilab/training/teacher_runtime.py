@@ -36,4 +36,8 @@ def train_teacher(cfg):
         from .ppo_runtime import train_ppo
 
         return train_ppo(cfg, progress_key, target, started)
+    if cfg.algo.algo == "supermimic":
+        from .supermimic_runtime import train_supermimic
+
+        return train_supermimic(cfg, started)
     raise ValueError(f"Unknown teacher algorithm: {cfg.algo.algo}")

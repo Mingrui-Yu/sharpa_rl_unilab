@@ -25,7 +25,7 @@ Paths below are relative to [`src/sharpa_rl_unilab/`](../../src/sharpa_rl_unilab
 | CLI arguments and configuration merging | `cli.py` |
 | Shared physical task | `conf/common/sharpa_task.yaml` |
 | HORA observations, model and runtime parameters | `conf/common/sharpa_inhand.yaml` |
-| Algorithm parameters and grasp configuration | `conf/{ppo,appo,flashsac}/` |
+| Algorithm parameters and grasp configuration | `conf/{supermimic,ppo,appo,flashsac}/` |
 | Task registration, fixed scales and time steps | `tasks/sharpa_inhand/{config,rotation_registry,grasp_registry}.py` |
 | Actions, observations, rewards, resets and randomization | `tasks/sharpa_inhand/terms/` |
 | Fixed observation protocol and early validation | `tasks/sharpa_inhand/protocol.py` |
@@ -71,6 +71,7 @@ latency or noise. Clean observations do not represent a complete Markov state.
 
 | Algorithm | Reused components | Sharpa adaptation |
 | --- | --- | --- |
+| SuperMimic | Uni-SuperMimic multi-step world model, replay and differentiable imagination | Physical/tactile state capture, analytic Sharpa rewards, soft drop termination and HORA checkpoints |
 | PPO | RSL-RL `PPO`, `RolloutStorage` | Four inputs, terminal bootstrapping, short rollouts and budget scheduling |
 | APPO | uni_rl APPO/V-trace, `RolloutStagingPool` | Separate collector, bounded queue, policy versions, history reuse and budget scheduling |
 | FlashSAC | `DoubleBufferOffPolicyRunner`, native replay and learner losses | Observation transport, new-data statistics, common checkpoints and counters |
@@ -110,7 +111,9 @@ evaluation algorithms and statistical functions live in `training/evaluation.py`
   resampling do not accumulate statistics; evaluation freezes all statistics.
   Actor and critic statistics are independent. FlashSAC's current and target
   Q networks share statistics, and target parameter soft updates do not blend
-  statistics.
+  statistics. SuperMimic follows the same fresh-data rule for its actor and
+  world model; its critic additionally normalizes imagined features, matching
+  the SuperMimic lambda-return update. Evaluation always freezes statistics.
 - **Behavior policy:** PPO/APPO store raw Gaussian actions and their log
   probabilities at sampling time; the environment executes clip/tanh mapped actions.
   APPO synchronizes version numbers, weights and statistics together. The

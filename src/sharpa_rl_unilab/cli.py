@@ -44,7 +44,9 @@ def compose_config(
 
 def _main(*, play: bool, argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Sharpa Wave in-hand manipulation")
-    parser.add_argument("--algo", choices=["ppo", "appo", "flashsac"], default="ppo")
+    parser.add_argument(
+        "--algo", choices=["supermimic", "ppo", "appo", "flashsac"], default="supermimic"
+    )
     parser.add_argument("--sim", choices=["mujoco"], default="mujoco")
     parser.add_argument("--task", choices=sorted(TASK_NAMES), default="sharpa_inhand")
     parser.add_argument(

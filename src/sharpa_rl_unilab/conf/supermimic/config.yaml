@@ -1,0 +1,19 @@
+defaults:
+  - _self_
+  - task: sharpa_inhand/mujoco
+algo:
+  algo: supermimic
+  seed: 1
+  algorithm:
+    kl_mode: exact
+hydra:
+  searchpath:
+    - pkg://sharpa_rl_unilab.conf
+  run:
+    dir: .
+  output_subdir: null
+  job:
+    chdir: false
+  job_logging:
+    root:
+      handlers: [console]

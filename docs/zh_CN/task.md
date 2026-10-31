@@ -20,13 +20,13 @@
 
 ## Teacher 与 student
 
-PPO、APPO、FlashSAC 共用 HORA teacher/student 流程：
+SuperMimic、PPO、APPO、FlashSAC 共用 HORA teacher/student 流程：
 
 1. **Teacher** 使用可测观测和仿真特权信息（如质量、摩擦）学习旋转策略。
 2. **Student** 从历史观测估计 teacher 的特权表示，再使用继承的策略输出动作。
 3. **评估** 在固定场景中检查旋转速度、存活时间和掉落率。
 
 Student 推理只需要可测观测及其历史，不需要仿真特权信息。
-三种算法使用各自的训练预算，比较结果时需同时考虑实际采样量和耗时。
+四种算法使用各自的训练预算，比较结果时需同时考虑实际采样量和耗时。
 
 操作步骤见[训练指南](training.md)，输入形状与代码职责见[架构说明](architecture.md)。

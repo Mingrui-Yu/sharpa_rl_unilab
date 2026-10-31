@@ -343,7 +343,12 @@ def plot_learning_curves(paths, output):
 
     rows = [json.loads(Path(path).read_text()) for path in paths]
     fig, axes = plt.subplots(2, 2, figsize=(11, 7), constrained_layout=True)
-    colors = {"ppo": "tab:blue", "appo": "tab:orange", "flashsac": "tab:green"}
+    colors = {
+        "supermimic": "tab:red",
+        "ppo": "tab:blue",
+        "appo": "tab:orange",
+        "flashsac": "tab:green",
+    }
     labels_seen = set()
     for algorithm, stage, seed in sorted(
         {(row["algorithm"], row["stage"], row["training_seed"]) for row in rows}

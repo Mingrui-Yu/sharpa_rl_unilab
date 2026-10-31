@@ -5,8 +5,9 @@ Sharpa Wave 手内旋转任务已迁移到 UniLab 当前 **Manager-Based API**�
 UniLab 保持外部依赖，负责 manager 生命周期与仿真后端。此前任务自有的
 legacy/direct `NpEnv` 实现和 compatibility factory 已移除。
 
-支持 PPO、APPO、FlashSAC teacher，三种算法默认共用 HORA 策略与 student
-蒸馏流程；Critic 保留各算法所需的 V/Q 结构。
+支持 SuperMimic、PPO、APPO、FlashSAC teacher，默认使用 SuperMimic。四种算法
+共用 HORA 策略与 student 蒸馏流程；Critic 保留各算法所需的 V/Q 结构。
+SuperMimic 通过真实回放训练可微世界模型，再在想象轨迹中优化策略。
 
 ## 安装与校验
 
@@ -29,7 +30,7 @@ uv run pyright
 
 ## 快速上手
 
-安装完成后，在仓库根目录一键依次训练 PPO、APPO、FlashSAC，让 Sharpa Wave 手学习手内旋转圆柱体：
+安装完成后，在仓库根目录一键依次训练 SuperMimic、PPO、APPO、FlashSAC，让 Sharpa Wave 手学习手内旋转圆柱体：
 
 ```bash
 uv run sharpa-compare
@@ -47,6 +48,7 @@ uv run tensorboard --logdir logs/compare
 ## 训练、评估与蒸馏
 
 ```bash
+uv run sharpa-train --algo supermimic
 uv run sharpa-train --algo appo
 uv run sharpa-train --algo flashsac
 uv run sharpa-train --algo ppo
@@ -67,7 +69,7 @@ uv run sharpa-distill --checkpoint /absolute/path/to/teacher_final.pt
 uv run sharpa-eval --checkpoint /absolute/path/to/student_final.pt
 ```
 
-`uv run sharpa-compare` 按默认配置依次训练三种算法；追加
+`uv run sharpa-compare` 按默认配置依次训练四种算法；追加
 `--distill --eval --num-seeds 3` 可运行多 seed 蒸馏与评估。
 各算法使用各自的训练预算，不保证等采样量或等计算成本。
 
