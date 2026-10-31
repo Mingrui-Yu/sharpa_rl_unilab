@@ -115,7 +115,7 @@ class SharpaSuperMimicLearner:
             self.wm.in_norm.update(self.wm.inputs(initial, action, current["xi"]))
             self.wm.out_norm.update(self.wm.targets(initial, next_state))
             analytic_reward = self.mdp.reward(next_state, current["xi"])
-            reward_gaps.append(float((analytic_reward - transition["r"]).abs().mean()))
+            reward_gaps.append((analytic_reward - transition["r"]).abs().mean())
             from sharpa_rl_unilab.algos.hora.models import pack_actor
 
             tensor_obs = {
@@ -145,17 +145,23 @@ class SharpaSuperMimicLearner:
             self.received += self.env.num_envs
             self.collected += self.env.num_envs
             rewards.append(
-                float(
-                    state.reward.mean()
-                    if isinstance(state.reward, torch.Tensor)
-                    else np.mean(state.reward)
-                )
+                state.reward.mean()
+                if isinstance(state.reward, torch.Tensor)
+                else np.mean(state.reward)
             )
+
+        def mean_metric(values):
+            if not values:
+                return 0.0
+            if isinstance(values[0], torch.Tensor):
+                return float(torch.stack(values).mean())
+            return float(np.mean(values))
+
         return {
             "collected": self.collected,
             "received": self.received,
-            "sim/reward": float(np.mean(rewards)) if rewards else 0.0,
-            "sim/reward_parity": float(np.mean(reward_gaps)) if reward_gaps else 0.0,
+            "sim/reward": mean_metric(rewards),
+            "sim/reward_parity": mean_metric(reward_gaps),
         }
 
     def _optimize(self, loss, optimizer, module):

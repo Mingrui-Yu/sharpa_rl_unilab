@@ -5,14 +5,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
+import torch
 from unilab.managers import ManagerTermBase
+from unisim.backend.base import TensorExecution
 
-from sharpa_rl_unilab.tasks.sharpa_inhand.terms.compat import rng_numpy, torch_ids
+from sharpa_rl_unilab.tasks.sharpa_inhand.terms.compat import rng_tensor
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.randomization import SharpaDomainRandomization
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.validation import (
     require_name,
     require_real,
-    resolve_env_ids,
+    resolve_tensor_env_ids,
     validate_term_params,
 )
 
@@ -77,13 +79,31 @@ class SharpaPersistentObjectForce(ManagerTermBase):
         )
         self._backend_body_ids = np.asarray(backend_ids, dtype=np.intp)
         self._backend_body_ids.setflags(write=False)
-        self._force = np.zeros((env.num_envs, 1, 3), dtype=np.float64)
+        self._force = torch.zeros((env.num_envs, 1, 3), dtype=torch.float32, device=env.device)
+        self._host_wrench = (
+            env.backend.get_tensor_capabilities().execution is TensorExecution.DEVICE_RESIDENT
+        )
         del local_ids
+
+    def _apply_force(self, env: SharpaEnv, ids: torch.Tensor | None) -> None:
+        if self._host_wrench:
+            # UniSim 1.5.4 rejects device wrench writes while the asynchronous
+            # step receipt is pending. Its public host staging API is the only
+            # wrench path that preserves the persistent-force protocol here.
+            env.backend.apply_body_force(self._backend_body_ids, self._force.detach().cpu().numpy())
+            return
+        self._entity.apply_body_wrench_to_sim(
+            self._force if ids is None else self._force[ids],
+            None,
+            self._backend_body_ids,
+            env_ids=ids,
+            term_name=type(self).__name__,
+        )
 
     def __call__(
         self,
         env: SharpaEnv,
-        env_ids: np.ndarray | None,
+        env_ids: torch.Tensor | None,
         **params: Any,
     ) -> None:
         del env_ids, params
@@ -92,33 +112,25 @@ class SharpaPersistentObjectForce(ManagerTermBase):
             if not isinstance(dr, SharpaDomainRandomization):
                 raise TypeError(f"{type(self).__name__} requires SharpaDomainRandomization")
             self._randomization = dr
-        self._force *= self._decay
+        self._force.mul_(self._decay)
         rng = env.rng if self.rng is None else self.rng
-        trigger = rng_numpy(rng.random(env.num_envs)) < self._probability
-        if np.any(trigger):
-            ids = np.flatnonzero(trigger)
-            mass = self._randomization.mass[ids]
-            self._force[ids, 0, :] = (
-                rng_numpy(rng.standard_normal((ids.size, 3)), dtype=self._force.dtype)
-                * mass[:, None]
-            )
-            self._force[ids] *= self._force_scale
-        self._entity.apply_body_wrench_to_sim(
-            self._force,
-            None,
-            self._backend_body_ids,
-            env_ids=None,
-            term_name=type(self).__name__,
+        trigger = (
+            rng_tensor(rng.random(env.num_envs), device=env.device, dtype=self._force.dtype)
+            < self._probability
         )
-
-    def reset(self, env_ids: np.ndarray | slice | None = None) -> None:
-        ids = resolve_env_ids(self._env, env_ids)
-        self._force[ids] = 0.0
-        if ids.size:
-            self._entity.apply_body_wrench_to_sim(
-                self._force[ids],
-                None,
-                self._backend_body_ids,
-                env_ids=torch_ids(ids, self._env.device),
-                term_name=type(self).__name__,
+        ids = trigger.nonzero(as_tuple=False).flatten()
+        if ids.numel():
+            mass = self._randomization.mass[ids]
+            noise = rng_tensor(
+                rng.standard_normal((ids.numel(), 3)),
+                device=env.device,
+                dtype=self._force.dtype,
             )
+            self._force[ids, 0, :] = noise * mass[:, None] * self._force_scale
+        self._apply_force(env, None)
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        ids = resolve_tensor_env_ids(self._env, env_ids)
+        self._force[ids] = 0.0
+        if ids.numel():
+            self._apply_force(cast("SharpaEnv", self._env), ids)
