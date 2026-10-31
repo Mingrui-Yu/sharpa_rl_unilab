@@ -18,6 +18,23 @@ observation-only actor directly through a learned world model.
 - Evaluate versioned teacher/student checkpoints and record videos.
 - Train a HORA teacher and distill an actor-observation student.
 
+### SuperMimic training highlight
+
+The optional direct path removes teacher/student distillation while keeping a
+privileged critic for training. In a one-seed MJWarp validation run on one RTX
+4090, it finished 3,000 iterations (3,971,072 transitions) in 686 seconds. Both
+policies below were evaluated on the same fixed 240-scene manifest:
+
+| SuperMimic path | Return | Fixed-window rotation speed (rad/s) | Rotation angle (rad) | Survival (s) | Drop rate |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Privileged HORA teacher (default) | 45.33 | 0.784 | 15.68 | 19.56 | 1.25% |
+| Observation-only direct actor (optional) | 43.59 | 0.671 | 13.42 | 19.41 | 2.08% |
+
+These are task-specific, single-seed simulation results. As with the community
+reports collected in [Awesome SuperMimic](https://github.com/miao-org/awesome-supermimic),
+the reward, task horizon and evaluation protocol must be considered before
+making comparisons across projects.
+
 | Real robot | APPO | FlashSAC |
 | --- | --- | --- |
 | ![Real-robot deployment rollout](docs/media/sharpa-real-eval.gif) | ![APPO evaluation rollout](docs/media/sharpa-appo-eval.gif) | ![FlashSAC evaluation rollout](docs/media/sharpa-flashsac-eval.gif) |
