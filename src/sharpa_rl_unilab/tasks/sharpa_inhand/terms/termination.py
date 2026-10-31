@@ -4,15 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-import numpy as np
 import torch
 from unilab.managers import ManagerTermBase
 
-from sharpa_rl_unilab.tasks.sharpa_inhand.terms.compat import manager_tensor
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation import SharpaRotationObservation
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.validation import (
     require_name,
-    resolve_env_ids,
+    resolve_tensor_env_ids,
     validate_term_params,
 )
 
@@ -35,22 +33,22 @@ class SharpaDropTermination(ManagerTermBase):
         if not isinstance(observation, SharpaRotationObservation):
             raise TypeError(f"{term} requires SharpaRotationObservation")
         self.observation = observation
-        self.dropped = np.zeros(env.num_envs, dtype=np.bool_)
+        self.dropped = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
         self._last_counter = int(env.common_step_counter)
 
     @property
     def last_counter(self) -> int:
         return self._last_counter
 
-    def reset(self, env_ids: np.ndarray | slice | None = None) -> None:
-        self.dropped[resolve_env_ids(self._env, env_ids)] = False
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        self.dropped[resolve_tensor_env_ids(self._env, env_ids)] = False
         self._last_counter = int(cast("SharpaEnv", self._env).common_step_counter)
 
     def __call__(self, env: SharpaEnv, **params: Any) -> torch.Tensor:
         del params
         state = self.observation.snapshot(env)
-        self.dropped[:] = (
-            state.object_pos[:, 2] > self.observation.task_state.reset_height_upper
-        ) | (state.object_pos[:, 2] < self.observation.task_state.reset_height_lower)
+        self.dropped[:] = (state.object_pos[:, 2] > state.task_state.reset_height_upper) | (
+            state.object_pos[:, 2] < state.task_state.reset_height_lower
+        )
         self._last_counter = int(env.common_step_counter)
-        return manager_tensor(env, self.dropped, dtype=torch.bool)
+        return self.dropped

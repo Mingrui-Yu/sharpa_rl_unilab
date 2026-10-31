@@ -113,14 +113,23 @@ class SharpaHandObjectReset(ManagerTermBase):
         self.object_default_pose = np.asarray(
             entity_default_state[:, :7], dtype=numpy_dtype(get_global_dtype())
         ).copy()
-        self.reset_height_lower = np.full(
-            (env.num_envs,), np.inf, dtype=numpy_dtype(get_global_dtype())
+        self._object_default_pose_tensor = torch.as_tensor(
+            self.object_default_pose, dtype=get_global_dtype(), device=env.device
         )
-        self.reset_height_upper = np.full(
-            (env.num_envs,), -np.inf, dtype=numpy_dtype(get_global_dtype())
+        self.reset_height_lower = torch.full(
+            (env.num_envs,), torch.inf, dtype=get_global_dtype(), device=env.device
         )
-        self.object_pos_anchor = np.zeros((env.num_envs, 3), dtype=numpy_dtype(get_global_dtype()))
-        self.rotation_axis = np.broadcast_to(self._rotation_axis, (env.num_envs, 3)).copy()
+        self.reset_height_upper = torch.full(
+            (env.num_envs,), -torch.inf, dtype=get_global_dtype(), device=env.device
+        )
+        self.object_pos_anchor = torch.zeros(
+            (env.num_envs, 3), dtype=get_global_dtype(), device=env.device
+        )
+        self.rotation_axis = torch.as_tensor(
+            np.broadcast_to(self._rotation_axis, (env.num_envs, 3)).copy(),
+            dtype=get_global_dtype(),
+            device=env.device,
+        )
 
         self._variant_ids = self._resolve_variant_ids(env)
         self.scale_values = self._resolve_variant_scales(env)
@@ -231,9 +240,17 @@ class SharpaHandObjectReset(ManagerTermBase):
         action.reset_to_positions(hand_table[selected_rows], selected_rows)
         self._entity.write_root_state_tensor_to_sim(root_state, reset_mask)
 
-        self.reset_height_lower[ids] = root_pose[:, 2] - 0.5 * self._reset_height_band
-        self.reset_height_upper[ids] = root_pose[:, 2] + 0.5 * self._reset_height_band
+        root_pose_tensor = torch.as_tensor(root_pose, dtype=get_global_dtype(), device=env.device)
+        self.reset_height_lower[selected_rows] = (
+            root_pose_tensor[:, 2] - 0.5 * self._reset_height_band
+        )
+        self.reset_height_upper[selected_rows] = (
+            root_pose_tensor[:, 2] + 0.5 * self._reset_height_band
+        )
         if self._use_default_anchor:
-            self.object_pos_anchor[ids] = self.object_default_pose[ids, :3]
+            anchor = torch.as_tensor(
+                self.object_default_pose[ids, :3], dtype=get_global_dtype(), device=env.device
+            )
         else:
-            self.object_pos_anchor[ids] = root_pose[:, :3]
+            anchor = root_pose_tensor[:, :3]
+        self.object_pos_anchor[selected_rows] = anchor

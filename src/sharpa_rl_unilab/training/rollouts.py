@@ -68,6 +68,7 @@ def collect(env, obs, actor, horizon, device, *, count=None, metrics=None, store
         batch["priv_info"][step].copy_(next_obs["priv_info"])
         batch["critic"][step].copy_(next_obs["critic"])
         batch["actions"][step].copy_(sample.raw)
+        assert sample.log_prob is not None
         batch["actions_log_prob"][step].copy_(sample.log_prob)
         batch["rewards"][step].copy_(state.reward)
         batch["terminated"][step].copy_(state.terminated)

@@ -5,11 +5,14 @@ from __future__ import annotations
 import json
 import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator, Sequence
 
 import numpy as np
 import torch
 from omegaconf import OmegaConf
+from unilab.managers.rng import ManagerRng
 from unilab.rl.algos.common.normalization import EmpiricalNormalization
 
 from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import CONTRACT_VERSION, HISTORY_SHAPE
@@ -32,6 +35,118 @@ METRICS = (
 )
 
 
+class BatchedEvaluationRng(ManagerRng):
+    """ManagerRng with one Torch stream per evaluation slot."""
+
+    def __init__(self, num_envs: int, *, device: str | torch.device):
+        super().__init__(device=device)
+        self.num_envs = int(num_envs)
+        self._streams = [ManagerRng(device=self.device) for _ in range(self.num_envs)]
+        self._reset_slot: int | None = None
+        self._force_probability: float | None = None
+        self._last_random: torch.Tensor | None = None
+
+    @contextmanager
+    def reset_slot(self, slot: int) -> Iterator[None]:
+        if self._reset_slot is not None:
+            raise RuntimeError("Evaluation RNG reset contexts cannot be nested")
+        self._reset_slot = int(slot)
+        try:
+            yield
+        finally:
+            self._reset_slot = None
+
+    def manual_seed(self, seed: int) -> BatchedEvaluationRng:
+        if self._reset_slot is None:
+            for stream in self._streams:
+                stream.manual_seed(seed)
+        else:
+            self._streams[self._reset_slot].manual_seed(seed)
+        return self
+
+    def seed_slots(self, seeds: Sequence[int]) -> None:
+        if self._reset_slot is not None or len(seeds) != self.num_envs:
+            raise ValueError("A step seed is required for every evaluation slot")
+        for stream, seed in zip(self._streams, seeds):
+            stream.manual_seed(int(seed))
+        self._last_random = None
+
+    def bind_persistent_force(self, probability: float) -> None:
+        self._force_probability = float(probability)
+
+    @staticmethod
+    def _shape(size: int | tuple[int, ...]) -> tuple[int, ...]:
+        return (size,) if isinstance(size, int) else tuple(size)
+
+    def _draw(
+        self,
+        method: str,
+        size: int | tuple[int, ...],
+        *args,
+        size_first: bool = True,
+        **kwargs,
+    ):
+        shape = self._shape(size)
+        env_axis: int | None
+        if len(shape) == 2 and shape == (2, self.num_envs):
+            env_axis = 1
+        else:
+            env_axis = next(
+                (axis for axis, width in enumerate(shape) if width == self.num_envs), None
+            )
+        if self._reset_slot is not None and env_axis is None:
+            call_args = (size, *args) if size_first else (*args, size)
+            return getattr(self._streams[self._reset_slot], method)(*call_args, **kwargs)
+        if env_axis is None:
+            if method != "standard_normal" or self._last_random is None:
+                raise ValueError("Batched evaluation draws must contain a num_envs dimension")
+            assert self._force_probability is not None
+            slots = (self._last_random < self._force_probability).nonzero(as_tuple=False).flatten()
+            if len(shape) != 2 or slots.numel() != shape[0]:
+                raise ValueError("Persistent-force draw does not match its triggered slots")
+            per_slot_shape: tuple[int, ...] = (1, shape[1])
+            draws = [
+                self._streams[int(slot)].standard_normal(per_slot_shape, **kwargs) for slot in slots
+            ]
+            self._last_random = None
+            return torch.cat(draws, dim=0)
+        per_slot_shape = tuple(1 if axis == env_axis else width for axis, width in enumerate(shape))
+        draws = []
+        for stream in self._streams:
+            call_args = (per_slot_shape, *args) if size_first else (*args, per_slot_shape)
+            draws.append(getattr(stream, method)(*call_args, **kwargs))
+        return torch.cat(draws, dim=env_axis)
+
+    def random(self, size, *, dtype=torch.float32):
+        result = self._draw("random", size, dtype=dtype)
+        if self._reset_slot is None and self._shape(size) == (self.num_envs,):
+            self._last_random = result
+        return result
+
+    def uniform(self, low, high, size, *, dtype=torch.float32):
+        return self._draw("uniform", size, low, high, size_first=False, dtype=dtype)
+
+    def standard_normal(self, size, *, dtype=torch.float32):
+        return self._draw("standard_normal", size, dtype=dtype)
+
+    def normal(self, mean, std, size, *, dtype=torch.float32):
+        return self._draw("normal", size, mean, std, size_first=False, dtype=dtype)
+
+    def integers(self, low, high, size, *, dtype=torch.int64):
+        return self._draw("integers", size, low, high, size_first=False, dtype=dtype)
+
+    def choice(self, a, size, *, p, replacement=True):
+        shape = self._shape(size)
+        if self._reset_slot is not None and shape != (self.num_envs,):
+            return self._streams[self._reset_slot].choice(a, size, p=p, replacement=replacement)
+        if len(shape) != 1 or shape[0] != self.num_envs:
+            raise ValueError("Batched choice requires one draw per evaluation slot")
+        return torch.cat(
+            [stream.choice(a, 1, p=p, replacement=replacement) for stream in self._streams],
+            dim=0,
+        )
+
+
 def scene_protocol(cfg):
     return {
         "contract": CONTRACT_VERSION,
@@ -43,7 +158,7 @@ def scene_protocol(cfg):
         "episodes_per_scale": int(cfg.evaluation.episodes_per_scale),
         "window_seconds": float(cfg.evaluation.window_seconds),
         "split": str(cfg.evaluation.split),
-        "rng": "numpy PCG64; SeedSequence([episode_seed, control_step, stream]); observation=0, force=1",
+        "rng": "UniLab ManagerRng (Torch); SeedSequence([episode_seed, control_step, 0]) per slot",
         "rotation": "world-frame shortest quaternion difference, projected on the task axis, unclipped",
     }
 
@@ -62,20 +177,47 @@ def validate_evaluation(cfg):
         )
     if int(cfg.evaluation.episodes_per_scale) < 1 or not cfg.evaluation.seeds:
         raise ValueError("Evaluation episode quotas and seed list must be positive")
+    if int(OmegaConf.select(cfg.evaluation, "batch_size", default=32)) < 1:
+        raise ValueError("Evaluation batch size must be positive")
     if float(cfg.evaluation.window_seconds) != 20.0:
         raise ValueError("Protocol v2 uses a fixed 20-second evaluation window")
 
 
-def reset_record(env, cfg, scale, seed):
-    obs, _ = env.reset(seed=seed)
+def _install_evaluation_rng(env) -> BatchedEvaluationRng:
+    rng = BatchedEvaluationRng(env.num_envs, device=env.device)
+    if "persistent_force" in env.event_manager.active_terms.get("step", []):
+        cfg = env.event_manager.get_term_cfg("persistent_force")
+        rng.bind_persistent_force(cfg.params.get("force_probability", 0.25))
+    env.env.rng = rng
+    env.env._rng_owner = rng
+    return rng
+
+
+def _reset_slot(env, slot: int, seed: int):
+    rng = env.env.rng
+    if isinstance(rng, BatchedEvaluationRng):
+        with rng.reset_slot(slot):
+            obs, _ = env.reset([slot], seed=int(seed))
+        return {
+            key: value if value.shape[0] == 1 else value[slot : slot + 1]
+            for key, value in obs.items()
+        }
+    if slot != 0 or env.num_envs != 1:
+        raise ValueError("A scalar ManagerRng supports only single-environment evaluation")
+    obs, _ = env.reset(seed=int(seed))
+    return obs
+
+
+def reset_record(env, cfg, scale, seed, *, slot: int = 0):
+    obs = _reset_slot(env, slot, seed)
     reset = env.event_manager.get_term_cfg("reset").func
     dr = env.event_manager.get_term_cfg("domain_randomization").func
     cache = resolve_grasp_cache_file(str(cfg.env.events.reset.params.grasp_cache_path), scale)
     record = {
         "cache_sha256": file_digest(cache),
-        "cache_row": int(reset.cache_row_indices[0]),
+        "cache_row": int(reset.cache_row_indices[slot]),
         "randomization": {
-            key: getattr(dr, key)[0].tolist()
+            key: getattr(dr, key)[slot].tolist()
             for key in ("kp", "kd", "mass", "com_offset", "gravity", "friction_scale", "scale")
         },
     }
@@ -125,16 +267,149 @@ def load_manifest(cfg, path):
     return manifest
 
 
-def set_step_rng(env, episode_seed, step):
-    seed = int(np.random.SeedSequence([episode_seed, step, 0]).generate_state(1)[0])
-    if hasattr(env.env.rng, "manual_seed"):
-        env.env.rng.manual_seed(seed)
+def _step_seed(episode_seed: int, step: int) -> int:
+    return int(np.random.SeedSequence([int(episode_seed), int(step), 0]).generate_state(1)[0])
+
+
+def set_step_rng(env, episode_seed: int | Sequence[int], step: int):
+    rng = env.env.rng
+    if not isinstance(rng, ManagerRng):
+        raise TypeError("Evaluation requires the UniLab ManagerRng owner")
+    if isinstance(rng, BatchedEvaluationRng):
+        seeds = [episode_seed] if isinstance(episode_seed, int) else list(episode_seed)
+        rng.seed_slots([_step_seed(seed, step) for seed in seeds])
     else:
-        env.env.rng = np.random.default_rng(seed)
+        if not isinstance(episode_seed, int) or env.num_envs != 1:
+            raise ValueError("A scalar ManagerRng requires one episode seed")
+        rng.manual_seed(_step_seed(episode_seed, step))
     if "persistent_force" in env.event_manager.active_terms.get("step", []):
-        env.event_manager.get_term_cfg("persistent_force").func.rng = np.random.default_rng(
-            np.random.SeedSequence([episode_seed, step, 1])
+        force_rng = env.event_manager.get_term_cfg("persistent_force").func.rng
+        if force_rng is not None and force_rng is not rng:
+            raise ValueError("persistent_force must share the environment ManagerRng")
+
+
+def _copy_slot_obs(obs, selected, slot: int) -> None:
+    for key in obs:
+        if selected[key].shape[0] != 1:
+            raise ValueError("Selected-row reset must return exactly one observation")
+        obs[key][slot : slot + 1].copy_(selected[key])
+
+
+def _inference_batch(actor, obs, device, hist_norm):
+    distribution = inference_distribution(actor, obs, device, hist_norm)
+    return distribution.deterministic(), distribution.std
+
+
+def _rollout_episode_batch(
+    env,
+    cfg,
+    actor,
+    episodes,
+    *,
+    device: str,
+    hist_norm=None,
+    diagnostics_enabled: bool = False,
+):
+    if len(episodes) != env.num_envs or not episodes:
+        raise ValueError("Evaluation batch must contain one episode per environment slot")
+    if len({episode["scale"] for episode in episodes}) != 1:
+        raise ValueError("One fixed-variant evaluation batch cannot mix scales")
+    if env.max_episode_length != 400 or not np.isclose(env.step_dt, 0.05):
+        raise ValueError("Evaluation requires the fixed 400-step, 20-second task")
+
+    obs = None
+    for slot, episode in enumerate(episodes):
+        selected, actual = reset_record(
+            env, cfg, float(episode["scale"]), episode["reset_seed"], slot=slot
         )
+        if any(actual[key] != episode[key] for key in actual):
+            raise ValueError(
+                f"Scene {episode['episode_id']} cannot reproduce recorded grasp/DR values"
+            )
+        if obs is None:
+            obs = {
+                key: torch.empty(
+                    (env.num_envs, *value.shape[1:]), dtype=value.dtype, device=value.device
+                )
+                for key, value in selected.items()
+            }
+        _copy_slot_obs(obs, selected, slot)
+    assert obs is not None
+
+    active = torch.ones(env.num_envs, dtype=torch.bool, device=device)
+    angle = torch.zeros(env.num_envs, device=device)
+    reward = torch.zeros(env.num_envs, device=device)
+    dropped = torch.zeros(env.num_envs, dtype=torch.bool, device=device)
+    survival_steps = torch.zeros(env.num_envs, dtype=torch.int64, device=device)
+    term = env.action_manager.get_term("hand") if diagnostics_enabled else None
+    diagnostics = None
+    if term is not None:
+        joint_pos = entity_host_data(term._entity, "joint_pos")[:, term.joint_ids]
+        diagnostics = [
+            EpisodeActionDiagnostics(joint_pos[slot : slot + 1]) for slot in range(env.num_envs)
+        ]
+
+    perturbation_seeds = [episode["perturbation_seed"] for episode in episodes]
+    for step in range(400):
+        if not bool(active.any()):
+            break
+        inactive = (~active).nonzero(as_tuple=False).flatten().detach().cpu().tolist()
+        for slot in inactive:
+            selected = _reset_slot(env, slot, episodes[slot]["reset_seed"])
+            _copy_slot_obs(obs, selected, slot)
+
+        set_step_rng(env, perturbation_seeds, step)
+        actions, std = _inference_batch(actor, obs, device, hist_norm)
+        actions[~active] = 0
+        state = env.step(actions)
+        if diagnostics is not None:
+            assert term is not None
+            clipped = term._clipped_action.detach().cpu().numpy()
+            std = std.detach().cpu().numpy()
+            joint_pos = entity_host_data(term._entity, "joint_pos")[:, term.joint_ids]
+            target = term.target.detach().cpu().numpy()
+            lower = term._target_lower.detach().cpu().numpy()
+            upper = term._target_upper.detach().cpu().numpy()
+            for slot in active.nonzero(as_tuple=False).flatten().detach().cpu().tolist():
+                diagnostics[slot].record(
+                    clipped[slot : slot + 1],
+                    std[slot : slot + 1],
+                    joint_pos[slot : slot + 1],
+                    target[slot : slot + 1],
+                    lower[slot : slot + 1],
+                    upper[slot : slot + 1],
+                )
+        obs = state.obs
+        source = env.observation_manager.get_term_cfg("actor", "frame").func
+        angle_delta = torch.as_tensor(
+            source.object_angvel * source.task_state.rotation_axis,
+            device=device,
+            dtype=angle.dtype,
+        ).sum(dim=-1)
+        angle += angle_delta * env.step_dt * active
+        reward += state.reward * active
+        survival_steps += active
+        dropped |= state.terminated & active
+        active &= ~(state.terminated | state.truncated)
+
+    results = []
+    for slot, episode in enumerate(episodes):
+        survival = float(survival_steps[slot]) * env.step_dt
+        signed_angle = float(angle[slot])
+        results.append(
+            {
+                "episode_id": episode["episode_id"],
+                "scale": float(episode["scale"]),
+                "return": float(reward[slot]),
+                "survival_seconds": survival,
+                "dropped": float(dropped[slot]),
+                "signed_angle": signed_angle,
+                "speed_fixed_window": signed_angle / 20.0,
+                "speed_alive": signed_angle / survival,
+                **({"diagnostics": diagnostics[slot].result()} if diagnostics is not None else {}),
+            }
+        )
+    return results
 
 
 def evaluate_checkpoint(checkpoint, *, output=None, device: str | None = "cpu", evaluation=None):
@@ -168,91 +443,42 @@ def evaluate_checkpoint(checkpoint, *, output=None, device: str | None = "cpu", 
     results = []
     diagnostics_enabled = bool(OmegaConf.select(cfg, "evaluation.diagnostics", default=False))
     total = len(manifest["episodes"])
+    batch_size = int(OmegaConf.select(cfg.evaluation, "batch_size", default=32))
     print(
-        f"[eval] Starting {total} episodes across {len(cfg.evaluation.scales)} scales",
+        f"[eval] Starting {total} episodes across {len(cfg.evaluation.scales)} scales"
+        f" | batch_size={batch_size}",
         file=sys.stderr,
         flush=True,
     )
     started = time.monotonic()
-    last_logged = started
     for scale in cfg.evaluation.scales:
-        env = SharpaTeacherEnv(cfg, 1, scale=float(scale), auto_reset=False)
+        scale_episodes = [episode for episode in manifest["episodes"] if episode["scale"] == scale]
+        num_envs = min(batch_size, len(scale_episodes))
+        env = SharpaTeacherEnv(cfg, num_envs, scale=float(scale), auto_reset=False)
         try:
-            if env.max_episode_length != 400 or not np.isclose(env.step_dt, 0.05):
-                raise ValueError("Evaluation requires the fixed 400-step, 20-second task")
-            for episode in manifest["episodes"]:
-                if episode["scale"] != scale:
-                    continue
-                obs, actual = reset_record(env, cfg, float(scale), episode["reset_seed"])
-                if any(actual[key] != episode[key] for key in actual):
-                    raise ValueError(
-                        f"Scene {episode['episode_id']} cannot reproduce recorded grasp/DR values"
-                    )
-                angle = torch.zeros((), device=device)
-                reward = torch.zeros((), device=device)
-                dropped = torch.zeros((), dtype=torch.bool, device=device)
-                survival = 0.0
-                diagnostics = None
-                term = None
-                if diagnostics_enabled:
-                    term = env.action_manager.get_term("hand")
-                    diagnostics = EpisodeActionDiagnostics(
-                        entity_host_data(term._entity, "joint_pos")[:, term.joint_ids]
-                    )
-                for step in range(400):
-                    set_step_rng(env, episode["perturbation_seed"], step)
-                    distribution = inference_distribution(actor, obs, device, hist_norm)
-                    actions = distribution.deterministic()
-                    state = env.step(actions)
-                    if diagnostics is not None:
-                        assert term is not None
-                        # Evaluation disables autoreset, so terminal q/target are real.
-                        diagnostics.record(
-                            term._clipped_action.detach().cpu().numpy(),
-                            distribution.std.cpu().numpy(),
-                            entity_host_data(term._entity, "joint_pos")[:, term.joint_ids],
-                            term.target.detach().cpu().numpy(),
-                            term._target_lower.detach().cpu().numpy(),
-                            term._target_upper.detach().cpu().numpy(),
-                        )
-                    obs = state.obs
-                    source = env.observation_manager.get_term_cfg("actor", "frame").func
-                    angle_delta = np.sum(
-                        source.object_angvel * source.task_state.rotation_axis, axis=-1
-                    )
-                    angle += float(angle_delta[0]) * env.step_dt
-                    reward += state.reward[0]
-                    survival = (step + 1) * env.step_dt
-                    dropped |= state.terminated[0]
-                    if dropped or state.truncated[0]:
-                        break
-                results.append(
-                    {
-                        "episode_id": episode["episode_id"],
-                        "scale": float(scale),
-                        "return": float(reward),
-                        "survival_seconds": survival,
-                        "dropped": float(dropped),
-                        "signed_angle": float(angle),
-                        "speed_fixed_window": float(angle) / 20.0,
-                        "speed_alive": float(angle) / survival,
-                        **(
-                            {"diagnostics": diagnostics.result()} if diagnostics is not None else {}
-                        ),
-                    }
+            _install_evaluation_rng(env)
+            for start in range(0, len(scale_episodes), num_envs):
+                batch = scale_episodes[start : start + num_envs]
+                slots = batch + [scale_episodes[0]] * (num_envs - len(batch))
+                batch_results = _rollout_episode_batch(
+                    env,
+                    cfg,
+                    actor,
+                    slots,
+                    device=device,
+                    hist_norm=hist_norm,
+                    diagnostics_enabled=diagnostics_enabled,
                 )
+                results.extend(batch_results[: len(batch)])
                 done = len(results)
-                now = time.monotonic()
-                if done == 1 or done == total or now - last_logged >= 10:
-                    elapsed = now - started
-                    eta = elapsed / done * (total - done)
-                    print(
-                        f"[eval] {done}/{total} ({done / total:.1%}) | scale={scale:g}"
-                        f" | elapsed={elapsed:.0f}s | ETA~{eta:.0f}s",
-                        file=sys.stderr,
-                        flush=True,
-                    )
-                    last_logged = now
+                elapsed = time.monotonic() - started
+                eta = elapsed / done * (total - done)
+                print(
+                    f"[eval] {done}/{total} ({done / total:.1%}) | scale={scale:g}"
+                    f" | elapsed={elapsed:.0f}s | ETA~{eta:.0f}s",
+                    file=sys.stderr,
+                    flush=True,
+                )
         finally:
             env.close()
     per_scale = {

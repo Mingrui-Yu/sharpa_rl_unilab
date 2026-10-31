@@ -90,6 +90,15 @@ and rotation speed calculated over both the fixed window and actual survival
 time. Results are saved beside the checkpoint as `<model_name>.evaluation.json`,
 with the scene manifest in `scenes.json`.
 
+Evaluation runs episodes concurrently in one batched TorchEnv per scale; use
+`evaluation.batch_size=N` to change the maximum batch size (default 32), or 1 for
+serial scheduling. Reset seeds, perturbation streams, terminal state and metrics
+are slot-local. All manager randomness uses UniLab's Torch `ManagerRng` owner,
+including persistent forces and observation noise; no NumPy simulation RNG is
+installed. Replaying the same manifest and batch configuration is deterministic.
+Different batch sizes can amplify small backend floating-point differences in
+contact-rich MJWarp trajectories, so cross-batch bit equality is not guaranteed.
+
 To train all four algorithms:
 
 ```bash
