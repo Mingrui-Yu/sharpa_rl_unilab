@@ -32,12 +32,14 @@ FlashSAC remain available as comparison baselines.
 
 ```bash
 uv run sharpa-train --algo supermimic
-# On CUDA, SuperMimic also supports the MJWarp backend:
-uv sync --extra mjwarp
-uv run sharpa-train --algo supermimic --sim mjwarp
 uv run sharpa-train --algo appo
 uv run sharpa-train --algo ppo
 uv run sharpa-train --algo flashsac
+# All algorithms support MJWarp on CUDA; its dependencies are installed by default:
+uv run sharpa-train --algo supermimic --sim mjwarp
+uv run sharpa-train --algo appo --sim mjwarp
+uv run sharpa-train --algo ppo --sim mjwarp
+uv run sharpa-train --algo flashsac --sim mjwarp
 ```
 
 The default output directory is `logs/<algorithm>/seed_<seed>_<timestamp>/`.

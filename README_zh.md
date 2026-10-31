@@ -15,12 +15,13 @@ UniLab 1.5.4 及其 CUDA Torch wheel 会从已配置的包索引解析。
 ```bash
 git clone https://github.com/unilabsim/sharpa_rl_unilab.git
 cd sharpa_rl_unilab
-uv sync --extra mujoco
+uv sync
 uv run pytest
 uv run pyright
 ```
 
-若使用 pip，可在独立虚拟环境中运行 `pip install ".[mujoco]"`。训练使用
+若使用 pip，可在独立虚拟环境中运行 `pip install .`。默认安装 MuJoCo 和
+MJWarp；MJWarp 需要 CUDA，四种 teacher 算法均支持 `--sim mjwarp`。训练使用
 UniLab 集成的 tensor-native RL runtime：PPO/APPO 采样与 FlashSAC
 推理/replay 的观测、动作、奖励和结束标志均保持 Torch tensor 边界，CUDA
 训练热路径驻留 GPU。

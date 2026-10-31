@@ -2974,7 +2974,7 @@ dependencies = [
     { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'win32'" },
     { name = "torch", version = "2.11.0+cu130", source = { registry = "https://download-r2.pytorch.org/whl/cu130" }, marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
     { name = "torch", version = "2.14.1", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform == 'linux') or (sys_platform != 'linux' and sys_platform != 'win32')" },
-    { name = "unilab" },
+    { name = "unilab", extra = ["mjwarp", "mujoco"] },
 ]
 
 [package.optional-dependencies]
@@ -2987,12 +2987,6 @@ export = [
     { name = "onnxruntime", version = "1.19.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "onnxruntime", version = "1.29.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "onnxscript" },
-]
-mjwarp = [
-    { name = "unilab", extra = ["mjwarp"] },
-]
-mujoco = [
-    { name = "unilab", extra = ["mujoco"] },
 ]
 
 [package.dev-dependencies]
@@ -3021,11 +3015,9 @@ requires-dist = [
     { name = "torch", marker = "platform_machine == 'aarch64' and sys_platform == 'linux'", specifier = ">=2.9,<2.15", index = "https://download-r2.pytorch.org/whl/cu130" },
     { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = ">=2.9,<2.15", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torch", marker = "sys_platform == 'win32'", specifier = ">=2.9,<2.15", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "unilab", specifier = "==1.5.4" },
-    { name = "unilab", extras = ["mjwarp"], marker = "extra == 'mjwarp'" },
-    { name = "unilab", extras = ["mujoco"], marker = "extra == 'mujoco'" },
+    { name = "unilab", extras = ["mujoco", "mjwarp"], specifier = "==1.5.4" },
 ]
-provides-extras = ["mujoco", "mjwarp", "export", "evaluation"]
+provides-extras = ["export", "evaluation"]
 
 [package.metadata.requires-dev]
 dev = [

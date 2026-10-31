@@ -40,16 +40,17 @@ indexes.
 ```bash
 git clone https://github.com/unilabsim/sharpa_rl_unilab.git
 cd sharpa_rl_unilab
-uv sync --extra mujoco
+uv sync
 uv run pytest
 uv run pyright
 ```
 
-To install the source tree with pip instead, use `pip install ".[mujoco]"` in a
-separate virtual environment. Training uses UniLab's integrated tensor-native
-RL runtime: PPO/APPO collection and FlashSAC inference/replay keep observations,
-actions, rewards, and done flags on Torch tensors, and CUDA runs keep the
-training hot path device-resident.
+To install the source tree with pip instead, use `pip install .` in a separate
+virtual environment. MuJoCo and MJWarp are installed by default; MJWarp requires
+CUDA, and all four teacher algorithms accept `--sim mjwarp`. Training uses
+UniLab's integrated tensor-native RL runtime: PPO/APPO collection and FlashSAC
+inference/replay keep observations, actions, rewards, and done flags on Torch
+tensors, and CUDA runs keep the training hot path device-resident.
 
 `uv run pytest` runs fast regression tests by default; use
 `uv run pytest -m slow` for simulation and training smoke tests.
