@@ -66,6 +66,17 @@ def rng_numpy(
     return np.ascontiguousarray(value, dtype=dtype)
 
 
+def rng_random(
+    rng: Any, size: int | tuple[int, ...], *, dtype: torch.dtype = torch.float32
+) -> np.ndarray:
+    """Draw random values from ManagerRng or a NumPy generator."""
+    try:
+        value = rng.random(size, dtype=dtype)  # type: ignore[union-attr]
+    except TypeError:
+        value = rng.random(size, dtype=numpy_dtype(dtype))  # type: ignore[union-attr]
+    return rng_numpy(value, dtype=numpy_dtype(dtype))
+
+
 def rng_uniform(
     rng: Any,
     low: float,

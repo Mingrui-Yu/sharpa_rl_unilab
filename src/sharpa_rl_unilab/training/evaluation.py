@@ -126,7 +126,11 @@ def load_manifest(cfg, path):
 
 
 def set_step_rng(env, episode_seed, step):
-    env.env.rng = np.random.default_rng(np.random.SeedSequence([episode_seed, step, 0]))
+    seed = int(np.random.SeedSequence([episode_seed, step, 0]).generate_state(1)[0])
+    if hasattr(env.env.rng, "manual_seed"):
+        env.env.rng.manual_seed(seed)
+    else:
+        env.env.rng = np.random.default_rng(seed)
     if "persistent_force" in env.event_manager.active_terms.get("step", []):
         env.event_manager.get_term_cfg("persistent_force").func.rng = np.random.default_rng(
             np.random.SeedSequence([episode_seed, step, 1])

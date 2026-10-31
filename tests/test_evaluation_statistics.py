@@ -1,8 +1,22 @@
 import json
+from types import SimpleNamespace
 
 import pytest
+from unilab.managers.rng import ManagerRng
 
-from sharpa_rl_unilab.training.evaluation import METRICS, aggregate_seeds
+from sharpa_rl_unilab.training.evaluation import METRICS, aggregate_seeds, set_step_rng
+
+
+def test_step_rng_preserves_manager_rng_owner():
+    manager = ManagerRng(device="cpu")
+    env = SimpleNamespace(
+        env=SimpleNamespace(rng=manager), event_manager=SimpleNamespace(active_terms={})
+    )
+    set_step_rng(env, 123, 4)
+    assert env.env.rng is manager
+    expected = manager.random(2)
+    set_step_rng(env, 123, 4)
+    assert (manager.random(2) == expected).all()
 
 
 def test_seed_aggregation_uses_independent_training_seeds(tmp_path):

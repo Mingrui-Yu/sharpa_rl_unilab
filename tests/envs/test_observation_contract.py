@@ -23,6 +23,14 @@ from sharpa_rl_unilab.tasks.sharpa_inhand.terms.randomization import SharpaDomai
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.reset import SharpaHandObjectReset
 
 
+def test_gain_randomization_accepts_manager_and_numpy_rng():
+    randomization = SharpaDomainRandomization.__new__(SharpaDomainRandomization)
+    for rng in (ManagerRng(device="cpu").manual_seed(1), np.random.default_rng(1)):
+        values = randomization._sample_split_around_one(rng, (0.5, 1.5), (2, 22))
+        assert values.shape == (2, 22)
+        assert np.isfinite(values).all()
+
+
 def make_observations(*, order=("actor", "critic", "priv_info", "proprio_hist"), **params):
     n = 2
     raw = np.zeros((n, 15))

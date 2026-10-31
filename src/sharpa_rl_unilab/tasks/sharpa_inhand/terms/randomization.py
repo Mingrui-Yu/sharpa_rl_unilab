@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
-import torch
 from unilab.base.rotation import np_quat_apply
 from unilab.dtype_config import get_global_dtype
 from unilab.managers import ManagerTermBase
@@ -13,7 +12,7 @@ from unilab.managers import ManagerTermBase
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.compat import (
     manager_tensor,
     numpy_dtype,
-    rng_numpy,
+    rng_random,
     rng_uniform,
     torch_ids,
 )
@@ -248,7 +247,7 @@ class SharpaDomainRandomization(ManagerTermBase):
             raise ValueError(f"gain scale bounds must satisfy lower <= 1 <= upper: {bounds}")
         small = rng_uniform(rng, lower, 1.0, shape)
         large = rng_uniform(rng, 1.0, upper, shape)
-        coin = rng_numpy(rng.random(shape, dtype=torch.float32))
+        coin = rng_random(rng, shape, dtype=get_global_dtype())
         return np.where(coin > 0.5, small, large).astype(numpy_dtype(get_global_dtype()))
 
     def __call__(
@@ -287,14 +286,8 @@ class SharpaDomainRandomization(ManagerTermBase):
         self.kd[ids] = kd
 
         if self._randomize_friction:
-            self.friction_scale[ids] = rng_numpy(
-                env.rng.uniform(
-                    self._friction_range[0],
-                    self._friction_range[1],
-                    size=(count, 1),
-                    dtype=torch.float32,
-                ),
-                dtype=np.dtype(dtype),
+            self.friction_scale[ids] = rng_uniform(
+                env.rng, self._friction_range[0], self._friction_range[1], (count, 1)
             )
             friction = np.asarray(self._default_friction, dtype=np.float64).copy()
             friction = np.broadcast_to(friction, (count, friction.shape[-2], 3)).copy()
@@ -317,12 +310,7 @@ class SharpaDomainRandomization(ManagerTermBase):
             self.friction_scale[ids] = 1.0
 
         if self._randomize_mass:
-            mass = rng_numpy(
-                env.rng.uniform(
-                    self._mass_range[0], self._mass_range[1], size=count, dtype=torch.float32
-                ),
-                dtype=np.dtype(dtype),
-            )
+            mass = rng_uniform(env.rng, self._mass_range[0], self._mass_range[1], (count,))
         else:
             mass = np.full((count,), float(self._default_mass), dtype=dtype)
         self._entity.write_body_mass_to_sim(
@@ -334,15 +322,7 @@ class SharpaDomainRandomization(ManagerTermBase):
         self.mass[ids] = mass
 
         if self._randomize_com:
-            com = rng_numpy(
-                env.rng.uniform(
-                    self._com_range[0],
-                    self._com_range[1],
-                    size=(count, 3),
-                    dtype=torch.float32,
-                ),
-                dtype=np.dtype(dtype),
-            )
+            com = rng_uniform(env.rng, self._com_range[0], self._com_range[1], (count, 3))
         else:
             com = np.zeros((count, 3), dtype=dtype)
         default_ipos = np.broadcast_to(
@@ -360,10 +340,8 @@ class SharpaDomainRandomization(ManagerTermBase):
             downward = np.zeros((count, 3), dtype=np.float64)
             downward[:, 2] = -self._gravity_magnitude
             # Shoemake's uniform rotation, using the environment's explicit RNG.
-            u1 = rng_numpy(env.rng.random(count, dtype=torch.float32), dtype=np.float64)
-            u2, u3 = rng_numpy(
-                env.rng.random((2, count), dtype=torch.float32), dtype=np.float64
-            ) * (2.0 * np.pi)
+            u1 = rng_random(env.rng, count).astype(np.float64)
+            u2, u3 = rng_random(env.rng, (2, count)).astype(np.float64) * (2.0 * np.pi)
             r1, r2 = np.sqrt(1.0 - u1), np.sqrt(u1)
             quat = np.stack(
                 (r2 * np.cos(u3), r1 * np.sin(u2), r1 * np.cos(u2), r2 * np.sin(u3)), axis=-1
