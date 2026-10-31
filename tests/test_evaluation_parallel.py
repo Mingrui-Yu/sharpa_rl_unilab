@@ -57,17 +57,17 @@ class FakeEnv:
         ids = list(range(self.num_envs)) if env_indices is None else list(env_indices)
         if seed is not None:
             self.seed(seed)
-        for slot in ids:
-            self.reset_term.cache_row_indices[slot] = int(self.env.rng.integers(0, 1000, 1)[0])
-            values = self.env.rng.random((1, 2)).numpy()
-            self.dr.kp[slot] = values[0]
-            self.dr.kd[slot] = values[0] + 1
-            self.dr.mass[slot] = values[0, :1]
-            self.dr.com_offset[slot, 0] = values[0, 0]
-            self.dr.gravity[slot, 2] = -9.81
-            self.dr.friction_scale[slot] = 1.0
-            self.obs[slot] = torch.from_numpy(values[0, :1])
-            self.steps[slot] = 0
+        count = len(ids)
+        self.reset_term.cache_row_indices[ids] = self.env.rng.integers(0, 1000, count).numpy()
+        values = self.env.rng.random((count, 2)).numpy()
+        self.dr.kp[ids] = values
+        self.dr.kd[ids] = values + 1
+        self.dr.mass[ids] = values[:, :1]
+        self.dr.com_offset[ids, 0] = values[:, 0]
+        self.dr.gravity[ids, 2] = -9.81
+        self.dr.friction_scale[ids] = 1.0
+        self.obs[ids] = torch.from_numpy(values[:, :1])
+        self.steps[ids] = 0
         return {key: value[ids].clone() for key, value in (("obs", self.obs),)}, {}
 
     def step(self, actions):
@@ -138,7 +138,17 @@ def test_batched_rng_matches_independent_manager_streams():
         slot_one, ManagerRng.seeded(99, device="cpu").random((1, 4)), rtol=0, atol=0
     )
 
-    with rng.reset_slot(0):
+    with rng.reset_slot(1):
+        rng.manual_seed(567)
+        selected_gravity = rng.uniform(-1.0, 1.0, (2, 1))
+    torch.testing.assert_close(
+        selected_gravity,
+        ManagerRng.seeded(567, device="cpu").uniform(-1.0, 1.0, (2, 1)),
+        rtol=0,
+        atol=0,
+    )
+
+    with rng.reset_slot(0, full_width=True):
         rng.manual_seed(1234)
         full_width = rng.random((2, 2))
     torch.testing.assert_close(

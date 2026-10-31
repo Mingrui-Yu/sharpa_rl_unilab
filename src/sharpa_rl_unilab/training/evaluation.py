@@ -43,18 +43,21 @@ class BatchedEvaluationRng(ManagerRng):
         self.num_envs = int(num_envs)
         self._streams = [ManagerRng(device=self.device) for _ in range(self.num_envs)]
         self._reset_slot: int | None = None
+        self._reset_full_width = False
         self._force_probability: float | None = None
         self._last_random: torch.Tensor | None = None
 
     @contextmanager
-    def reset_slot(self, slot: int) -> Iterator[None]:
+    def reset_slot(self, slot: int, *, full_width: bool = False) -> Iterator[None]:
         if self._reset_slot is not None:
             raise RuntimeError("Evaluation RNG reset contexts cannot be nested")
         self._reset_slot = int(slot)
+        self._reset_full_width = full_width
         try:
             yield
         finally:
             self._reset_slot = None
+            self._reset_full_width = False
 
     def manual_seed(self, seed: int) -> BatchedEvaluationRng:
         if self._reset_slot is None:
@@ -87,6 +90,9 @@ class BatchedEvaluationRng(ManagerRng):
         **kwargs,
     ):
         shape = self._shape(size)
+        if self._reset_slot is not None and not self._reset_full_width:
+            call_args = (size, *args) if size_first else (*args, size)
+            return getattr(self._streams[self._reset_slot], method)(*call_args, **kwargs)
         env_axis: int | None
         if len(shape) == 2 and shape == (2, self.num_envs):
             env_axis = 1
@@ -158,7 +164,7 @@ def scene_protocol(cfg):
         "episodes_per_scale": int(cfg.evaluation.episodes_per_scale),
         "window_seconds": float(cfg.evaluation.window_seconds),
         "split": str(cfg.evaluation.split),
-        "rng": "UniLab ManagerRng (Torch); SeedSequence([episode_seed, control_step, 0]) per slot",
+        "rng": "UniLab ManagerRng (Torch); warmed full-width reset; SeedSequence([episode_seed, control_step, 0]) per slot",
         "rotation": "world-frame shortest quaternion difference, projected on the task axis, unclipped",
     }
 
@@ -196,7 +202,7 @@ def _install_evaluation_rng(env) -> BatchedEvaluationRng:
 def _reset_slot(env, slot: int, seed: int):
     rng = env.env.rng
     if isinstance(rng, BatchedEvaluationRng):
-        with rng.reset_slot(slot):
+        with rng.reset_slot(slot, full_width=getattr(env, "state", None) is None):
             obs, _ = env.reset([slot], seed=int(seed))
         return {
             key: value if value.shape[0] == 1 else value[slot : slot + 1]
@@ -208,12 +214,11 @@ def _reset_slot(env, slot: int, seed: int):
     return obs
 
 
-def reset_record(env, cfg, scale, seed, *, slot: int = 0):
-    obs = _reset_slot(env, slot, seed)
+def _current_reset_record(env, cfg, scale, slot):
     reset = env.event_manager.get_term_cfg("reset").func
     dr = env.event_manager.get_term_cfg("domain_randomization").func
     cache = resolve_grasp_cache_file(str(cfg.env.events.reset.params.grasp_cache_path), scale)
-    record = {
+    return {
         "cache_sha256": file_digest(cache),
         "cache_row": int(reset.cache_row_indices[slot]),
         "randomization": {
@@ -221,7 +226,26 @@ def reset_record(env, cfg, scale, seed, *, slot: int = 0):
             for key in ("kp", "kd", "mass", "com_offset", "gravity", "friction_scale", "scale")
         },
     }
-    return obs, record
+
+
+def reset_record(env, cfg, scale, seed, *, slot: int = 0):
+    obs = _reset_slot(env, slot, seed)
+    return obs, _current_reset_record(env, cfg, scale, slot)
+
+
+def _reset_episode_batch(env, cfg, episodes):
+    rng = env.env.rng
+    if not isinstance(rng, BatchedEvaluationRng):
+        raise TypeError("Batched evaluation requires the per-slot ManagerRng owner")
+    if getattr(env, "state", None) is None:
+        env.reset()
+    rng.seed_slots([episode["reset_seed"] for episode in episodes])
+    obs, _ = env.reset()
+    records = [
+        _current_reset_record(env, cfg, float(episode["scale"]), slot)
+        for slot, episode in enumerate(episodes)
+    ]
+    return obs, records
 
 
 def make_manifest(cfg, path):
@@ -230,6 +254,7 @@ def make_manifest(cfg, path):
     for scale_index, scale in enumerate(cfg.evaluation.scales):
         env = SharpaTeacherEnv(cfg, 1, scale=float(scale), auto_reset=False)
         try:
+            env.reset()
             for seed in cfg.evaluation.seeds:
                 for index in range(int(cfg.evaluation.episodes_per_scale)):
                     episode_seed = int(
@@ -317,24 +342,12 @@ def _rollout_episode_batch(
     if env.max_episode_length != 400 or not np.isclose(env.step_dt, 0.05):
         raise ValueError("Evaluation requires the fixed 400-step, 20-second task")
 
-    obs = None
-    for slot, episode in enumerate(episodes):
-        selected, actual = reset_record(
-            env, cfg, float(episode["scale"]), episode["reset_seed"], slot=slot
-        )
+    obs, records = _reset_episode_batch(env, cfg, episodes)
+    for episode, actual in zip(episodes, records):
         if any(actual[key] != episode[key] for key in actual):
             raise ValueError(
                 f"Scene {episode['episode_id']} cannot reproduce recorded grasp/DR values"
             )
-        if obs is None:
-            obs = {
-                key: torch.empty(
-                    (env.num_envs, *value.shape[1:]), dtype=value.dtype, device=value.device
-                )
-                for key, value in selected.items()
-            }
-        _copy_slot_obs(obs, selected, slot)
-    assert obs is not None
 
     active = torch.ones(env.num_envs, dtype=torch.bool, device=device)
     angle = torch.zeros(env.num_envs, device=device)
