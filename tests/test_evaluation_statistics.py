@@ -10,7 +10,9 @@ from sharpa_rl_unilab.training.evaluation import METRICS, aggregate_seeds, set_s
 def test_step_rng_preserves_manager_rng_owner():
     manager = ManagerRng(device="cpu")
     env = SimpleNamespace(
-        env=SimpleNamespace(rng=manager), event_manager=SimpleNamespace(active_terms={})
+        num_envs=1,
+        env=SimpleNamespace(rng=manager),
+        event_manager=SimpleNamespace(active_terms={}),
     )
     set_step_rng(env, 123, 4)
     assert env.env.rng is manager
