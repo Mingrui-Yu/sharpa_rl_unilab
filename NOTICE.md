@@ -14,3 +14,9 @@ the pinned `unilabsim/unilab-robots` and `unilabsim/unilab-caches` datasets.
 records the source revisions and file hashes; this package does not relicense
 that data. These assets ship with the repository and package; no dataset fetch
 is needed at runtime.
+
+The Sharpa SuperMimic world-model, replay and differentiable-imagination modules
+were adapted from UniSuperMimic (Apache-2.0), implementing "SuperMimic: Scaling
+Humanoid Whole-Body Control with One Differentiable World Model" (Qiayuan Liao
+et al., https://supermimic.github.io). The Sharpa adaptation replaces reference
+motion tracking with the task's analytic rotation rewards and drop termination.

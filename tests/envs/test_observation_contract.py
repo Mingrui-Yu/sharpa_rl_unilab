@@ -23,43 +23,71 @@ from sharpa_rl_unilab.tasks.sharpa_inhand.terms.randomization import SharpaDomai
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.reset import SharpaHandObjectReset
 
 
+def test_gain_randomization_accepts_manager_and_numpy_rng():
+    randomization = SharpaDomainRandomization.__new__(SharpaDomainRandomization)
+    for rng in (ManagerRng(device="cpu").manual_seed(1), np.random.default_rng(1)):
+        values = randomization._sample_split_around_one(rng, (0.5, 1.5), (2, 22))
+        assert values.shape == (2, 22)
+        assert np.isfinite(values).all()
+
+
 def make_observations(*, order=("actor", "critic", "priv_info", "proprio_hist"), **params):
     n = 2
-    raw = np.zeros((n, 15))
+    raw = torch.zeros((n, 15))
     reads = []
-
-    def read():
-        reads.append(True)
-        return raw
-
-    sensor = SimpleNamespace(names=TACTILE_SENSOR_NAMES, dimensions=(3,) * 5, read=read)
+    sensor = SimpleNamespace(names=TACTILE_SENSOR_NAMES, dimensions=(3,) * 5)
     data = SimpleNamespace(
-        joint_pos=np.zeros((n, 22)),
-        root_link_pos_w=np.zeros((n, 3)),
-        root_link_quat_w=np.tile([1.0, 0.0, 0.0, 0.0], (n, 1)),
+        joint_pos=torch.zeros((n, 22)),
+        root_link_pos_w=torch.zeros((n, 3)),
+        root_link_quat_w=torch.tensor([[1.0, 0.0, 0.0, 0.0]]).repeat(n, 1),
         actuator_ctrl_range=np.tile([-1.0, 1.0], (22, 1)),
     )
     entity = SimpleNamespace(
         data=data,
+        root_body_name="object",
         find_joints_by_actuator_names=lambda _: (np.arange(22), HAND_JOINT_NAMES),
     )
 
+    class ReadPlan:
+        def joint_tensor_view(self, _):
+            return SimpleNamespace(
+                joint_pos=data.joint_pos, joint_vel=torch.zeros_like(data.joint_pos)
+            )
+
+        def body_tensor_view(self, _, names):
+            assert tuple(names) == ("object",)
+            return SimpleNamespace(
+                pos_w=data.root_link_pos_w[:, None],
+                quat_w=data.root_link_quat_w[:, None],
+            )
+
+        def sensor_tensor_views(self, _, names):
+            reads.append(True)
+            return SimpleNamespace(
+                names=tuple(names),
+                values={
+                    name: raw[:, index * 3 : (index + 1) * 3] for index, name in enumerate(names)
+                },
+            )
+
     class Scene(dict):
+        read_plan = ReadPlan()
+
         def bind_sensor_data(self, _):
             return sensor
 
     reset = SharpaHandObjectReset.__new__(SharpaHandObjectReset)
-    reset.object_pos_anchor = np.zeros((n, 3))
+    reset.object_pos_anchor = torch.zeros((n, 3))
     dr = SharpaDomainRandomization.__new__(SharpaDomainRandomization)
-    dr.kp = dr.kd = np.ones((n, 22))
+    dr.kp = dr.kd = torch.ones((n, 22))
     dr._include_friction = True
     dr._include_gravity = False
-    dr.friction_scale = np.ones((n, 1))
-    dr.mass = np.full(n, 2.0)
-    dr.com_offset = np.tile([3.0, 4.0, 5.0], (n, 1))
-    dr.scale = np.full((n, 1), 6.0)
+    dr.friction_scale = torch.ones((n, 1))
+    dr.mass = torch.full((n,), 2.0)
+    dr.com_offset = torch.tensor([3.0, 4.0, 5.0]).repeat(n, 1)
+    dr.scale = torch.full((n, 1), 6.0)
     action = SharpaIncrementalPositionAction.__new__(SharpaIncrementalPositionAction)
-    action._target = np.zeros((n, 22))
+    action._target = torch.zeros((n, 22))
     events = {"reset": reset, "dr": dr}
     env = SimpleNamespace(
         num_envs=n,
@@ -171,7 +199,7 @@ def test_clean_critic_ignores_actor_corruption_and_call_order():
     np.testing.assert_allclose(actual["critic"].reshape(2, 3, 58)[:, -1, 44:49], 4.0)
     source = noisy[1].get_term_cfg("actor", "frame").func
     before = len(noisy[-1])
-    frame = source.frame(noisy[0], noisy=True).copy()
+    frame = source.frame(noisy[0], noisy=True).clone()
     torch.testing.assert_close(source.frame(noisy[0], noisy=True), frame)
     assert len(noisy[-1]) == before
 
@@ -219,10 +247,73 @@ def test_clean_tactile_uses_vector_norm_and_deterministic_clip():
         contact_smoothing=0.0,
         binary_contact=True,
     )
-    raw[:] = np.tile([3.0, 4.0, 0.0], 5)
+    raw[:] = torch.tensor([3.0, 4.0, 0.0]).repeat(5)
     obs = manager.compute(update_history=True)
     np.testing.assert_allclose(obs["critic"].reshape(2, 3, 58)[:, :, 44:49], 4.0)
     np.testing.assert_allclose(obs["actor"].reshape(2, 3, 49)[:, :, 44:], 0.0)
+
+
+def test_observation_hot_path_has_no_host_conversion(monkeypatch):
+    env, manager, data, raw, action, _ = make_observations(joint_noise=0.02)
+    manager.compute(update_history=True)
+    mark_step(env, data, raw, action, 1.0)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("observation hot path requested a host conversion")
+
+    from sharpa_rl_unilab.tasks.sharpa_inhand.terms import compat
+
+    monkeypatch.setattr(compat, "host_numpy", forbidden)
+    monkeypatch.setattr(compat, "manager_tensor", forbidden)
+    monkeypatch.setattr(compat, "rng_numpy", forbidden)
+    monkeypatch.setattr(torch.Tensor, "cpu", forbidden)
+    monkeypatch.setattr(torch.Tensor, "numpy", forbidden)
+    obs = manager.compute(update_history=True)
+    assert all(isinstance(value, torch.Tensor) for value in obs.values())
+
+    from sharpa_rl_unilab.tasks.sharpa_inhand.terms import rewards
+    from sharpa_rl_unilab.tasks.sharpa_inhand.terms.termination import SharpaDropTermination
+
+    source = manager.get_term_cfg("actor", "frame").func
+    source.task_state.reset_height_lower = torch.full((env.num_envs,), -1.0)
+    source.task_state.reset_height_upper = torch.full((env.num_envs,), 100.0)
+    source.task_state.rotation_axis = torch.tensor([0.0, 0.0, 1.0]).repeat(env.num_envs, 1)
+    termination = SharpaDropTermination.__new__(SharpaDropTermination)
+    termination.observation = source
+    termination.dropped = torch.zeros(env.num_envs, dtype=torch.bool)
+    env.termination_manager = SimpleNamespace(
+        get_term_cfg=lambda _: SimpleNamespace(func=termination)
+    )
+    assert not termination(env).any()
+    reward_values = (
+        rewards.rotate_reward(env, "dropped"),
+        rewards.object_linear_velocity_l1(env, "dropped"),
+        rewards.hand_pose_deviation_l2(env, "dropped"),
+        rewards.estimated_torque_l2(env, "dropped"),
+        rewards.estimated_work_l2(env, "dropped"),
+        rewards.object_position_reward(env, "dropped"),
+    )
+    assert all(isinstance(value, torch.Tensor) for value in reward_values)
+
+
+def test_torch_quat_velocity_matches_legacy_numpy_snapshot():
+    from sharpa_rl_unilab.tasks.sharpa_inhand.terms.geometry import (
+        np_quat_angular_velocity_from_pair,
+        torch_quat_angular_velocity_from_pair,
+    )
+
+    rng = np.random.default_rng(19)
+    previous = rng.normal(size=(16, 4)).astype(np.float32)
+    current = previous + rng.normal(scale=0.02, size=(16, 4)).astype(np.float32)
+    previous /= np.linalg.norm(previous, axis=1, keepdims=True)
+    current /= np.linalg.norm(current, axis=1, keepdims=True)
+    expected = np_quat_angular_velocity_from_pair(current, previous, 0.05)
+    actual = torch_quat_angular_velocity_from_pair(
+        torch.from_numpy(current), torch.from_numpy(previous), 0.05
+    )
+    torch.testing.assert_close(
+        actual, torch.from_numpy(expected).to(actual.dtype), rtol=1e-5, atol=1e-6
+    )
 
 
 @pytest.mark.slow
@@ -262,8 +353,8 @@ def test_mujoco_autoreset_and_simultaneous_termination(monkeypatch):
         )
         source = env.termination_manager.get_term_cfg("dropped").func.observation
         done_host = done.detach().cpu()
-        np.testing.assert_allclose(source.dof_vel[done_host], 0.0)
-        np.testing.assert_allclose(source.object_linvel[done_host], 0.0)
+        np.testing.assert_allclose(source.dof_vel[done_host].cpu(), 0.0)
+        np.testing.assert_allclose(source.object_linvel[done_host].cpu(), 0.0)
         if "critic" in state.obs:
             clean = state.obs["critic"].reshape(8, 3, 58)[:, -1]
             frame = torch.as_tensor(
@@ -278,8 +369,8 @@ def test_mujoco_autoreset_and_simultaneous_termination(monkeypatch):
 
         def force_drop(self, env, **kwargs):
             original_drop(self, env, **kwargs)
-            self.dropped.fill(True)
-            return torch.as_tensor(self.dropped, device=env.device)
+            self.dropped.fill_(True)
+            return self.dropped
 
         monkeypatch.setattr(SharpaDropTermination, "__call__", force_drop)
         state = env.step(torch.zeros((8, 22)))

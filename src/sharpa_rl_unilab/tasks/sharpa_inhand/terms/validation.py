@@ -85,6 +85,16 @@ def resolve_env_ids(
     return numpy_ids(env_ids, env.num_envs).astype(np.int32, copy=False)
 
 
+def resolve_tensor_env_ids(env: ManagerBasedRlEnv, env_ids: Tensor | slice | None) -> Tensor:
+    import torch
+
+    if env_ids is None:
+        return torch.arange(env.num_envs, dtype=torch.int64, device=env.device)
+    if isinstance(env_ids, slice):
+        return torch.arange(env.num_envs, dtype=torch.int64, device=env.device)[env_ids]
+    return env_ids.to(device=env.device, dtype=torch.int64)
+
+
 def validate_term_params(term: str, cfg: ManagerTermBaseCfg, allowed: set[str]) -> None:
     unexpected = set(cfg.params) - allowed
     if unexpected:

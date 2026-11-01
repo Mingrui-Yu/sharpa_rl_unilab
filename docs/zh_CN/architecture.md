@@ -21,7 +21,7 @@ YAML 声明场景实体和 manager terms；Python term 通过 Entity API 访问�
 | CLI 参数与配置合并 | `cli.py` |
 | 公共物理任务 | `conf/common/sharpa_task.yaml` |
 | HORA 观测、模型和运行参数 | `conf/common/sharpa_inhand.yaml` |
-| 算法参数、抓取配置 | `conf/{ppo,appo,flashsac}/` |
+| 算法参数、抓取配置 | `conf/{supermimic,ppo,appo,flashsac}/` |
 | 任务注册、固定尺度与时间步 | `tasks/sharpa_inhand/{config,rotation_registry,grasp_registry}.py` |
 | 动作、观测、奖励、重置和随机化 | `tasks/sharpa_inhand/terms/` |
 | 固定观测协议与构建期校验 | `tasks/sharpa_inhand/protocol.py` |
@@ -46,23 +46,24 @@ YAML 声明场景实体和 manager terms；Python term 通过 Entity API 访问�
 
 | 输入 | 形状 | 内容与使用方 |
 | --- | --- | --- |
-| `obs` | `[N,147]` | 带噪基础帧 49 × 3；teacher/student Actor 共用 |
+| `obs` | `[N,147]` | 带噪基础帧 49 × 3；SuperMimic 直接 Actor 与 HORA teacher/student Actor 使用 |
 | `critic` | `[N,174]` | 每帧 clean 基础 49 + 特权 9，堆叠 3 帧；仅 Critic 使用 |
-| `priv_info` | `[N,9]` | 当前原始特权信息；teacher 编码器使用 |
-| `proprio_hist` | `[N,30,49]` | 与 `obs` 同源的带噪历史，从旧到新；student 编码器使用 |
+| `priv_info` | `[N,9]` | 当前原始特权信息；HORA teacher 编码器使用，SuperMimic Actor 不读取 |
+| `proprio_hist` | `[N,30,49]` | 与 `obs` 同源的带噪历史，从旧到新；HORA student 编码器使用 |
 
-Teacher 将特权信息编码后与基础观测拼接，输出动作。
-Student 用历史编码器替代特权编码器；其余策略部分继承 teacher。
-PPO/APPO 使用独立的 V 网络，FlashSAC 使用分布式双 Q 和目标 Q。
+SuperMimic 默认使用 HORA 特权编码器；设置 `algo.single_stage=true` 后，Actor 直接将
+基础观测历史映射为动作，特权状态只进入 critic 与世界模型训练。HORA Student 用历史编码器
+替代特权编码器。PPO/APPO 使用独立的 V 网络，FlashSAC 使用分布式双 Q 和目标 Q。
 v2 维度固定；不兼容的触觉、特权信息和历史设置在构建阶段拒绝，错误会指出字段及协议要求。
 
 一次控制步只读取一次传感器。Clean 触觉保留取模和确定性限幅，
 不经过 Actor 的平滑、延迟和噪声；clean 观测不代表完整的马尔可夫状态。
 
-## 三种算法的接入
+## 四种算法的接入
 
 | 算法 | 复用组件 | Sharpa 负责的适配 |
 | --- | --- | --- |
+| SuperMimic | Uni-SuperMimic 多步世界模型、replay 与可微想象训练 | 物理/触觉状态采集、Sharpa 解析奖励、软掉落终止、HORA teacher checkpoint 与可选无特权 direct checkpoint |
 | PPO | RSL-RL `PPO`、`RolloutStorage` | 四组输入、终止 bootstrap、短 rollout 和预算调度 |
 | APPO | uni_rl APPO/V-trace、`RolloutStagingPool` | 独立 collector、有界队列、策略版本、历史复用及预算调度 |
 | FlashSAC | `DoubleBufferOffPolicyRunner`、原生 replay 与 learner 损失 | 观测传输、新数据统计、公共 checkpoint 和计数 |
@@ -92,6 +93,8 @@ APPO 只覆盖策略/价值前向及分布钩子，保留上游损失实现。
 - **归一化**：每条新接收 transition 的当前观测只累计一次。
   下一观测、重复 epoch、staging 和 replay 重采样不累计；评估冻结全部统计。
   Actor 与 Critic 统计独立；FlashSAC 当前 Q 与目标 Q 共用统计，目标参数软更新不混合统计。
+  SuperMimic 的 Actor 和世界模型同样只累计新数据，Critic 还按 SuperMimic λ-return
+  更新方式归一化想象特征；评估始终冻结统计。
 - **行为策略**：PPO/APPO 保存原始高斯动作及采样时的 log-prob，环境执行 clip/tanh 映射后的动作。
   APPO 的版本号、权重和统计整体同步，collector 只在 rollout 边界安装新版本。
   各 rollout 保留独立末帧，避免跨轨迹拼接。

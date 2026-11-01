@@ -1,11 +1,7 @@
 """Small adapters at UniLab 1.5's Torch Manager boundary.
 
-Sharpa's entity reads, reset writes, and cached task state remain NumPy arrays
-because the MuJoCo HOST_BRIDGE public carrier is CPU-resident. UniLab 1.5,
-however, requires Manager observations, rewards, terminations, selectors, and
-actions to be Torch tensors. These helpers keep that conversion explicit and
-fail closed instead of spreading implicit Tensor/ndarray behavior through task
-terms.
+Runtime state stays in the scene's packed Torch read plan. NumPy adapters are
+limited to cold configuration, explicit reset sampling and host-only tooling.
 """
 
 from __future__ import annotations
@@ -37,13 +33,29 @@ def numpy_dtype(dtype: torch.dtype = torch.float32) -> np.dtype[Any]:
 
 def manager_tensor(
     env: ManagerBasedRlEnv,
-    value: np.ndarray | tuple[Any, ...] | list[Any],
+    value: torch.Tensor | np.ndarray | tuple[Any, ...] | list[Any],
     *,
     dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
-    """Materialize a NumPy Manager term result on the environment carrier."""
+    """Publish a Manager result without recopying an existing device tensor."""
+    if isinstance(value, torch.Tensor):
+        if value.device == env.device and value.dtype == dtype and value.is_contiguous():
+            return value
+        return value.to(device=env.device, dtype=dtype).contiguous()
     array = np.ascontiguousarray(value, dtype=numpy_dtype(dtype))
     return torch.from_numpy(array).to(device=env.device, dtype=dtype)
+
+
+def rng_tensor(
+    value: torch.Tensor | np.ndarray,
+    *,
+    device: torch.device,
+    dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    """Keep ManagerRng draws resident; NumPy draws are an explicit fallback."""
+    if isinstance(value, torch.Tensor):
+        return value.to(device=device, dtype=dtype)
+    return torch.as_tensor(value, device=device, dtype=dtype)
 
 
 def numpy_ids(env_ids: torch.Tensor | np.ndarray | slice | None, num_envs: int) -> np.ndarray:
@@ -64,6 +76,17 @@ def rng_numpy(
     if isinstance(value, torch.Tensor):
         value = value.detach().cpu().numpy()
     return np.ascontiguousarray(value, dtype=dtype)
+
+
+def rng_random(
+    rng: Any, size: int | tuple[int, ...], *, dtype: torch.dtype = torch.float32
+) -> np.ndarray:
+    """Draw random values from ManagerRng or a NumPy generator."""
+    try:
+        value = rng.random(size, dtype=dtype)  # type: ignore[union-attr]
+    except TypeError:
+        value = rng.random(size, dtype=numpy_dtype(dtype))  # type: ignore[union-attr]
+    return rng_numpy(value, dtype=numpy_dtype(dtype))
 
 
 def rng_uniform(

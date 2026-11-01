@@ -1,11 +1,59 @@
-# UniLab Sharpa 手内操作与 HORA
+# UniLab Sharpa 手内操作
 
-Sharpa Wave 手内旋转任务使用 UniLab 当前 **Manager-Based API**。任务只
+本仓库是一套面向 Sharpa Wave 22 自由度灵巧手的 UniLab 触觉手内操作研究栈，
+包含 Manager-Based MuJoCo/MJWarp 任务、机器人与物体资产、grasp cache、
+固定场景确定性评估、checkpoint 工具和视频回放。SuperMimic、PPO、APPO、
+FlashSAC 训练同一个圆柱旋转任务：标准流程先训练特权 HORA teacher，再蒸馏
+为仅观测 student；SuperMimic 也可通过可微世界模型单阶段直接训练可部署 actor。
+
+## 结果
+
+### SuperMimic 单阶段训练
+
+可选 SuperMimic 单阶段路径直接训练仅观测、可部署的 actor，无需
+teacher/student 蒸馏；actor 使用 147 维观测历史，训练 critic 保留特权状态。
+在单卡 RTX 4090 与 MJWarp 上，它完成 3000 iterations、3,971,072 transitions，
+用时 686 秒，吞吐量 5,789 transitions/s。
+
+两个策略均使用同一份固定 240 场景清单和 20 秒评估窗口：
+
+| SuperMimic 策略 | 蒸馏 | Return | 固定窗口转速 (rad/s) | 旋转角 (rad) | 存活时间 (s) | 掉落率 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 特权 teacher | 部署前需要蒸馏 | 45.33 | 0.784 | 15.68 | 19.56 | 1.25% |
+| 单阶段 direct actor | 无 | 43.59 | 0.671 | 13.42 | 19.41 | 2.08% |
+
+direct actor 取得 43.59 return，完成 13.42 rad 旋转，存活 19.41 秒，同时省去了
+独立蒸馏阶段。
+
+## 演示
+
+| 真实机器人 | APPO | FlashSAC | SuperMimic direct |
+| --- | --- | --- | --- |
+| ![真实机器人部署 rollout](docs/media/sharpa-real-eval.gif) | ![APPO 评估 rollout](docs/media/sharpa-appo-eval.gif) | ![FlashSAC 评估 rollout](docs/media/sharpa-flashsac-eval.gif) | ![单阶段 SuperMimic rollout](docs/media/sharpa-supermimic-direct-rollout.gif) |
+
+## Manager-Based API
+
+Sharpa Wave 灵巧手手内旋转任务使用 UniLab 当前 **Manager-Based API**。任务
 拥有 action / observation / reset / event / termination / reward terms；
 UniLab 保持外部依赖，负责 manager 生命周期与仿真后端。
 
-支持 PPO、APPO、FlashSAC teacher，三种算法默认共用 HORA 策略与 student
-蒸馏流程；Critic 保留各算法所需的 V/Q 结构。
+四种算法默认共享 HORA teacher 训练与 student 蒸馏流程。SuperMimic 额外
+支持带特权训练 critic 的仅观测单阶段 actor；各算法保留自己的 V/Q critic 结构。
+
+## SuperMimic 训练亮点
+
+可选 direct 路径无需 teacher/student 蒸馏，但训练时仍保留特权 critic。在单
+seed、单卡 RTX 4090 的 MJWarp 验证中，该路径完成 3000 iterations
+（3,971,072 transitions）用时 686 秒。下表两个策略均使用同一份固定 240 场景
+清单评估：
+
+| SuperMimic 路径 | Return | 固定窗口转速 (rad/s) | 旋转角 (rad) | 存活时间 (s) | 掉落率 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 默认特权 HORA teacher | 45.33 | 0.784 | 15.68 | 19.56 | 1.25% |
+| 可选仅观测 direct actor | 43.59 | 0.671 | 13.42 | 19.41 | 2.08% |
+
+以上为单 seed 的任务内仿真结果。与 [Awesome SuperMimic](https://github.com/miao-org/awesome-supermimic)
+收录的其他社区报告一样，跨项目比较前必须考虑奖励、任务时域与评测协议差异。
 
 ## 安装与校验
 
@@ -14,12 +62,13 @@ UniLab 1.5.4 及其 CUDA Torch wheel 会从已配置的包索引解析。
 ```bash
 git clone https://github.com/unilabsim/sharpa_rl_unilab.git
 cd sharpa_rl_unilab
-uv sync --extra mujoco
+uv sync
 uv run pytest
 uv run pyright
 ```
 
-若使用 pip，可在独立虚拟环境中运行 `pip install ".[mujoco]"`。训练使用
+若使用 pip，可在独立虚拟环境中运行 `pip install .`。默认安装 MuJoCo 和
+MJWarp；MJWarp 需要 CUDA，四种 teacher 算法均支持 `--sim mjwarp`。训练使用
 UniLab 集成的 tensor-native RL runtime：PPO/APPO 采样与 FlashSAC
 推理/replay 的观测、动作、奖励和结束标志均保持 Torch tensor 边界，CUDA
 训练热路径驻留 GPU。
@@ -29,7 +78,7 @@ UniLab 集成的 tensor-native RL runtime：PPO/APPO 采样与 FlashSAC
 
 ## 快速上手
 
-安装完成后，在仓库根目录一键依次训练 PPO、APPO、FlashSAC，让 Sharpa Wave 手学习手内旋转圆柱体：
+安装完成后，在仓库根目录一键依次训练 SuperMimic、PPO、APPO、FlashSAC，让 Sharpa Wave 手学习手内旋转圆柱体：
 
 ```bash
 uv run sharpa-compare
@@ -47,6 +96,9 @@ uv run tensorboard --logdir logs/compare
 ## 训练、评估与蒸馏
 
 ```bash
+uv run sharpa-train --algo supermimic
+# 可选单阶段 SuperMimic，不走 teacher/student 蒸馏：
+uv run sharpa-train --algo supermimic algo.single_stage=true
 uv run sharpa-train --algo appo
 uv run sharpa-train --algo flashsac
 uv run sharpa-train --algo ppo
@@ -54,22 +106,24 @@ uv run sharpa-train --algo ppo
 
 `--cfg` 可打印合成后的 Manager-Based 配置。可在命令末尾追加 Hydra 参数覆盖。
 
-训练结束后保存 `teacher_final.pt`，并在同目录录制 `play_video.mp4`。
-无显示器的 Linux 机器使用 EGL 或 OSMesa 离屏渲染；Ubuntu/Debian 需要安装
-`libegl1` 并使用可用的 NVIDIA 图形驱动，或安装 `libosmesa6` 使用软件渲染。
-`uv sync` 不会安装这些系统依赖；无需录制时可设置 `training.no_play=true`。
+默认训练结束后保存 `teacher_final.pt`，可选单阶段 SuperMimic 保存可直接评估的
+`policy_final.pt`，并在同目录录制 `play_video.mp4`。无显示器的 Linux 机器使用
+EGL 或 OSMesa 离屏渲染；Ubuntu/Debian 需要安装 `libegl1` 并使用可用的 NVIDIA
+图形驱动，或安装 `libosmesa6` 使用软件渲染。`uv sync` 不会安装这些系统依赖；
+无需录制时可设置 `training.no_play=true`。
 
-评估与蒸馏直接指定 checkpoint 文件：
+评估与 HORA 蒸馏直接指定 checkpoint 文件：
 
 ```bash
+uv run sharpa-eval --checkpoint /absolute/path/to/policy_final.pt
 uv run sharpa-eval --checkpoint /absolute/path/to/teacher_final.pt
 uv run sharpa-distill --checkpoint /absolute/path/to/teacher_final.pt
 uv run sharpa-eval --checkpoint /absolute/path/to/student_final.pt
 ```
 
-`uv run sharpa-compare` 按默认配置依次训练三种算法；追加
-`--distill --eval --num-seeds 3` 可运行多 seed 蒸馏与评估。
-各算法使用各自的训练预算，不保证等采样量或等计算成本。
+`uv run sharpa-compare` 按默认配置依次训练四种算法；追加
+`--distill --eval --num-seeds 3` 可运行多 seed 蒸馏与评估。各算法使用各自的训练预算，
+不保证等采样量或等计算成本。
 
 任务背景见[手内旋转](docs/zh_CN/task.md)，操作步骤、运行限制和 checkpoint 兼容范围
 见[训练指南](docs/zh_CN/training.md)。

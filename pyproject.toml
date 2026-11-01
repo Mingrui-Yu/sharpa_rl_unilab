@@ -5,20 +5,19 @@ build-backend = "uv_build"
 [project]
 name = "sharpa_rl-unilab"
 version = "0.1.0"
-description = "Sharpa Wave in-hand manipulation tasks and the HORA teacher/student algorithms"
+description = "Sharpa Wave in-hand tasks with SuperMimic and HORA algorithms"
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 dependencies = [
-    "unilab==1.5.4",
+    "unilab[mujoco,mjwarp]==1.5.4",
     "numpy", "torch>=2.9,<2.15", "tensordict", "hydra-core>=1.3", "rsl-rl-lib>=5.5,<6",
     "filelock", "tensorboard",
     "imageio", "imageio-ffmpeg>=0.6.0",
 ]
 
 [project.optional-dependencies]
-mujoco = ["unilab[mujoco]"]
 export = ["onnx", "onnxscript", "onnxruntime"]
 evaluation = ["matplotlib"]
 

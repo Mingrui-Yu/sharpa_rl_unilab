@@ -133,8 +133,8 @@ def test_grasp_recorder_runs_at_real_mujoco_reset_boundary(tmp_path, monkeypatch
     def allow_timeout(self, env, **params):
         # Exercise recorder/reset wiring independently of stochastic grasp success.
         self.observation.snapshot(env)
-        self.invalid.fill(False)
-        return torch.as_tensor(self.invalid)
+        self.invalid.fill_(False)
+        return self.invalid
 
     monkeypatch.setattr(SharpaGraspQualityTermination, "__call__", allow_timeout)
     overrides = EnvConfigAdapter(cfg, root_dir=".", algo_name="ppo").build_task_env_cfg_override()

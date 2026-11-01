@@ -24,6 +24,10 @@ from sharpa_rl_unilab.tasks.sharpa_inhand.terms.cache import (
         ("ppo", "mujoco", "sharpa_inhand_grasp"),
         ("appo", "mujoco", "sharpa_inhand"),
         ("flashsac", "mujoco", "sharpa_inhand"),
+        ("supermimic", "mjwarp", "sharpa_inhand"),
+        ("ppo", "mjwarp", "sharpa_inhand"),
+        ("appo", "mjwarp", "sharpa_inhand"),
+        ("flashsac", "mjwarp", "sharpa_inhand"),
     ],
 )
 def test_owner_composition_and_identity(algo, sim, task):

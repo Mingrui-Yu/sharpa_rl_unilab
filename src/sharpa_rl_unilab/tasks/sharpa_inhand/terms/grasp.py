@@ -6,16 +6,12 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import torch
-from unilab.base.rotation import np_quat_error_magnitude
 from unilab.base.run_control import RunComplete
 from unilab.managers import ManagerTermBase, RecorderTerm, RecorderTermCfg
 
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.cache import grasp_cache_output_file
-from sharpa_rl_unilab.tasks.sharpa_inhand.terms.compat import (
-    host_numpy,
-    manager_tensor,
-    numpy_ids,
-)
+from sharpa_rl_unilab.tasks.sharpa_inhand.terms.compat import host_numpy, numpy_ids
+from sharpa_rl_unilab.tasks.sharpa_inhand.terms.geometry import torch_quat_error_magnitude
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation import SharpaRotationObservation
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.reset import SharpaHandObjectReset
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.validation import (
@@ -79,7 +75,7 @@ class SharpaGraspQualityTermination(ManagerTermBase):
             cfg.params.get("minimum_contacts", 3),
             positive=True,
         )
-        self.invalid = np.zeros(env.num_envs, dtype=np.bool_)
+        self.invalid = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
         self._last_counter = int(env.common_step_counter)
 
     @property
@@ -87,31 +83,30 @@ class SharpaGraspQualityTermination(ManagerTermBase):
         return self._last_counter
 
     def reset(self, env_ids: np.ndarray | slice | None = None) -> None:
-        self.invalid[resolve_env_ids(self._env, env_ids)] = False
+        ids = torch.as_tensor(
+            resolve_env_ids(self._env, env_ids), dtype=torch.int64, device=self._env.device
+        )
+        self.invalid[ids] = False
         self._last_counter = int(cast("SharpaEnv", self._env).common_step_counter)
 
     def __call__(self, env: SharpaEnv, **params: Any) -> torch.Tensor:
         del params
         state = self.observation.snapshot(env)
         height = state.object_pos[:, 2]
-        center = self.task_state.object_default_pose[:, 2]
+        default_pose = self.task_state._object_default_pose_tensor
         contacts = (
-            state._tactile_output
-            if self.observation._enable_tactile
-            else np.zeros((env.num_envs, 0))
+            state._tactile_output if self.observation._enable_tactile else state.object_pos[:, :0]
         )
-        enough_contacts = np.sum(contacts > 0.5, axis=1) >= self._minimum_contacts
-        orientation_error = np_quat_error_magnitude(
-            self.task_state.object_default_pose[:, 3:7], state.object_quat
-        )
+        enough_contacts = (contacts > 0.5).sum(dim=1) >= self._minimum_contacts
+        orientation_error = torch_quat_error_magnitude(default_pose[:, 3:7], state.object_quat)
         valid = (
-            (np.abs(height - center) <= self._height_band)
+            ((height - default_pose[:, 2]).abs() <= self._height_band)
             & enough_contacts
             & (orientation_error < self._orientation_error)
         )
         self.invalid[:] = ~valid
         self._last_counter = int(env.common_step_counter)
-        return manager_tensor(env, self.invalid, dtype=torch.bool)
+        return self.invalid
 
 
 class SharpaGraspRecorder(RecorderTerm):
@@ -192,9 +187,9 @@ class SharpaGraspRecorder(RecorderTerm):
             state = self._observation
             rows = np.concatenate(
                 (
-                    state.dof_pos[success_ids],
-                    state.object_pos[success_ids],
-                    state.object_quat[success_ids],
+                    host_numpy(state.dof_pos[success_ids]),
+                    host_numpy(state.object_pos[success_ids]),
+                    host_numpy(state.object_quat[success_ids]),
                 ),
                 axis=1,
                 dtype=np.float32,
