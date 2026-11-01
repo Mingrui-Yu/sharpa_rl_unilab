@@ -20,27 +20,46 @@ bash src/sharpa_rl_unilab/tools/sharpa_collect_grasps.sh 0.8 0.9 1 1.1 1.2 1.3 1
 
 生成的数据优先于内置缓存，不受资产修复和 manifest 更新影响；采集进度与停止目标按抓取条数统计。
 
-## 2. 训练 teacher
+## 2. 训练策略
 
-以 APPO 为例；将 `--algo appo` 改为 `ppo` 或 `flashsac` 可切换算法。PPO、APPO、FlashSAC 共用 HORA Actor 与高斯分布实现。
+SuperMimic 默认使用 HORA teacher 训练：从真实 transition 学习多步可微世界模型，
+再用 Sharpa 解析奖励和软掉落终止在想象轨迹中优化 teacher。PPO、APPO、FlashSAC
+使用相同的 teacher/student 流程。
+
+SuperMimic 另提供显式可选的单阶段训练。Actor 只接收 147 维可测观测历史，特权信息
+仅供 critic 和世界模型训练使用，不需要后续蒸馏：
 
 ```bash
-uv run sharpa-train --algo appo
+uv run sharpa-train --algo supermimic algo.single_stage=true
 ```
 
-默认输出到 `logs/<算法>/seed_<seed>_<时间戳>/`，最终模型为 `teacher_final.pt`，
-包含运行配置和归一化统计。同目录保存配置快照、`metrics.jsonl` 和 TensorBoard 日志。
+```bash
+uv run sharpa-train --algo supermimic
+uv run sharpa-train --algo appo
+uv run sharpa-train --algo ppo
+uv run sharpa-train --algo flashsac
+# 四种算法均支持 CUDA 上的 MJWarp，依赖默认安装：
+uv run sharpa-train --algo supermimic --sim mjwarp
+uv run sharpa-train --algo appo --sim mjwarp
+uv run sharpa-train --algo ppo --sim mjwarp
+uv run sharpa-train --algo flashsac --sim mjwarp
+```
 
-## 3. 蒸馏 student
+默认输出到 `logs/<算法>/seed_<seed>_<时间戳>/`。默认训练最终模型为
+`teacher_final.pt`，可选单阶段 SuperMimic 为 `policy_final.pt`，均包含运行配置和归一化统计。
+同目录保存配置快照、`metrics.jsonl` 和 TensorBoard 日志。
 
-加载 teacher，训练历史编码器来拟合 teacher 的特权表示。
-Teacher 的策略和基础归一化统计保持冻结。
+## 3. 蒸馏 HORA student
+
+对默认 SuperMimic、PPO、APPO 或 FlashSAC，加载 teacher，训练历史编码器来拟合
+teacher 的特权表示；teacher 的策略和基础归一化统计保持冻结。可选单阶段
+SuperMimic 不需要也不支持此步骤。
 
 ```bash
 uv run sharpa-distill --checkpoint /path/to/teacher_final.pt
 ```
 
-将 `/path/to/teacher_final.pt` 替换为实际文件路径。
+将 `/path/to/teacher_final.pt` 替换为实际 HORA teacher 路径。
 默认输出到 `logs/hora_distill/<算法>_seed_<seed>_<时间戳>/`，最终模型为 `student_final.pt`。
 
 ## 4. 评估与算法比较
@@ -48,6 +67,7 @@ uv run sharpa-distill --checkpoint /path/to/teacher_final.pt
 评估时直接指定 checkpoint：
 
 ```bash
+uv run sharpa-eval --checkpoint /path/to/policy_final.pt
 uv run sharpa-eval --checkpoint /path/to/teacher_final.pt
 ```
 
@@ -58,16 +78,22 @@ uv run sharpa-eval --checkpoint /path/to/teacher_final.pt
 结果记录回报、存活时间、掉落率、有符号旋转角，以及按固定窗口和实际存活时间计算的转速。
 结果保存为 checkpoint 旁的 `<模型名>.evaluation.json`，场景清单为 `scenes.json`。
 
-统一训练三种算法：
+评估在每个尺度的单个批量 TorchEnv 内并发 episode；`evaluation.batch_size=N`
+设置最大批量（默认 32），设为 1 可串行调度。reset seed、扰动流、终止状态和指标均按槽位隔离。
+包括持续外力和观测噪声在内的 Manager 随机数统一使用 UniLab 的 Torch `ManagerRng` owner，
+不再安装 NumPy 仿真 RNG。同一 manifest 和批量配置可确定性复现。不同批量可能放大
+MJWarp 接触仿真的微小浮点差异，因此不保证跨批量轨迹逐值一致。
+
+统一训练四种算法：
 
 ```bash
 uv run sharpa-compare
 ```
 
-默认仅训练每种算法的一个 teacher。需要蒸馏时追加 `--distill`，需要评估时追加 `--eval`；
-`--num-seeds N` 从各算法配置的 seed 起连续取 N 个。
-启用对应阶段后，所有 teacher 完成才开始 student，全部训练完成后再评估。
-输出位于 `logs/compare/seed_<seed>_<时间戳>/<算法>/`，student 位于其 `student/` 子目录。
+默认每种算法训练一个 teacher seed。需要蒸馏时追加 `--distill`，需要评估时追加 `--eval`；
+`--num-seeds N` 从各算法配置的 seed 起连续取 N 个。默认蒸馏覆盖全部四种算法，
+全部训练完成后再评估。
+输出位于 `logs/compare/seed_<seed>_<时间戳>/<算法>/`，HORA student 位于其 `student/` 子目录。
 所有评估共用第一个 seed 目录下的场景清单；各算法使用自己的预算，不保证等采样量或耗时。
 该命令不自动汇总多 seed 或绘图。比较多 seed 时，以训练 seed 为独立重复，避免把 episode 当作独立训练结果。
 
@@ -94,8 +120,9 @@ uv run sharpa-train --algo appo training.num_envs=1024
 | 输出目录 | 默认自动创建；用 `training.log_dir=/path/to/new_run` 指定尚不存在的目录 |
 | 设备 | `training.device=cuda:0`；`null` 自动选择 CUDA、MPS、CPU；APPO 的 `algo.collector_device=null` 跟随 learner |
 | 每进程线程 | `training.torch_threads.*`：learner/collector 各 4 个 intra-op、1 个 inter-op 线程 |
-| Teacher 轮数 | `algo.max_iterations`：PPO/APPO 为 501，FlashSAC 为 2000 |
-| Teacher 保存间隔 | `algo.save_interval`：PPO/APPO 为 50，FlashSAC 为 500；0 关闭中间保存，正常结束仍保存 final |
+| 训练轮数 | `algo.max_iterations`：SuperMimic 为 3000，FlashSAC 为 2000，PPO/APPO 为 501 |
+| 保存间隔 | `algo.save_interval`：PPO/APPO 为 50，SuperMimic 为 1000，FlashSAC 为 500；0 关闭中间保存，正常结束仍保存 final |
+| SuperMimic 更新与编译 | `algo.utd=1.6` 控制更新/真实采集比；CUDA 默认 `algo.compile=true`，编译多步世界模型与想象步 |
 | FlashSAC 精度 | `algo.use_amp=true`；设为 `false` 关闭混合精度 |
 | Student 预算 | `distillation.transitions=100000000`、`distillation.num_envs=4096` |
 | Student 学习率 | `distillation.learning_rate=0.0003` |
@@ -104,7 +131,8 @@ uv run sharpa-train --algo appo training.num_envs=1024
 | 录像 | 默认训练后保存 `play_video.mp4`；`training.no_play=true` 关闭录像 |
 
 用 `uv run tensorboard --logdir logs` 查看曲线，横轴为实际接收的新 transition 数。
-中间 teacher 文件名为 `teacher_iteration_N.pt`。采样数与数据复用次数分别记录，不能用轮数推算实际采样量。
+SuperMimic 中间文件为 `policy_iteration_N.pt`，HORA teacher 为 `teacher_iteration_N.pt`。
+采样数与数据复用次数分别记录，不能用轮数推算实际采样量。
 
 录像用于查看动作，定量评估需单独执行。无显示器的 Linux 机器需要 EGL 或 OSMesa，
 安装说明见 [README](../../README_zh.md#训练评估与蒸馏)。

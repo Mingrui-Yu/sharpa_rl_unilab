@@ -6,9 +6,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
+import torch
 from unilab.dtype_config import get_global_dtype
 from unilab.managers import ActionTerm, ActionTermCfg
 
+from sharpa_rl_unilab.tasks.sharpa_inhand.terms.compat import entity_host_data, numpy_dtype
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.constants import (
     ACTUATOR_NAMES,
     HAND_JOINT_NAMES,
@@ -25,7 +27,7 @@ from sharpa_rl_unilab.tasks.sharpa_inhand.terms.validation import (
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity
-    from unilab.managers._types import ManagerBasedRlEnv
+    from unilab.managers.types import ManagerBasedRlEnv
 
 
 @dataclass(kw_only=True)
@@ -65,7 +67,10 @@ class SharpaIncrementalPositionAction(ActionTerm):
         self._joint_ids.setflags(write=False)
         self._actuator_ids = np.asarray(actuator_ids, dtype=np.intp)
         self._actuator_ids.setflags(write=False)
-        ranges = np.asarray(self._entity.data.actuator_ctrl_range, dtype=get_global_dtype())
+        ranges = np.asarray(
+            entity_host_data(self._entity, "actuator_ctrl_range"),
+            dtype=numpy_dtype(get_global_dtype()),
+        )
         self._ctrl_lower = np.array(ranges[self._actuator_ids, 0], copy=True)
         self._ctrl_upper = np.array(ranges[self._actuator_ids, 1], copy=True)
         if np.any(self._ctrl_lower >= self._ctrl_upper):
@@ -79,25 +84,34 @@ class SharpaIncrementalPositionAction(ActionTerm):
         if self._dof_limits_scale == 0.0:
             raise ValueError(f"{term} dof_limits_scale must be positive")
 
-        dtype = get_global_dtype()
-        self._raw_action = np.zeros((env.num_envs, NUM_HAND_JOINTS), dtype=dtype)
-        self._clipped_action = np.zeros_like(self._raw_action)
-        self._target = np.broadcast_to(
-            SOURCE_DEFAULT_HAND_JOINT_POS.astype(dtype), (env.num_envs, NUM_HAND_JOINTS)
-        ).copy()
-        self._target_lower = self._ctrl_lower * self._dof_limits_scale
-        self._target_upper = self._ctrl_upper * self._dof_limits_scale
+        dtype = numpy_dtype(get_global_dtype())
+        self._raw_action = torch.zeros(
+            (env.num_envs, NUM_HAND_JOINTS), dtype=torch.float32, device=env.device
+        )
+        self._clipped_action = torch.zeros_like(self._raw_action)
+        self._target = torch.from_numpy(
+            np.broadcast_to(
+                SOURCE_DEFAULT_HAND_JOINT_POS.astype(dtype),
+                (env.num_envs, NUM_HAND_JOINTS),
+            ).copy()
+        ).to(device=env.device, dtype=torch.float32)
+        self._target_lower = torch.from_numpy(self._ctrl_lower * self._dof_limits_scale).to(
+            device=env.device, dtype=torch.float32
+        )
+        self._target_upper = torch.from_numpy(self._ctrl_upper * self._dof_limits_scale).to(
+            device=env.device, dtype=torch.float32
+        )
 
     @property
     def action_dim(self) -> int:
         return NUM_HAND_JOINTS
 
     @property
-    def raw_action(self) -> np.ndarray:
+    def raw_action(self) -> torch.Tensor:
         return self._raw_action
 
     @property
-    def target(self) -> np.ndarray:
+    def target(self) -> torch.Tensor:
         return self._target
 
     @property
@@ -112,25 +126,47 @@ class SharpaIncrementalPositionAction(ActionTerm):
     def joint_ids(self) -> np.ndarray:
         return self._joint_ids
 
-    def process_actions(self, actions: np.ndarray) -> None:
-        if not isinstance(actions, np.ndarray):
-            raise TypeError(f"expected np.ndarray actions, got {type(actions).__name__}")
+    def process_actions(self, actions: torch.Tensor) -> None:
+        if not isinstance(actions, torch.Tensor):
+            raise TypeError(f"expected torch.Tensor actions, got {type(actions).__name__}")
+        if actions.dtype != torch.float32 or actions.device != self._raw_action.device:
+            raise TypeError(
+                f"expected contiguous float32 actions on {self._raw_action.device}, "
+                f"got {actions.dtype} on {actions.device}"
+            )
         if actions.shape != self._raw_action.shape:
             raise ValueError(f"expected action shape {self._raw_action.shape}, got {actions.shape}")
-        if not np.isfinite(actions).all():
+        if not bool(torch.isfinite(actions).all()):
             raise ValueError("received NaN or Inf actions")
         self._raw_action[:] = actions
         if self._zero_action:
-            actions = np.zeros_like(actions)
-        np.clip(actions, self._raw_clip[0], self._raw_clip[1], out=self._clipped_action)
-        self._target += self._action_scale * self._clipped_action
-        np.clip(self._target, self._target_lower, self._target_upper, out=self._target)
+            actions = torch.zeros_like(actions)
+        torch.clamp(actions, self._raw_clip[0], self._raw_clip[1], out=self._clipped_action)
+        self._target.add_(self._clipped_action, alpha=self._action_scale)
+        torch.clamp(self._target, min=self._target_lower, max=self._target_upper, out=self._target)
 
     def apply_actions(self) -> None:
         self._entity.set_joint_position_target(self._target, joint_ids=self._joint_ids)
 
-    def reset(self, env_ids: np.ndarray | slice | None = None) -> None:
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
         ids = resolve_env_ids(self._env, env_ids)
         self._raw_action[ids] = 0.0
         self._clipped_action[ids] = 0.0
-        self._target[ids] = self._entity.data.joint_pos[ids][:, self._joint_ids]
+        self._target[ids] = torch.as_tensor(
+            entity_host_data(self._entity, "joint_pos")[ids][:, self._joint_ids],
+            dtype=torch.float32,
+            device=self._target.device,
+        )
+
+    def reset_to_positions(
+        self, positions: torch.Tensor, env_ids: torch.Tensor | None = None
+    ) -> None:
+        """Synchronize the integrated target after a reset term stages joints."""
+        ids = (
+            torch.arange(self.num_envs, dtype=torch.int64, device=self._target.device)
+            if env_ids is None
+            else env_ids.to(device=self._target.device, dtype=torch.int64)
+        )
+        self._raw_action[ids] = 0.0
+        self._clipped_action[ids] = 0.0
+        self._target[ids] = positions.to(device=self._target.device, dtype=torch.float32)

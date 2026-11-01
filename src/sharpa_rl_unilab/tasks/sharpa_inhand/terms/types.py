@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING, Any, Protocol
 import numpy as np
 
 if TYPE_CHECKING:
-    from unilab.managers._types import ManagerBasedRlEnv
     from unilab.managers.action_manager import ActionManager
     from unilab.managers.event_manager import EventManager
     from unilab.managers.observation_manager import ObservationManager
     from unilab.managers.termination_manager import TerminationManager
+    from unilab.managers.types import ManagerBasedRlEnv
 
     class SharpaEnv(ManagerBasedRlEnv, Protocol):
         """Manager fields consumed by Sharpa terms."""

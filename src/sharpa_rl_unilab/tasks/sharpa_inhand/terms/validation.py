@@ -6,10 +6,11 @@ from numbers import Integral, Real
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from torch import Tensor
 
 if TYPE_CHECKING:
     from unilab.managers import ManagerTermBaseCfg
-    from unilab.managers._types import ManagerBasedRlEnv
+    from unilab.managers.types import ManagerBasedRlEnv
 
 
 def require_name(term: str, field: str, value: Any) -> str:
@@ -76,12 +77,22 @@ def require_pair(term: str, field: str, value: Any) -> tuple[float, float]:
     return lower, upper
 
 
-def resolve_env_ids(env: ManagerBasedRlEnv, env_ids: np.ndarray | slice | None) -> np.ndarray:
+def resolve_env_ids(
+    env: ManagerBasedRlEnv, env_ids: Tensor | np.ndarray | slice | None
+) -> np.ndarray:
+    from .compat import numpy_ids
+
+    return numpy_ids(env_ids, env.num_envs).astype(np.int32, copy=False)
+
+
+def resolve_tensor_env_ids(env: ManagerBasedRlEnv, env_ids: Tensor | slice | None) -> Tensor:
+    import torch
+
     if env_ids is None:
-        return np.arange(env.num_envs, dtype=np.int32)
+        return torch.arange(env.num_envs, dtype=torch.int64, device=env.device)
     if isinstance(env_ids, slice):
-        return np.arange(env.num_envs, dtype=np.int32)[env_ids]
-    return np.asarray(env_ids, dtype=np.int32)
+        return torch.arange(env.num_envs, dtype=torch.int64, device=env.device)[env_ids]
+    return env_ids.to(device=env.device, dtype=torch.int64)
 
 
 def validate_term_params(term: str, cfg: ManagerTermBaseCfg, allowed: set[str]) -> None:

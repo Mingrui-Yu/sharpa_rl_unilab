@@ -8,8 +8,8 @@ from omegaconf import OmegaConf
 from rsl_rl.algorithms import PPO
 from rsl_rl.storage import RolloutStorage
 from tensordict import TensorDict
-from uni_rl.algos.appo.learner import APPOLearner
-from uni_rl.algos.flash_sac.network import FlashSACActor
+from unilab.rl.algos.appo.learner import APPOLearner
+from unilab.rl.algos.flash_sac.network import FlashSACActor
 
 from sharpa_rl_unilab.algos.hora.distribution import PolicyDistribution
 from sharpa_rl_unilab.algos.hora.flashsac import TeacherFlashActor

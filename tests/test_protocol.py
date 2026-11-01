@@ -6,7 +6,7 @@ from sharpa_rl_unilab.tasks.sharpa_inhand import teacher_env
 from sharpa_rl_unilab.training.configuration import migrate_checkpoint_config
 
 
-@pytest.mark.parametrize("algo", ["ppo", "appo", "flashsac"])
+@pytest.mark.parametrize("algo", ["supermimic", "ppo", "appo", "flashsac"])
 @pytest.mark.parametrize(
     "field,value",
     [

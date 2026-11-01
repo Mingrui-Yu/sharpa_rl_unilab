@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 from omegaconf import OmegaConf
-from uni_rl.algos.common.normalization import EmpiricalNormalization
+from unilab.rl.algos.common.normalization import EmpiricalNormalization
 
 from sharpa_rl_unilab.algos.hora.on_policy import TeacherActor
 from sharpa_rl_unilab.cli import compose_config

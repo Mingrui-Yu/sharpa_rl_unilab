@@ -4,6 +4,7 @@ import json
 import socket
 import subprocess
 import sys
+from importlib.metadata import version
 
 import numpy as np
 import pytest
@@ -23,6 +24,10 @@ from sharpa_rl_unilab.tasks.sharpa_inhand.terms.cache import (
         ("ppo", "mujoco", "sharpa_inhand_grasp"),
         ("appo", "mujoco", "sharpa_inhand"),
         ("flashsac", "mujoco", "sharpa_inhand"),
+        ("supermimic", "mjwarp", "sharpa_inhand"),
+        ("ppo", "mjwarp", "sharpa_inhand"),
+        ("appo", "mjwarp", "sharpa_inhand"),
+        ("flashsac", "mjwarp", "sharpa_inhand"),
     ],
 )
 def test_owner_composition_and_identity(algo, sim, task):
@@ -44,6 +49,10 @@ def test_reserved_overrides_are_rejected():
         compose_config("ppo", "mujoco", ["task=sharpa_inhand/motrix"])
     with pytest.raises(ValueError, match="CLI flags"):
         compose_config("ppo", "mujoco", ["training.play_only=true"])
+
+
+def test_unilab_dependency_is_pinned():
+    assert version("unilab") == "1.5.4"
 
 
 def test_registration_outside_checkout(tmp_path):

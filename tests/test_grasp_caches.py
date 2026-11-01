@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+import torch
 from unilab.base.run_control import RunComplete
 
 from sharpa_rl_unilab import assets
@@ -114,7 +115,7 @@ def test_cache_validation_and_sampling_indices():
 
 @pytest.mark.slow
 def test_grasp_recorder_runs_at_real_mujoco_reset_boundary(tmp_path, monkeypatch):
-    from unilab.base.config_adapter import BackendAdapter, create_env
+    from unilab.base.config_adapter import EnvConfigAdapter, create_env
 
     from sharpa_rl_unilab.cli import compose_config
     from sharpa_rl_unilab.tasks.sharpa_inhand.terms.grasp import SharpaGraspQualityTermination
@@ -132,17 +133,17 @@ def test_grasp_recorder_runs_at_real_mujoco_reset_boundary(tmp_path, monkeypatch
     def allow_timeout(self, env, **params):
         # Exercise recorder/reset wiring independently of stochastic grasp success.
         self.observation.snapshot(env)
-        self.invalid.fill(False)
+        self.invalid.fill_(False)
         return self.invalid
 
     monkeypatch.setattr(SharpaGraspQualityTermination, "__call__", allow_timeout)
-    overrides = BackendAdapter(cfg, root_dir=".", algo_name="ppo").build_task_env_cfg_override()
+    overrides = EnvConfigAdapter(cfg, root_dir=".", algo_name="ppo").build_task_env_cfg_override()
     env = create_env(cfg, num_envs=2, env_cfg_override=overrides)
     try:
         env.reset(seed=7)
         with pytest.raises(RunComplete):
             for _ in range(3):
-                env.step(np.zeros((2, 22)))
+                env.step(torch.zeros((2, 22)))
     finally:
         env.close()
     assets.ensure_assets()

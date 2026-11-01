@@ -1,13 +1,11 @@
-"""Reward functions over the observation term's post-physics state."""
+"""Reward functions over the observation term's post-physics tensor state."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import numpy as np
-from unilab.dtype_config import get_global_dtype
+import torch
 
-from sharpa_rl_unilab.tasks.sharpa_inhand.terms.constants import SOURCE_DEFAULT_HAND_JOINT_POS
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.observation import SharpaRotationObservation
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.termination import SharpaDropTermination
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.validation import require_name
@@ -29,45 +27,32 @@ def _rotation_state(
     return state, state.observation
 
 
-def rotate_reward(env: SharpaEnv, state_term_name: str) -> np.ndarray:
+def rotate_reward(env: SharpaEnv, state_term_name: str) -> torch.Tensor:
     _, state = _rotation_state(env, state_term_name)
-    return np.asarray(
-        np.clip(
-            np.sum(state.object_angvel * state.task_state.rotation_axis, axis=1),
-            -0.5,
-            0.5,
-        ),
-        dtype=get_global_dtype(),
-    )
+    return (state.object_angvel * state.task_state.rotation_axis).sum(dim=1).clamp(-0.5, 0.5)
 
 
-def object_linear_velocity_l1(env: SharpaEnv, state_term_name: str) -> np.ndarray:
+def object_linear_velocity_l1(env: SharpaEnv, state_term_name: str) -> torch.Tensor:
     _, state = _rotation_state(env, state_term_name)
-    return np.asarray(np.sum(np.abs(state.object_linvel), axis=1), dtype=get_global_dtype())
+    return state.object_linvel.abs().sum(dim=1)
 
 
-def hand_pose_deviation_l2(env: SharpaEnv, state_term_name: str) -> np.ndarray:
+def hand_pose_deviation_l2(env: SharpaEnv, state_term_name: str) -> torch.Tensor:
     _, state = _rotation_state(env, state_term_name)
-    default = np.broadcast_to(
-        SOURCE_DEFAULT_HAND_JOINT_POS.astype(get_global_dtype()),
-        state.dof_pos.shape,
-    )
-    return np.asarray(np.sum(np.square(state.dof_pos - default), axis=1), dtype=get_global_dtype())
+    return (state.dof_pos - state._default_dof_pos).square().sum(dim=1)
 
 
-def estimated_torque_l2(env: SharpaEnv, state_term_name: str) -> np.ndarray:
+def estimated_torque_l2(env: SharpaEnv, state_term_name: str) -> torch.Tensor:
     _, state = _rotation_state(env, state_term_name)
-    return np.asarray(np.sum(np.square(state.torques), axis=1), dtype=get_global_dtype())
+    return state.torques.square().sum(dim=1)
 
 
-def estimated_work_l2(env: SharpaEnv, state_term_name: str) -> np.ndarray:
+def estimated_work_l2(env: SharpaEnv, state_term_name: str) -> torch.Tensor:
     _, state = _rotation_state(env, state_term_name)
-    return np.asarray(
-        np.square(np.sum(state.torques * state.dof_vel, axis=1)), dtype=get_global_dtype()
-    )
+    return (state.torques * state.dof_vel).sum(dim=1).square()
 
 
-def object_position_reward(env: SharpaEnv, state_term_name: str) -> np.ndarray:
+def object_position_reward(env: SharpaEnv, state_term_name: str) -> torch.Tensor:
     _, state = _rotation_state(env, state_term_name)
     delta = state.object_pos - state.task_state.object_pos_anchor
-    return np.asarray(1.0 / (np.linalg.norm(delta, axis=1) + 0.001), dtype=get_global_dtype())
+    return 1.0 / (delta.norm(dim=1) + 0.001)

@@ -5,10 +5,18 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
+import torch
+from unilab.base.rotation import np_quat_apply
 from unilab.dtype_config import get_global_dtype
 from unilab.managers import ManagerTermBase
-from unilab.utils.rotation import np_quat_apply
 
+from sharpa_rl_unilab.tasks.sharpa_inhand.terms.compat import (
+    manager_tensor,
+    numpy_dtype,
+    rng_random,
+    rng_uniform,
+    torch_ids,
+)
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.constants import NUM_HAND_JOINTS
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.validation import (
     require_bool,
@@ -120,7 +128,7 @@ class SharpaDomainRandomization(ManagerTermBase):
         self._actuator_ids, bound_kp, bound_kd = self._entity.bind_actuator_gain_write(
             None, term_name=term
         )
-        dtype = get_global_dtype()
+        dtype = numpy_dtype(get_global_dtype())
         bound_kp_array = np.asarray(bound_kp, dtype=dtype)
         bound_kd_array = np.asarray(bound_kd, dtype=dtype)
         self._default_kp = (
@@ -129,8 +137,16 @@ class SharpaDomainRandomization(ManagerTermBase):
         self._default_kd = (
             bound_kd_array[0] if bound_kd_array.ndim > 1 else bound_kd_array
         ).reshape(NUM_HAND_JOINTS)
-        self.kp = np.broadcast_to(self._default_kp, (env.num_envs, NUM_HAND_JOINTS)).copy()
-        self.kd = np.broadcast_to(self._default_kd, (env.num_envs, NUM_HAND_JOINTS)).copy()
+        self.kp = torch.as_tensor(
+            np.broadcast_to(self._default_kp, (env.num_envs, NUM_HAND_JOINTS)).copy(),
+            dtype=get_global_dtype(),
+            device=env.device,
+        )
+        self.kd = torch.as_tensor(
+            np.broadcast_to(self._default_kd, (env.num_envs, NUM_HAND_JOINTS)).copy(),
+            dtype=get_global_dtype(),
+            device=env.device,
+        )
 
         # Object body mass/CoM bindings.
         object_body = require_name(
@@ -153,14 +169,28 @@ class SharpaDomainRandomization(ManagerTermBase):
             if default_ipos_array.ndim == 3
             else default_ipos_array.reshape(3)
         )
-        self.mass = np.full((env.num_envs,), float(self._default_mass), dtype=dtype)
-        self.com_offset = np.zeros((env.num_envs, 3), dtype=dtype)
-        default_gravity = np.asarray(env.scene.bind_gravity_write(term_name=term), dtype=dtype)
+        self.mass = torch.full(
+            (env.num_envs,),
+            float(self._default_mass),
+            dtype=get_global_dtype(),
+            device=env.device,
+        )
+        self.com_offset = torch.zeros(
+            (env.num_envs, 3), dtype=get_global_dtype(), device=env.device
+        )
+        bind_gravity = cast(Any, env.scene).bind_gravity_write(term_name=term)
+        default_gravity = np.asarray(bind_gravity, dtype=dtype)
         self._default_gravity = (
             default_gravity[0] if default_gravity.ndim > 1 else default_gravity
         ).reshape(3)
-        self.gravity = np.broadcast_to(self._default_gravity, (env.num_envs, 3)).copy()
-        self.friction_scale = np.ones((env.num_envs, 1), dtype=dtype)
+        self.gravity = torch.as_tensor(
+            np.broadcast_to(self._default_gravity, (env.num_envs, 3)).copy(),
+            dtype=get_global_dtype(),
+            device=env.device,
+        )
+        self.friction_scale = torch.ones(
+            (env.num_envs, 1), dtype=get_global_dtype(), device=env.device
+        )
 
         # Collision-geom friction bindings. Entity names are public facade data;
         # material classification never touches backend model arrays.
@@ -213,7 +243,7 @@ class SharpaDomainRandomization(ManagerTermBase):
             raise ValueError(f"{term} friction material binding is incomplete")
 
         scale_catalog = env.cfg.fixed_model_variants
-        self.scale = np.ones((env.num_envs, 1), dtype=dtype)
+        self.scale = torch.ones((env.num_envs, 1), dtype=get_global_dtype(), device=env.device)
         if scale_catalog is not None and env.cfg.scene is not None:
             if env.cfg.scene.fixed_variant_plan is None:
                 raise ValueError(f"{term} fixed variant plan was not materialized")
@@ -225,33 +255,38 @@ class SharpaDomainRandomization(ManagerTermBase):
                 dtype=dtype,
             )
             ids = np.asarray(env.cfg.scene.fixed_variant_plan.assignment, dtype=np.intp)
-            self.scale[:] = scales[ids][:, None]
+            self.scale[:] = torch.as_tensor(
+                scales[ids][:, None], dtype=get_global_dtype(), device=env.device
+            )
 
     @property
     def privileged_dim(self) -> int:
         return 8 + int(self._include_friction) + (3 if self._include_gravity else 0)
 
     def _sample_split_around_one(
-        self, rng: np.random.Generator, bounds: tuple[float, float], shape: tuple[int, int]
+        self, rng: Any, bounds: tuple[float, float], shape: tuple[int, int]
     ) -> np.ndarray:
         lower, upper = bounds
         if lower > 1.0 or upper < 1.0:
             raise ValueError(f"gain scale bounds must satisfy lower <= 1 <= upper: {bounds}")
-        small = rng.uniform(lower, 1.0, size=shape)
-        large = rng.uniform(1.0, upper, size=shape)
-        return np.where(rng.random(shape) > 0.5, small, large).astype(get_global_dtype())
+        small = rng_uniform(rng, lower, 1.0, shape)
+        large = rng_uniform(rng, 1.0, upper, shape)
+        coin = rng_random(rng, shape, dtype=get_global_dtype())
+        return np.where(coin > 0.5, small, large).astype(numpy_dtype(get_global_dtype()))
 
     def __call__(
         self,
         env: SharpaEnv,
-        env_ids: np.ndarray | None,
+        env_ids: torch.Tensor | np.ndarray | None,
         **params: Any,
     ) -> None:
         del params
+        # Grasp/DR sampling remains an explicit reset-only host boundary.
         ids = resolve_env_ids(env, env_ids)
         if ids.size == 0:
             return
-        dtype = get_global_dtype()
+        rows = torch_ids(ids, env.device)
+        dtype = numpy_dtype(get_global_dtype())
         count = ids.size
 
         if self._randomize_pd:
@@ -264,25 +299,25 @@ class SharpaDomainRandomization(ManagerTermBase):
             kp *= self._sample_split_around_one(env.rng, self._p_range, (count, NUM_HAND_JOINTS))
             kd *= self._sample_split_around_one(env.rng, self._d_range, (count, NUM_HAND_JOINTS))
         else:
-            kp = np.broadcast_to(self.kp[ids], (count, NUM_HAND_JOINTS)).copy()
-            kd = np.broadcast_to(self.kd[ids], (count, NUM_HAND_JOINTS)).copy()
+            kp = self.kp[rows].detach().cpu().numpy().copy()
+            kd = self.kd[rows].detach().cpu().numpy().copy()
         self._entity.write_actuator_gains_to_sim(
-            kp,
-            kd,
+            manager_tensor(env, kp),
+            manager_tensor(env, kd),
             actuator_ids=self._actuator_ids,
-            env_ids=ids,
+            env_ids=rows,
             term_name=type(self).__name__,
         )
-        self.kp[ids] = kp
-        self.kd[ids] = kd
+        self.kp[rows] = torch.as_tensor(kp, dtype=self.kp.dtype, device=env.device)
+        self.kd[rows] = torch.as_tensor(kd, dtype=self.kd.dtype, device=env.device)
 
         if self._randomize_friction:
-            self.friction_scale[ids] = env.rng.uniform(
-                self._friction_range[0], self._friction_range[1], size=(count, 1)
+            friction_scale = rng_uniform(
+                env.rng, self._friction_range[0], self._friction_range[1], (count, 1)
             )
             friction = np.asarray(self._default_friction, dtype=np.float64).copy()
             friction = np.broadcast_to(friction, (count, friction.shape[-2], 3)).copy()
-            scale = self.friction_scale[ids, 0][:, None]
+            scale = friction_scale[:, 0][:, None]
             for material_id, material in enumerate(("object", "elastomer", "metal")):
                 mask = self._friction_material == material_id
                 template = friction[:, mask, :].copy()
@@ -292,51 +327,49 @@ class SharpaDomainRandomization(ManagerTermBase):
                 profile = template / sliding[:, :, None] * self._friction_bases[material]
                 friction[:, mask, :] = profile * scale[:, None]
             self._entity.write_geom_friction_to_sim(
-                np.asarray(friction, dtype=dtype),
-                geom_ids=self._friction_geom_ids,
-                env_ids=ids,
+                manager_tensor(env, np.asarray(friction, dtype=dtype)),
+                geom_ids=tuple(int(value) for value in self._friction_geom_ids),
+                env_ids=rows,
                 term_name=type(self).__name__,
             )
         else:
-            self.friction_scale[ids] = 1.0
+            friction_scale = np.ones((count, 1), dtype=dtype)
+        self.friction_scale[rows] = torch.as_tensor(
+            friction_scale, dtype=self.friction_scale.dtype, device=env.device
+        )
 
         if self._randomize_mass:
-            mass = env.rng.uniform(self._mass_range[0], self._mass_range[1], size=count).astype(
-                dtype
-            )
+            mass = rng_uniform(env.rng, self._mass_range[0], self._mass_range[1], (count,))
         else:
             mass = np.full((count,), float(self._default_mass), dtype=dtype)
         self._entity.write_body_mass_to_sim(
-            mass[:, None],
+            manager_tensor(env, mass[:, None]),
             body_ids=self._object_body_ids,
-            env_ids=ids,
+            env_ids=rows,
             term_name=type(self).__name__,
         )
-        self.mass[ids] = mass
+        self.mass[rows] = torch.as_tensor(mass, dtype=self.mass.dtype, device=env.device)
 
         if self._randomize_com:
-            com = env.rng.uniform(self._com_range[0], self._com_range[1], size=(count, 3)).astype(
-                dtype
-            )
+            com = rng_uniform(env.rng, self._com_range[0], self._com_range[1], (count, 3))
         else:
             com = np.zeros((count, 3), dtype=dtype)
         default_ipos = np.broadcast_to(
             np.asarray(self._default_ipos, dtype=np.float64).reshape(1, 3), (count, 3)
         ).copy()
         self._entity.write_body_ipos_to_sim(
-            np.asarray(default_ipos + com, dtype=dtype)[:, None, :],
+            manager_tensor(env, np.asarray(default_ipos + com, dtype=dtype)[:, None, :]),
             body_ids=self._object_body_ids,
-            env_ids=ids,
+            env_ids=rows,
             term_name=type(self).__name__,
         )
-        self.com_offset[ids] = com
+        self.com_offset[rows] = torch.as_tensor(com, dtype=self.com_offset.dtype, device=env.device)
 
         if self._randomize_gravity_direction:
             downward = np.zeros((count, 3), dtype=np.float64)
             downward[:, 2] = -self._gravity_magnitude
-            # Shoemake's uniform rotation, using the environment's explicit RNG.
-            u1 = env.rng.random(count)
-            u2, u3 = env.rng.random((2, count)) * (2.0 * np.pi)
+            u1 = rng_random(env.rng, count).astype(np.float64)
+            u2, u3 = rng_random(env.rng, (2, count)).astype(np.float64) * (2.0 * np.pi)
             r1, r2 = np.sqrt(1.0 - u1), np.sqrt(u1)
             quat = np.stack(
                 (r2 * np.cos(u3), r1 * np.sin(u2), r1 * np.cos(u2), r2 * np.sin(u3)), axis=-1
@@ -344,16 +377,18 @@ class SharpaDomainRandomization(ManagerTermBase):
             gravity = np_quat_apply(quat, downward).astype(dtype)
         else:
             gravity = np.broadcast_to(self._default_gravity, (count, 3)).copy()
-        env.scene.write_gravity_to_sim(gravity, ids, term_name=type(self).__name__)
-        self.gravity[ids] = gravity
+        env.scene.write_gravity_to_sim(
+            manager_tensor(env, gravity),
+            rows,
+            term_name=type(self).__name__,
+        )
+        self.gravity[rows] = torch.as_tensor(gravity, dtype=self.gravity.dtype, device=env.device)
 
-    def privileged_info(self, object_pos: np.ndarray, anchor: np.ndarray) -> np.ndarray:
-        object_pos = np.asarray(object_pos, dtype=get_global_dtype())
-        anchor = np.asarray(anchor, dtype=get_global_dtype())
+    def privileged_info(self, object_pos: torch.Tensor, anchor: torch.Tensor) -> torch.Tensor:
         parts = [object_pos - anchor]
         if self._include_friction:
             parts.append(self.friction_scale)
         parts.extend((self.mass[:, None], self.com_offset, self.scale))
         if self._include_gravity:
             parts.append(self.gravity)
-        return np.concatenate(parts, axis=1, dtype=get_global_dtype())
+        return torch.cat(parts, dim=1)

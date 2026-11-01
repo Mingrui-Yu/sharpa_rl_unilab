@@ -1,4 +1,4 @@
-"""Train PPO, APPO and FlashSAC with Hydra defaults, optionally distill and evaluate."""
+"""Train SuperMimic, PPO, APPO and FlashSAC, optionally distill and evaluate."""
 
 import argparse
 import subprocess
@@ -26,7 +26,10 @@ def main():
         parser.error("--num-seeds must be positive")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    configs = [compose_config(algorithm, "mujoco", []) for algorithm in ("ppo", "appo", "flashsac")]
+    configs = [
+        compose_config(algorithm, "mujoco", [])
+        for algorithm in ("supermimic", "ppo", "appo", "flashsac")
+    ]
     runs = [
         (
             cfg.algo.algo,

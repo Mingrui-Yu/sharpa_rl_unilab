@@ -23,31 +23,50 @@ set the output prefix with the `SHARPA_GRASP_CACHE_PATH` environment variable,
 then set `env.events.reset.params.grasp_cache_path` to the same prefix when
 training the teacher.
 
-## 2. Train a teacher
+## 2. Train a policy
 
-For APPO, run the following command; replace `--algo appo` with `--algo ppo` or
-`--algo flashsac` to switch algorithms. PPO, APPO and FlashSAC share the same
-HORA actor and Gaussian distribution.
+SuperMimic defaults to HORA teacher training. It learns a multi-step world model from
+real transitions, then optimizes the teacher through differentiable imagined rollouts
+with analytic Sharpa rewards and soft drop termination. PPO, APPO and FlashSAC use the
+same teacher/student pipeline.
+
+SuperMimic also offers an opt-in single stage. Its actor consumes only the 147-dimensional
+measurable observation history; privileged information is used only by the critic and
+world-model training, so no distillation is needed:
 
 ```bash
+uv run sharpa-train --algo supermimic algo.single_stage=true
+```
+
+```bash
+uv run sharpa-train --algo supermimic
 uv run sharpa-train --algo appo
+uv run sharpa-train --algo ppo
+uv run sharpa-train --algo flashsac
+# All algorithms support MJWarp on CUDA; its dependencies are installed by default:
+uv run sharpa-train --algo supermimic --sim mjwarp
+uv run sharpa-train --algo appo --sim mjwarp
+uv run sharpa-train --algo ppo --sim mjwarp
+uv run sharpa-train --algo flashsac --sim mjwarp
 ```
 
 The default output directory is `logs/<algorithm>/seed_<seed>_<timestamp>/`.
-The final model, `teacher_final.pt`, includes the run configuration and
-normalization statistics. Configuration snapshots, `metrics.jsonl` and
-TensorBoard logs are saved in the same directory.
+Default training saves `teacher_final.pt`; optional single-stage SuperMimic saves
+`policy_final.pt`. Both include the run configuration and normalization statistics.
+Configuration snapshots, `metrics.jsonl` and TensorBoard logs are saved in the same directory.
 
-## 3. Distill a student
+## 3. Distill an HORA student
 
-Load a teacher and train a history encoder to match its privileged representation.
-The teacher's policy and base normalization statistics remain frozen.
+For default SuperMimic, PPO, APPO or FlashSAC, load a teacher and train a history
+encoder to match its privileged representation. The teacher's policy and base
+normalization statistics remain frozen. Optional single-stage SuperMimic neither
+needs nor supports this step.
 
 ```bash
 uv run sharpa-distill --checkpoint /path/to/teacher_final.pt
 ```
 
-Replace `/path/to/teacher_final.pt` with the actual file path.
+Replace `/path/to/teacher_final.pt` with the actual HORA teacher path.
 The default output directory is
 `logs/hora_distill/<algorithm>_seed_<seed>_<timestamp>/`, with the final model
 saved as `student_final.pt`.
@@ -57,6 +76,7 @@ saved as `student_final.pt`.
 Specify the checkpoint directly for evaluation:
 
 ```bash
+uv run sharpa-eval --checkpoint /path/to/policy_final.pt
 uv run sharpa-eval --checkpoint /path/to/teacher_final.pt
 ```
 
@@ -70,19 +90,27 @@ and rotation speed calculated over both the fixed window and actual survival
 time. Results are saved beside the checkpoint as `<model_name>.evaluation.json`,
 with the scene manifest in `scenes.json`.
 
-To train all three algorithms:
+Evaluation runs episodes concurrently in one batched TorchEnv per scale; use
+`evaluation.batch_size=N` to change the maximum batch size (default 32), or 1 for
+serial scheduling. Reset seeds, perturbation streams, terminal state and metrics
+are slot-local. All manager randomness uses UniLab's Torch `ManagerRng` owner,
+including persistent forces and observation noise; no NumPy simulation RNG is
+installed. Replaying the same manifest and batch configuration is deterministic.
+Different batch sizes can amplify small backend floating-point differences in
+contact-rich MJWarp trajectories, so cross-batch bit equality is not guaranteed.
+
+To train all four algorithms:
 
 ```bash
 uv run sharpa-compare
 ```
 
-By default, this trains one teacher per algorithm. Append `--distill` for
+By default, this trains one teacher seed per algorithm. Append `--distill` for
 distillation or `--eval` for evaluation. `--num-seeds N` selects N consecutive
-seeds starting from each algorithm's configured seed. When the corresponding
-stages are enabled, all teachers finish before student training begins, and
-evaluation starts after all training finishes.
+seeds starting from each algorithm's configured seed. Default distillation covers
+all four algorithms; evaluation starts after all training finishes.
 
-Outputs go to `logs/compare/seed_<seed>_<timestamp>/<algorithm>/`, with students
+Outputs go to `logs/compare/seed_<seed>_<timestamp>/<algorithm>/`, with HORA students
 in its `student/` subdirectory. All evaluations share the scene manifest in the
 first seed directory. Each algorithm uses its own budget; equal sample counts
 or elapsed time are not guaranteed. The command does not aggregate multiple
@@ -117,8 +145,9 @@ uv run sharpa-train --algo appo training.num_envs=1024
 | Output directory | Created automatically by default; use `training.log_dir=/path/to/new_run` to specify a directory that does not yet exist |
 | Device | `training.device=cuda:0`; `null` selects CUDA, MPS or CPU automatically; APPO's `algo.collector_device=null` follows the learner |
 | Threads per process | `training.torch_threads.*`: 4 intra-op and 1 inter-op thread each for learner and collector |
-| Teacher iterations | `algo.max_iterations`: 501 for PPO/APPO, 2000 for FlashSAC |
-| Teacher save interval | `algo.save_interval`: 50 for PPO/APPO, 500 for FlashSAC; 0 disables intermediate saves, but the final checkpoint is still saved on normal completion |
+| Training iterations | `algo.max_iterations`: 3000 for SuperMimic, 2000 for FlashSAC, 501 for PPO/APPO |
+| Save interval | `algo.save_interval`: 50 for PPO/APPO, 1000 for SuperMimic, 500 for FlashSAC; 0 disables intermediate saves, but the final checkpoint is still saved on normal completion |
+| SuperMimic updates and compilation | `algo.utd=1.6` controls updates per real collection step; CUDA defaults to `algo.compile=true` for multi-step world-model and imagination graphs |
 | FlashSAC precision | `algo.use_amp=true`; set to `false` to disable mixed precision |
 | Student budget | `distillation.transitions=100000000`, `distillation.num_envs=4096` |
 | Student learning rate | `distillation.learning_rate=0.0003` |
@@ -127,9 +156,10 @@ uv run sharpa-train --algo appo training.num_envs=1024
 | Video | Saves `play_video.mp4` after training by default; `training.no_play=true` disables recording |
 
 Use `uv run tensorboard --logdir logs` to view curves, with the number of newly
-received transitions on the horizontal axis. Intermediate teacher checkpoints
-are named `teacher_iteration_N.pt`. Sample counts and data reuse are recorded
-separately; iteration counts cannot determine the actual number of samples.
+received transitions on the horizontal axis. Intermediate SuperMimic checkpoints
+are named `policy_iteration_N.pt`; HORA teacher checkpoints use `teacher_iteration_N.pt`.
+Sample counts and data reuse are recorded separately; iteration counts cannot
+determine the actual number of samples.
 
 Video is for inspecting behavior; quantitative evaluation must be run separately.
 Headless Linux machines require EGL or OSMesa; see the

@@ -1,0 +1,6 @@
+# @package _global_
+defaults:
+  - /appo/task/sharpa_inhand/mujoco
+  - _self_
+training:
+  sim_backend: mjwarp

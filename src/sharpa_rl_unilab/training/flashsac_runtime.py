@@ -5,16 +5,22 @@ from __future__ import annotations
 import math
 import time
 from functools import partial
+from typing import Any, cast
 
 import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
-from uni_rl.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
-from uni_rl.offpolicy.thread_budget import apply_torch_thread_runtime, resolve_torch_thread_runtime
-from unilab.base.np_env import NpEnvState
+from unilab.base.contracts.env import EnvAlgoCapabilities
+from unilab.rl.logging.metric_schema import metric_spec
+from unilab.rl.runtime.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
+from unilab.rl.runtime.offpolicy.thread_budget import (
+    apply_torch_thread_runtime,
+    resolve_torch_thread_runtime,
+)
+from unilab.rl.runtime.placement import resolve_inference_placement
 
 from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import ACTOR_DIM, CRITIC_DIM, PRIV_DIM
-from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import SharpaTeacherEnv
+from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import SharpaTeacherEnv, TorchEnvState
 
 from .checkpoints import save_teacher
 from .configuration import resolve_device
@@ -25,16 +31,16 @@ from .policy import make_models, observe_new_samples
 
 def transport_obs(obs):
     """Pack current privilege with actor history; keep clean Q inputs separate."""
-    return {"obs": np.concatenate((obs["obs"], obs["priv_info"]), axis=-1), "critic": obs["critic"]}
+    return {"obs": torch.cat((obs["obs"], obs["priv_info"]), dim=-1), "critic": obs["critic"]}
 
 
 class FlashTeacherEnv:
-    def __init__(self, num_envs, env_cfg_override, *, config):
+    def __init__(self, num_envs, env_cfg_override, *, config, tensor_device=None):
         if env_cfg_override:
             raise ValueError("FlashTeacherEnv takes task overrides through its composed config")
         cfg = OmegaConf.create(config)
         assert isinstance(cfg, DictConfig)
-        self.teacher = SharpaTeacherEnv(cfg, num_envs)
+        self.teacher = SharpaTeacherEnv(cfg, num_envs, tensor_device=tensor_device)
         self.state = None
 
     def __getattr__(self, name):
@@ -44,8 +50,22 @@ class FlashTeacherEnv:
     def obs_groups_spec(self):
         return {"obs": ACTOR_DIM + PRIV_DIM, "critic": CRITIC_DIM}
 
+    @property
+    def algo_capabilities(self):
+        names = tuple(self.teacher.env.reward_manager.step_reward_names)
+        width = int(self.teacher.env.reward_manager.step_rewards.shape[-1])
+        if not names and width:
+            names = tuple(f"reward/component_{index}" for index in range(width))
+        return EnvAlgoCapabilities(reward_component_names=names)
+
+    @property
+    def produces_completion_receipts(self) -> bool:
+        # MuJoCo's host bridge executes synchronous tensor steps and does not
+        # publish the event receipts used only by asynchronous CUDA backends.
+        return False
+
     def _state(self, state):
-        self.state = NpEnvState(
+        self.state = TorchEnvState(
             transport_obs(state.obs),
             state.reward,
             state.terminated,
@@ -163,15 +183,18 @@ class TeacherDoubleBufferRunner(DoubleBufferOffPolicyRunner):
 
     def _aggregate_log_statistics(self, logger, **kwargs):
         self.collected = int(logger._total_steps)
+        saturation = {key: float(value) for key, value in self.learner.saturation_metrics.items()}
         payload = super()._aggregate_log_statistics(logger, **kwargs)
-        payload["metrics"].update(self.learner.saturation_metrics)
-        if payload["reward"] is not None:
-            payload["metrics"]["episode/return"] = payload["reward"]
+        payload["metrics"].update(
+            {key: value for key, value in saturation.items() if metric_spec(key) is not None}
+        )
+        reward = payload["return_mean_ep100"]
         row = {
             **payload["metrics"],
+            **saturation,
             **self.counters(),
             **payload["reward_components"],
-            "episode/return": payload["reward"],
+            "episode/return": reward,
             "timing/learner_train_ms": payload["train_time"] * 1000,
             "timing/learner_inference_ms": payload["inference_time"] * 1000,
             "perf/iter_ms": payload["iteration_time"] * 1000,
@@ -221,6 +244,9 @@ def train_flashsac(cfg):
     np.random.seed(int(cfg.algo.seed))
     _, _, learner = make_models(cfg, device)
     run = create_run(cfg)
+    placement = resolve_inference_placement(
+        learner_device=device, collector_tensor_device="auto", algo_name="sharpa-flashsac"
+    )
     runner = TeacherDoubleBufferRunner(
         cfg=cfg,
         run=run,
@@ -228,7 +254,12 @@ def train_flashsac(cfg):
         learner=learner,
         env_name=str(cfg.training.task_name),
         algo_type="flashsac",
-        env_factory=partial(FlashTeacherEnv, config=OmegaConf.to_container(cfg, resolve=True)),
+        env_factory=partial(
+            FlashTeacherEnv,
+            config=OmegaConf.to_container(cfg, resolve=True),
+            tensor_device=placement.env_device,
+        ),
+        inference_placement=placement,
         num_envs=int(cfg.algo.num_envs),
         replay_buffer_n=int(cfg.algo.replay_buffer_n),
         batch_size=int(cfg.algo.batch_size),
@@ -250,9 +281,10 @@ def train_flashsac(cfg):
             logger_type=str(cfg.training.logger),
         )
         final = run / "teacher_final.pt"
-        runner.collected = int(runner.last_run_summary["total_env_steps"])
-        runner.last_run_summary["last_checkpoint"] = runner.save(final)
-        write_json(run / "summary.json", {**runner.last_run_summary, "counters": runner.counters()})
+        summary = cast(dict[str, Any], runner.last_run_summary)
+        runner.collected = int(summary["total_env_steps"])
+        summary["last_checkpoint"] = runner.save(final)
+        write_json(run / "summary.json", {**summary, "counters": runner.counters()})
     finally:
         runner.close()
     return final
