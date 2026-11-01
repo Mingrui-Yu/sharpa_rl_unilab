@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import torch
 from unilab.base.torch_env import TorchEnvState
 
@@ -98,12 +99,14 @@ class FakeEnv:
         return self.state
 
 
-def test_complete_learner_updates_on_cpu():
+@pytest.mark.parametrize("single_stage", [False, True])
+def test_complete_learner_updates_on_cpu(single_stage):
     cfg = compose_config(
         "supermimic",
         "mujoco",
         [
             "training.device=cpu",
+            f"algo.single_stage={str(single_stage).lower()}",
             "training.num_envs=2",
             "algo.wm_hidden=[8]",
             "algo.wm_batch=4",

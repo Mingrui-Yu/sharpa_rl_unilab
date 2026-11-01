@@ -7,6 +7,7 @@ algo:
   max_iterations: 3000
   save_interval: 1000
   checkpoint: null
+  single_stage: false
   buffer_steps: 1000
   warmup_steps: 64
   utd: 1.6

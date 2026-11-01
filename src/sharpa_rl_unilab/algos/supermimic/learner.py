@@ -1,4 +1,4 @@
-"""Collect, fit dynamics, and optimize HORA through differentiable imagination."""
+"""Collect, fit dynamics, and optimize SuperMimic through differentiable imagination."""
 
 from __future__ import annotations
 
@@ -116,15 +116,17 @@ class SharpaSuperMimicLearner:
             self.wm.out_norm.update(self.wm.targets(initial, next_state))
             analytic_reward = self.mdp.reward(next_state, current["xi"])
             reward_gaps.append((analytic_reward - transition["r"]).abs().mean())
-            from sharpa_rl_unilab.algos.hora.models import pack_actor
-
             tensor_obs = {
                 key: torch.as_tensor(value, dtype=torch.float32, device=self.device)
                 for key, value in self.obs.items()
             }
-            observe_new_samples(
-                self.actor, self.critic, pack_actor(tensor_obs), tensor_obs["critic"]
-            )
+            if bool(self.cfg.algo.get("single_stage", False)):
+                packed = tensor_obs["obs"]
+            else:
+                from sharpa_rl_unilab.algos.hora.models import pack_actor
+
+                packed = pack_actor(tensor_obs)
+            observe_new_samples(self.actor, self.critic, packed, tensor_obs["critic"])
             self.episodes.update(state.reward[None], state.terminated[None], state.truncated[None])
             self.episode_steps += 1
             self.episode_steps[done] = 0

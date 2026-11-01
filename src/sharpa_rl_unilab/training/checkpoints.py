@@ -1,4 +1,4 @@
-"""Versioned teacher/student snapshots and supported legacy policy loading.
+"""Versioned direct/teacher/student snapshots and supported legacy policy loading.
 
 Top-level actor/critic states serve inference. FlashSAC's learner state references
 those same tensors so training-state archival does not duplicate model storage.
@@ -81,6 +81,31 @@ def save_teacher(path, cfg, actor, critic, learner, counters, elapsed):
     return snapshot
 
 
+def save_supermimic(path, cfg, actor, critic, learner, counters, elapsed):
+    snapshot = {
+        "contract": CONTRACT_VERSION,
+        "stage": "direct",
+        "algorithm": "supermimic",
+        "config": OmegaConf.to_container(cfg, resolve=True),
+        "actor": frozen_weights(actor),
+        "critic": frozen_weights(critic),
+        "world_model": frozen_weights(learner.wm),
+        "world_model_optimizer": learner.opt_wm.state_dict(),
+        "actor_optimizer": learner.opt_pi.state_dict(),
+        "critic_optimizer": learner.opt_v.state_dict(),
+        "counters": dict(counters),
+        "wall_seconds": elapsed,
+        "optimizer_parameters": optimizer_metadata(learner),
+        "parameter_counts": {
+            "actor": sum(p.numel() for p in actor.parameters()),
+            "critic": sum(p.numel() for p in critic.parameters()),
+            "world_model": sum(p.numel() for p in learner.wm.parameters()),
+        },
+    }
+    torch.save(snapshot, path)
+    return snapshot
+
+
 def load_policy(path, device: str | None = "cpu", *, stage=None, configure_runtime=True):
     checkpoint = torch.load(path, map_location="cpu", weights_only=False)
     if checkpoint.get("contract") != CONTRACT_VERSION:
@@ -89,18 +114,22 @@ def load_policy(path, device: str | None = "cpu", *, stage=None, configure_runti
         )
     if stage is not None and checkpoint.get("stage") != stage:
         raise ValueError(f"Expected a {stage} checkpoint")
-    if checkpoint.get("stage") not in ("teacher", "student") or checkpoint.get("algorithm") not in (
-        "supermimic",
-        "ppo",
-        "appo",
-        "flashsac",
-    ):
+    if checkpoint.get("stage") not in ("teacher", "student", "direct") or checkpoint.get(
+        "algorithm"
+    ) not in ("supermimic", "ppo", "appo", "flashsac"):
         raise ValueError("Unknown checkpoint stage or algorithm")
+    if checkpoint["stage"] == "direct" and checkpoint["algorithm"] != "supermimic":
+        raise ValueError("Direct checkpoints are specific to single-stage SuperMimic")
     cfg = migrate_checkpoint_config(checkpoint["config"])
     device = resolve_device(device if device is not None else cfg.training.device)
     if configure_runtime:
         configure_threads(cfg)
-    actor = make_actor(cfg, device, student=checkpoint["stage"] == "student")
+    actor = make_actor(
+        cfg,
+        device,
+        student=checkpoint["stage"] == "student",
+        stage=checkpoint["stage"],
+    )
     actor.load_state_dict(migrate_actor_state(checkpoint["actor"]), strict=True)
     actor.eval()
     return actor, cfg, checkpoint

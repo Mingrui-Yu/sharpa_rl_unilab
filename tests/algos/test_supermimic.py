@@ -12,8 +12,8 @@ from sharpa_rl_unilab.algos.supermimic.state import (
     unflatten_state,
 )
 from sharpa_rl_unilab.cli import compose_config
-from sharpa_rl_unilab.training.checkpoints import load_policy, save_teacher
-from sharpa_rl_unilab.training.policy import make_models
+from sharpa_rl_unilab.training.checkpoints import load_policy, save_supermimic
+from sharpa_rl_unilab.training.policy import inference_distribution, make_models
 
 
 def _state(batch=2):
@@ -70,8 +70,18 @@ def test_replay_masks_done_and_pads_history_at_episode_start(monkeypatch):
     assert history["s"].shape == (8, 3, STATE_DIM)
 
 
-def test_supermimic_checkpoint_uses_shared_hora_contract(tmp_path):
+def test_supermimic_default_remains_hora_teacher():
     cfg = compose_config("supermimic", "mujoco", ["training.device=cpu"])
+    actor, _, _ = make_models(cfg, "cpu")
+
+    assert not cfg.algo.single_stage
+    assert cfg.protocol.stage == "teacher"
+    assert actor.shared.priv_encoder is not None
+    assert actor.shared.trunk.net[0].in_features == 156
+
+
+def test_supermimic_checkpoint_restores_direct_policy(tmp_path):
+    cfg = compose_config("supermimic", "mujoco", ["training.device=cpu", "algo.single_stage=true"])
     actor, critic, _ = make_models(cfg, "cpu")
     wm = WorldModel(55, (8,), amp=False)
     learner = SimpleNamespace(
@@ -81,13 +91,26 @@ def test_supermimic_checkpoint_uses_shared_hora_contract(tmp_path):
         opt_v=torch.optim.Adam(critic.parameters()),
         optimizer=torch.optim.Adam(actor.parameters()),
     )
-    path = tmp_path / "teacher.pt"
-    save_teacher(path, cfg, actor, critic, learner, {"received": 0}, 0)
+    path = tmp_path / "policy.pt"
+    save_supermimic(path, cfg, actor, critic, learner, {"received": 0}, 0)
 
     restored, restored_cfg, snapshot = load_policy(path, configure_runtime=False)
     assert restored_cfg.algo.algo == "supermimic"
+    assert snapshot["stage"] == "direct"
     assert snapshot["world_model"]["net.0.weight"].shape == wm.net[0].weight.shape
-    obs = torch.randn(3, 156)
+    assert not any(key.startswith("shared.priv_encoder") for key in snapshot["actor"])
+    obs = torch.randn(3, 147)
     torch.testing.assert_close(
         restored.policy(obs).deterministic(), actor.policy(obs).deterministic(), rtol=0, atol=0
     )
+
+
+def test_supermimic_actor_ignores_privileged_observations():
+    cfg = compose_config("supermimic", "mujoco", ["training.device=cpu", "algo.single_stage=true"])
+    actor, _, _ = make_models(cfg, "cpu")
+    obs = {"obs": torch.randn(3, 147), "priv_info": torch.randn(3, 9)}
+    first = inference_distribution(actor, obs, "cpu").deterministic()
+    obs["priv_info"] = torch.randn(3, 9)
+    second = inference_distribution(actor, obs, "cpu").deterministic()
+
+    torch.testing.assert_close(first, second, rtol=0, atol=0)

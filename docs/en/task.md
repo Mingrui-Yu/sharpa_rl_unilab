@@ -23,19 +23,15 @@ observations include joint and tactile information, with configurable tactile
 smoothing, latency and noise. These variations train the policy to adapt to
 different objects and sensor conditions.
 
-## Teacher and student
+## Direct policies and HORA
 
-SuperMimic, PPO, APPO and FlashSAC share the HORA teacher/student pipeline:
-
-1. **Teacher:** learns a rotation policy using measurable observations and
-   privileged simulation information, such as mass and friction.
-2. **Student:** estimates the teacher's privileged representation from observation
-   history, then uses the inherited policy to produce actions.
-3. **Evaluation:** checks rotation speed, survival time and drop rate in fixed scenes.
-
-Student inference requires only measurable observations and their history,
-without privileged simulation information. Each algorithm uses its own training
-budget; comparisons must account for actual sample counts and elapsed time.
+All algorithms default to the HORA teacher/student pipeline, where the student estimates
+the teacher's privileged representation from history and inherits its policy. SuperMimic
+also supports an opt-in single stage: its direct actor depends only on measurable
+observation history, while a privileged critic assists world-model and policy optimization.
+The resulting policy is directly evaluable and deployable without distillation. Evaluation
+checks rotation speed, survival time and drop rate in fixed scenes. Each algorithm uses
+its own training budget; comparisons must account for actual samples and elapsed time.
 
 See the [training guide](training.md) for instructions and the
 [architecture](architecture.md) for input shapes and code responsibilities.

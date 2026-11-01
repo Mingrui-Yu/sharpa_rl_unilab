@@ -1,4 +1,4 @@
-"""Sharpa SuperMimic training and shared teacher-checkpoint output."""
+"""Sharpa SuperMimic teacher and optional single-stage training."""
 
 from __future__ import annotations
 
@@ -10,14 +10,15 @@ import torch
 from sharpa_rl_unilab.algos.supermimic.learner import SharpaSuperMimicLearner
 from sharpa_rl_unilab.tasks.sharpa_inhand.teacher_env import SharpaTeacherEnv
 
-from .checkpoints import save_teacher
+from .checkpoints import save_supermimic, save_teacher
 from .logging import TrainingLogger, create_run, training_counters
 from .policy import make_models
 from .supermimic_mdp import SharpaSuperMimicCapture, SharpaSuperMimicMDP
 
 
 def _save(path, cfg, learner, counters, started):
-    return save_teacher(
+    save = save_supermimic if bool(cfg.algo.get("single_stage", False)) else save_teacher
+    return save(
         path,
         cfg,
         learner.checkpoint_actor,
@@ -29,6 +30,7 @@ def _save(path, cfg, learner, counters, started):
 
 
 def train_supermimic(cfg, started):
+    cfg.protocol.stage = "direct" if bool(cfg.algo.get("single_stage", False)) else "teacher"
     for name in (
         "buffer_steps",
         "warmup_steps",
@@ -46,6 +48,7 @@ def train_supermimic(cfg, started):
         raise ValueError("algo.utd must be positive")
     if int(cfg.algo.buffer_steps) < int(cfg.algo.wm_window):
         raise ValueError("algo.buffer_steps must be at least algo.wm_window")
+    checkpoint_prefix = "policy" if cfg.protocol.stage == "direct" else "teacher"
     run = create_run(cfg)
     actor, critic, _ = make_models(cfg, cfg.training.device)
     counters = training_counters()
@@ -102,10 +105,10 @@ def train_supermimic(cfg, started):
                 int(cfg.algo.save_interval) > 0
                 and counters["policy_version"] % int(cfg.algo.save_interval) == 0
             ):
-                path = run / f"teacher_iteration_{counters['policy_version']}.pt"
+                path = run / f"{checkpoint_prefix}_iteration_{counters['policy_version']}.pt"
                 _save(path, cfg, learner, counters, started)
                 logger.log_save(str(path))
-        final = run / "teacher_final.pt"
+        final = run / f"{checkpoint_prefix}_final.pt"
         _save(final, cfg, learner, counters, started)
         logger.log_save(str(final))
         logger.finish()

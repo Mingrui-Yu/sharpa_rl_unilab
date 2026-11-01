@@ -5,9 +5,44 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import torch
+from rsl_rl.modules import EmpiricalNormalization
+from tensordict import TensorDict
 from torch import nn
 
+from sharpa_rl_unilab.algos.hora.distribution import LogStd, PolicyDistribution
+from sharpa_rl_unilab.algos.hora.models import _MLP
+from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import ACTION_DIM, ACTOR_DIM
+
 from .state import DELTA_DIM, State, integrate_state, state_difference, state_features
+
+
+class SuperMimicActor(nn.Module):
+    def __init__(self, model: dict):
+        super().__init__()
+        if (
+            model["actor_hidden_dims"] != [512, 256, 128]
+            or model["activation"] != "elu"
+            or not model["actor_normalization"]
+        ):
+            raise ValueError(
+                "Protocol v2 fixes the SuperMimic actor architecture and normalization"
+            )
+        self.obs_normalizer = EmpiricalNormalization(ACTOR_DIM)
+        self.trunk = _MLP(ACTOR_DIM, model["actor_hidden_dims"], model["activation"])
+        self.mu_head = nn.Linear(self.trunk.output_dim, ACTION_DIM)
+        self.action_mapping = str(model.get("action_mapping", "tanh"))
+        for module in self.modules():
+            if isinstance(module, nn.Linear) and module.bias is not None:
+                nn.init.zeros_(module.bias)
+        self.std_module = LogStd(self.trunk.output_dim, ACTION_DIM, model)
+
+    def policy(self, obs: TensorDict | torch.Tensor) -> PolicyDistribution:
+        if isinstance(obs, torch.Tensor):
+            obs = TensorDict({"actor": obs}, batch_size=obs.shape[:-1])
+        actor = obs["policy"] if "policy" in obs else obs["actor"]
+        features = self.trunk(self.obs_normalizer(actor))
+        mean = self.mu_head(features)
+        return PolicyDistribution(mean, self.std_module(features), self.action_mapping)
 
 
 def mlp(in_dim: int, hidden: Sequence[int], out_dim: int) -> nn.Sequential:
