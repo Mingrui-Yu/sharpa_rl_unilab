@@ -1,10 +1,10 @@
 # UniLab Sharpa 手内操作
 
 本仓库是一套面向 Sharpa Wave 22 自由度灵巧手的 UniLab 触觉手内操作研究栈，
-包含 Manager-Based MuJoCo/MJWarp 任务、机器人与物体资产、grasp cache、
+包含 Manager-Based MuJoCo/MJWarp/MotrixSim 任务、机器人与物体资产、grasp cache、
 固定场景确定性评估、checkpoint 工具和视频回放。SuperMimic、PPO、APPO、
-FlashSAC 训练同一个圆柱旋转任务：标准流程先训练特权 HORA teacher，再蒸馏
-为仅观测 student；SuperMimic 也可通过可微世界模型单阶段直接训练可部署 actor。
+FlashSAC 训练同一个圆柱旋转任务：标准流程先训练特权 HORA teacher，
+再蒸馏为仅观测 student；SuperMimic 也可通过可微世界模型单阶段直接训练可部署 actor。
 
 ## 结果
 
@@ -57,7 +57,7 @@ seed、单卡 RTX 4090 的 MJWarp 验证中，该路径完成 3000 iterations
 
 ## 安装与校验
 
-UniLab 1.5.4 及其 CUDA Torch wheel 会从已配置的包索引解析。
+UniLab 1.5.6 及其 CUDA Torch wheel 会从已配置的包索引解析。
 
 ```bash
 git clone https://github.com/unilabsim/sharpa_rl_unilab.git
@@ -67,12 +67,12 @@ uv run pytest
 uv run pyright
 ```
 
-若使用 pip，可在独立虚拟环境中运行 `pip install .`。默认安装 MuJoCo 和
-MJWarp；MJWarp 需要 CUDA，四种 teacher 算法均支持 `--sim mjwarp`。训练使用
+若使用 pip，可在独立虚拟环境中运行 `pip install .`。默认安装 MuJoCo、
+MJWarp 和 MotrixSim 运行时，并通过 `--sim` 选择算法可用的后端。MJWarp
+需要 CUDA。训练使用
 UniLab 集成的 tensor-native RL runtime：PPO/APPO 采样与 FlashSAC
 推理/replay 的观测、动作、奖励和结束标志均保持 Torch tensor 边界，CUDA
 训练热路径驻留 GPU。
-
 `uv run pytest` 默认运行快速回归测试；仿真与训练冒烟测试使用
 `uv run pytest -m slow`，其中 FlashSAC 冒烟测试需要 CUDA。
 
@@ -125,7 +125,7 @@ uv run sharpa-eval --checkpoint /absolute/path/to/student_final.pt
 `--distill --eval --num-seeds 3` 可运行多 seed 蒸馏与评估。各算法使用各自的训练预算，
 不保证等采样量或等计算成本。
 
-任务背景见[手内旋转](docs/zh_CN/task.md)，操作步骤、运行限制和 checkpoint 兼容范围
+任务背景见[手内旋转](docs/zh_CN/task.md)，操作步骤、运行配置和 checkpoint 兼容范围
 见[训练指南](docs/zh_CN/training.md)。
 
 ## 任务契约
@@ -139,4 +139,4 @@ uv run sharpa-eval --checkpoint /absolute/path/to/student_final.pt
 - 触觉平滑/延迟、特权信息、位置目标、执行器增益、物体质量/质心/摩擦/重力与
   衰减外力均为显式 manager terms，仅通过 Entity facade 访问状态。
 
-详见 [架构](docs/zh_CN/architecture.md) 与 [验证](docs/VALIDATION.md)。
+详见 [架构](docs/zh_CN/architecture.md)。

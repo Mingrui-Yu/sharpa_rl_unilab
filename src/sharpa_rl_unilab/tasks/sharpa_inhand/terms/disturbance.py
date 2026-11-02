@@ -87,8 +87,8 @@ class SharpaPersistentObjectForce(ManagerTermBase):
 
     def _apply_force(self, env: SharpaEnv, ids: torch.Tensor | None) -> None:
         if self._host_wrench:
-            # UniSim 1.5.4 rejects device wrench writes while the asynchronous
-            # step receipt is pending. Its public host staging API is the only
+            # HOST_BRIDGE backends reject device wrench writes while the
+            # asynchronous step receipt is pending. Their public host staging API is the only
             # wrench path that preserves the persistent-force protocol here.
             env.backend.apply_body_force(self._backend_body_ids, self._force.detach().cpu().numpy())
             return

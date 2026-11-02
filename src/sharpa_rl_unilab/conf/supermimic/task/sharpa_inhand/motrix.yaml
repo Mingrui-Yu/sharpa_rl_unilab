@@ -1,0 +1,13 @@
+# @package _global_
+defaults:
+  - /supermimic/task/sharpa_inhand/base
+  - _self_
+
+training:
+  sim_backend: motrix
+
+env:
+  events:
+    # UniSim 2.5.0 enables whole-model scale variants but does not yet map
+    # interval body wrenches through those variant runtimes.
+    persistent_force: null

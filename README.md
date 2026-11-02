@@ -6,10 +6,10 @@
 
 This repository is a complete UniLab research stack for tactile in-hand
 manipulation with a 22-DoF Sharpa Wave hand. It bundles the Manager-Based
-MuJoCo/MJWarp task, robot and object assets, grasp caches, deterministic
-fixed-scene evaluation, checkpoint tooling, and video playback. SuperMimic,
-PPO, APPO and FlashSAC train the same cylinder-rotation task. The standard
-pipeline learns a privileged HORA teacher and distills it into an
+MuJoCo/MJWarp/MotrixSim task, robot and object assets, grasp caches,
+deterministic fixed-scene evaluation, checkpoint tooling, and video playback.
+SuperMimic, PPO, APPO and FlashSAC train the same cylinder-rotation task. The
+standard pipeline learns a privileged HORA teacher and distills it into an
 observation-only student; SuperMimic can alternatively train the deployable
 actor directly in one stage through a learned differentiable world model.
 
@@ -53,7 +53,7 @@ with a privileged training critic. Critics retain the V/Q structure required by 
 
 ## Installation and validation
 
-UniLab 1.5.4 and its CUDA Torch wheels are resolved from the configured package
+UniLab 1.5.6 and its CUDA Torch wheels are resolved from the configured package
 indexes.
 
 ```bash
@@ -65,12 +65,12 @@ uv run pyright
 ```
 
 To install the source tree with pip instead, use `pip install .` in a separate
-virtual environment. MuJoCo and MJWarp are installed by default; MJWarp requires
-CUDA, and all four teacher algorithms accept `--sim mjwarp`. Training uses
+virtual environment. The MuJoCo, MJWarp and MotrixSim runtimes are installed by
+default; select an algorithm's available backend with `--sim`. MJWarp requires
+CUDA. Training uses
 UniLab's integrated tensor-native RL runtime: PPO/APPO collection and FlashSAC
 inference/replay keep observations, actions, rewards, and done flags on Torch
 tensors, and CUDA runs keep the training hot path device-resident.
-
 `uv run pytest` runs fast regression tests by default; use
 `uv run pytest -m slow` for simulation and training smoke tests.
 The FlashSAC smoke test requires CUDA.
@@ -129,8 +129,8 @@ and evaluation across multiple seeds. Each algorithm uses its own training budge
 are not guaranteed.
 
 See [in-hand rotation](docs/en/task.md) for task background and the
-[training guide](docs/en/training.md) for detailed steps, runtime limitations
-and checkpoint compatibility.
+[training guide](docs/en/training.md) for detailed steps, runtime setup and
+checkpoint compatibility.
 
 ## Task contract
 
@@ -146,4 +146,4 @@ and checkpoint compatibility.
   object forces are explicit manager terms that access state through the Entity
   facade.
 
-See [architecture](docs/en/architecture.md) and [validation](docs/VALIDATION.md).
+See [architecture](docs/en/architecture.md).

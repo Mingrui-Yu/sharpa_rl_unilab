@@ -36,7 +36,16 @@ world-model training, so no distillation is needed:
 
 ```bash
 uv run sharpa-train --algo supermimic algo.single_stage=true
+# MotrixSim is CPU-authoritative with Torch collector buffers and supports the
+# same eight fixed-model object scales and grasp caches as MuJoCo/MJWarp:
+uv run sharpa-train --algo supermimic --sim motrix algo.single_stage=true
 ```
+
+MotrixSim uses the eight fixed-model scale variants, but UniSim 2.5.0 does not
+yet expose interval body wrenches for those whole-model variants. The Motrix
+owner therefore disables the persistent-force event until unisim#517 is
+released; reset-time gain, mass, CoM, friction and gravity randomization remain
+active.
 
 ```bash
 uv run sharpa-train --algo supermimic
@@ -94,8 +103,9 @@ Evaluation runs episodes concurrently in one batched TorchEnv per scale; use
 `evaluation.batch_size=N` to change the maximum batch size (default 32), or 1 for
 serial scheduling. Reset seeds, perturbation streams, terminal state and metrics
 are slot-local. All manager randomness uses UniLab's Torch `ManagerRng` owner,
-including persistent forces and observation noise; no NumPy simulation RNG is
-installed. Replaying the same manifest and batch configuration is deterministic.
+including persistent forces on MuJoCo/MJWarp and observation noise; no NumPy
+simulation RNG is installed. Replaying the same manifest and batch
+configuration is deterministic.
 Different batch sizes can amplify small backend floating-point differences in
 contact-rich MJWarp trajectories, so cross-batch bit equality is not guaranteed.
 
@@ -165,8 +175,7 @@ Video is for inspecting behavior; quantitative evaluation must be run separately
 Headless Linux machines require EGL or OSMesa; see the
 [README](../../README.md#train-evaluate-and-distill) for installation instructions.
 
-See the [architecture](architecture.md) for implementation contracts and the
-[validation record](../VALIDATION.md) for validation coverage.
+See the [architecture](architecture.md) for implementation contracts.
 
 The current layout requires tactile inputs, friction privilege, no gravity privilege,
 three actor/critic history frames and 30 proprioceptive history frames. Incompatible

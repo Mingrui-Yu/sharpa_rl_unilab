@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+from importlib.util import find_spec
 
 import pytest
 import torch
@@ -101,6 +102,85 @@ def test_train_and_evaluate_supermimic_direct(tmp_path):
     direct = evaluate_checkpoint(path, device="cpu")
     assert direct["stage"] == "direct"
     assert len(direct["episodes"]) == 1
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(
+    find_spec("motrixsim") is None, reason="SuperMimic Motrix smoke requires MotrixSim"
+)
+def test_motrix_reset_preserves_hand_joint_state():
+    cfg = compose_config(
+        "supermimic",
+        "motrix",
+        ["training.num_envs=2", "training.device=cpu", "algo.single_stage=true"],
+    )
+    env = SharpaTeacherEnv(cfg, 2, auto_reset=False)
+    try:
+        env.reset(seed=12345)
+        env.observation_manager.compute()
+        hand = env.termination_manager.get_term_cfg("dropped").func.observation.dof_pos
+        target = env.action_manager.get_term("hand").target.cpu()
+        torch.testing.assert_close(hand, target)
+    finally:
+        env.close()
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(
+    find_spec("motrixsim") is None, reason="SuperMimic Motrix smoke requires MotrixSim"
+)
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="SuperMimic smoke uses CUDA training")
+def test_train_and_evaluate_supermimic_direct_motrix(tmp_path):
+    run = tmp_path / "direct_motrix"
+    overrides = [
+        "training.num_envs=8",
+        "training.device=cuda:0",
+        "training.no_play=true",
+        "training.logger=no_print",
+        f"training.log_dir={run}",
+        "algo.single_stage=true",
+        "algo.max_iterations=2",
+        "algo.save_interval=1",
+        "algo.warmup_steps=4",
+        "algo.wm_window=2",
+        "algo.wm_batches=1",
+        "algo.wm_batch=4",
+        "algo.wm_hidden=[64]",
+        "algo.pi_batch=4",
+        "algo.horizon=2",
+        "algo.critic_epochs=1",
+        "algo.critic_minibatches=2",
+        "algo.wm_only_iters=0",
+        "evaluation.seeds=[10001]",
+        "evaluation.scales=[0.8,1.2]",
+        "evaluation.scale_weights=[0.5,0.5]",
+        "evaluation.episodes_per_scale=1",
+    ]
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "sharpa_rl_unilab.cli",
+            "--algo",
+            "supermimic",
+            "--sim",
+            "motrix",
+            *overrides,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    path = run / "policy_final.pt"
+    rows = [json.loads(line) for line in (run / "metrics.jsonl").read_text().splitlines()]
+    assert len(rows) == 2
+    assert rows[-1]["policy_version"] == 2
+    assert (run / "policy_iteration_2.pt").is_file()
+
+    direct = evaluate_checkpoint(path, device="cpu")
+    assert direct["stage"] == "direct"
+    assert [episode["scale"] for episode in direct["episodes"]] == [0.8, 1.2]
 
 
 @pytest.mark.slow

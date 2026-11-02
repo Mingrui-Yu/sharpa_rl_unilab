@@ -10,11 +10,12 @@
     }
   },
   "notes": [
-    "scene.xml and right_sharpa_wave.xml are git-native (copied from UniLab src/unilab/assets/robots/sharpa_wave/, right_sharpa_wave.xml is byte-identical to UniLab git HEAD; scene.xml differs by the post-migration simple=\"false\" fix noted below); the HF unilab-robots dataset does not host sharpa_wave XML files.",
+    "scene.xml and right_sharpa_wave.xml are git-native files copied from UniLab src/unilab/assets/robots/sharpa_wave/; scene.xml differs by the post-migration simple=\"false\" fix noted below, and right_sharpa_wave.xml differs by the backend-shared repeated-collision-mesh fix noted below; the HF unilab-robots dataset does not host sharpa_wave XML files.",
     "caches/sharpa_grasp_linspace is a filename prefix, not a directory: the runtime resolves '<grasp_cache_path>_<scale:g>.npy' (see UniLab sharpa_inhand resolve_grasp_cache_file), so cache files stay flat under caches/.",
     "right_sharpa_wave.usda was requested but does not exist in any unilabsim HF dataset (unilab-robots, unilab-caches, unilab-motions, unilab-scenes, unilab-checkpoints all checked).",
     "scene.xml: object body sets simple=\"false\" (post-migration fix); with the default simple/sameframe compilation, reset-time com/mass domain randomization trips mj_setConst \"sameframe no longer holds\" and crashes the mujoco_uni batch runtime.",
-    "Manager-Based fixed variants add scene_scale_{0.8..1.5}.xml and right_sharpa_wave_manager.xml. The manager XML uniquely names every body geom and uses repo-relative mesh paths for mjbatch fixed-variant compilation; all variant XMLs retain object body simple=\"false\"."
+    "Manager-Based fixed variants add scene_scale_{0.8..1.5}.xml and right_sharpa_wave_manager.xml. The manager XML uniquely names every body geom and uses repo-relative mesh paths for mjbatch fixed-variant compilation; all variant XMLs retain object body simple=\"false\".",
+    "right_sharpa_wave.xml is shared by MuJoCo, MJWarp and MotrixSim. Repeated MCP_VL collision-mesh uses have distinct mesh assets and public geom names so MotrixSim preserves them without changing the model used by the other backends; whole-model Motrix training additionally materializes the same scene_scale_* fixed-variant catalog used by MuJoCo and MJWarp."
   ],
   "sha256": {
     "caches/sharpa_grasp_linspace_0.8.npy": "1e3e806989a49192815636ecf97f84504a84b5b87cbef08f9fdbc8e3e5212e5f",
@@ -66,7 +67,7 @@
     "robots/sharpa_wave/meshes/wrist_A.STL": "5c4c9fc0dd538c4e11d64ae4994269090334f0f5fe25bbea022a501948d2e529",
     "robots/sharpa_wave/meshes/wrist_B.STL": "ce978dda8bbfb8ad59cb2f5decf647882d1be67fd758329d40c7c4cefacbf771",
     "robots/sharpa_wave/meshes/wrist_collision.STL": "147da80c56a334d83b1ac882f3110b29401d5806c94b993e77e9d763bdca2b54",
-    "robots/sharpa_wave/right_sharpa_wave.xml": "7d8b92cb1efd0985bd2389d719c7fad06c4dcf45b7c479396ff5190bb24b8876",
+    "robots/sharpa_wave/right_sharpa_wave.xml": "e5c7008fb0049fbf8893b5950331fdbc5065e956606b6368207c661a9e663df3",
     "robots/sharpa_wave/scene.xml": "fa4c0bd90ef967329e959937e3f77e1a07d2c8a831776433780e9c40d8f02482",
     "robots/sharpa_wave/scene_scale_0.8.xml": "ccd1f4f98a18deb32d15627b53928ea7baf554fa00dc4d70208ff889ddf2d988",
     "robots/sharpa_wave/scene_scale_0.9.xml": "3a98398c70f8c39bcbd6b2bfed5528b2171c6d1b522b22ef961d2a6c7265cb2e",

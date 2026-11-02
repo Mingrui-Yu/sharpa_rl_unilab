@@ -107,8 +107,7 @@ APPO 只覆盖策略/价值前向及分布钩子，保留上游损失实现。
   每个 variant 的 geom 名唯一，自由物体保留 `simple="false"`，避免 reset 修改质量或重心时
   触发 MuJoCo `sameframe` 错误。Task term 使用 Entity API，不访问 backend 内部对象。
 
-Checkpoint 使用范围见[兼容性说明](training.md#5-常用设置与兼容性)，
-历史测试与实验结果见[验证记录](../VALIDATION.md)。
+Checkpoint 使用范围见[兼容性说明](training.md#5-常用设置与兼容性)。
 
 ## 资产与生成的抓取缓存
 
