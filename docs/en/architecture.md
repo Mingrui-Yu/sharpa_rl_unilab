@@ -134,8 +134,7 @@ evaluation algorithms and statistical functions live in `training/evaluation.py`
   backend internals.
 
 See [compatibility](training.md#5-common-settings-and-compatibility) for
-checkpoint support and the [validation record](../VALIDATION.md) for historical
-tests and experiments.
+checkpoint support.
 
 ## Assets and generated grasp caches
 

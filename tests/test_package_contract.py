@@ -11,6 +11,7 @@ import pytest
 
 from sharpa_rl_unilab import assets
 from sharpa_rl_unilab.cli import compose_config
+from sharpa_rl_unilab.tasks.sharpa_inhand.config import SharpaInhandRotationCfg
 from sharpa_rl_unilab.tasks.sharpa_inhand.terms.cache import (
     resolve_grasp_cache_file,
     sample_scale_grasp_caches,
@@ -24,6 +25,7 @@ from sharpa_rl_unilab.tasks.sharpa_inhand.terms.cache import (
         ("ppo", "mujoco", "sharpa_inhand_grasp"),
         ("appo", "mujoco", "sharpa_inhand"),
         ("flashsac", "mujoco", "sharpa_inhand"),
+        ("supermimic", "motrix", "sharpa_inhand"),
         ("supermimic", "mjwarp", "sharpa_inhand"),
         ("ppo", "mjwarp", "sharpa_inhand"),
         ("appo", "mjwarp", "sharpa_inhand"),
@@ -51,8 +53,52 @@ def test_reserved_overrides_are_rejected():
         compose_config("ppo", "mujoco", ["training.play_only=true"])
 
 
+def test_supermimic_whole_model_backends_share_scale_domain_randomization():
+    configs = {
+        "mujoco": compose_config("supermimic", "mujoco", []),
+        "mjwarp": compose_config("supermimic", "mjwarp", []),
+        "motrix": compose_config("supermimic", "motrix", []),
+    }
+    expected_variants = [
+        f"scene_scale_{name}" for name in ("0.8", "0.9", "1", "1.1", "1.2", "1.3", "1.4", "1.5")
+    ]
+    for cfg in configs.values():
+        assert cfg.env.get("fixed_model_variants", "owner-default") == "owner-default"
+        assert list(cfg.evaluation.scales) == [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+    owner_default = SharpaInhandRotationCfg().fixed_model_variants
+    assert owner_default is not None
+    assert [variant.name for variant in owner_default.variants] == expected_variants
+
+
+def test_supermimic_motrix_owner_inherits_scale_domain_randomization():
+    cfg = compose_config("supermimic", "motrix", [])
+    assert cfg.env.scene.model_file.endswith("scene.xml")
+    assert "fixed_model_variants" not in cfg.env
+    assert cfg.env.events.persistent_force is None
+    assert list(cfg.evaluation.scales) == [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+
+
+def test_supermimic_whole_model_backends_share_canonical_scene_xml():
+    model_files = [
+        str(compose_config("supermimic", sim, []).env.scene.model_file)
+        for sim in ("mujoco", "mjwarp", "motrix")
+    ]
+    assert len(set(model_files)) == 1
+    assert model_files[0].endswith("scene.xml")
+
+
+def test_supermimic_backend_owners_inherit_shared_task_base():
+    root = assets.ASSETS_ROOT_PATH.parent / "conf/supermimic/task/sharpa_inhand"
+    assert (root / "base.yaml").is_file()
+    for sim in ("mujoco", "mjwarp", "motrix"):
+        owner = (root / f"{sim}.yaml").read_text()
+        assert "/supermimic/task/sharpa_inhand/base" in owner
+        assert "/supermimic/task/sharpa_inhand/mujoco" not in owner
+        assert f"sim_backend: {sim}" in owner
+
+
 def test_unilab_dependency_is_pinned():
-    assert version("unilab") == "1.5.4"
+    assert version("unilab") == "1.5.6"
 
 
 def test_registration_outside_checkout(tmp_path):

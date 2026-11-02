@@ -49,7 +49,7 @@ def _main(*, play: bool, argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--algo", choices=["supermimic", "ppo", "appo", "flashsac"], default="supermimic"
     )
-    parser.add_argument("--sim", choices=["mujoco", "mjwarp"], default="mujoco")
+    parser.add_argument("--sim", choices=["mujoco", "mjwarp", "motrix"], default="mujoco")
     parser.add_argument("--task", choices=sorted(TASK_NAMES), default="sharpa_inhand")
     parser.add_argument(
         "--checkpoint",

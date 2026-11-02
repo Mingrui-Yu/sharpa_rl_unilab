@@ -13,7 +13,11 @@
     <mesh name="right_thumb_DP" file="DP_HB1_TH.STL"/>
     <mesh name="thumb_elastomer" file="elastomer_HB1_TH.STL"/>
     <mesh name="right_MCP_VL_visual" file="right_MCP_VL_visual.STL"/>
-    <mesh name="MCP_VL" file="MCP_VL.STL"/>
+    <!-- Keep repeated collision-mesh uses as distinct named public geoms so MuJoCo, MJWarp and MotrixSim share one hand XML. -->
+    <mesh name="MCP_VL_004" file="MCP_VL.STL"/>
+    <mesh name="MCP_VL_006" file="MCP_VL.STL"/>
+    <mesh name="MCP_VL_008" file="MCP_VL.STL"/>
+    <mesh name="MCP_VL_010" file="MCP_VL.STL"/>
     <mesh name="right_PP_visual" file="right_PP_visual.STL"/>
     <mesh name="right_PP" file="right_PP.STL"/>
     <mesh name="right_MP_visual" file="right_MP_visual.STL"/>
@@ -85,7 +89,7 @@
         <inertial pos="-0.0092 0.0013 0" quat="0.519686 0.479506 -0.519686 0.479506" mass="0.00221" diaginertia="2.23e-07 1.77435e-07 1.09965e-07"/>
         <joint name="right_index_MCP_FE" pos="0 0 0" axis="0 0 1" range="-0.17453293 1.5708" class="MCP_joint"/>
         <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.79216 0.81961 0.93333 1" mesh="right_MCP_VL_visual"/>
-        <geom type="mesh" contype="1" conaffinity="1" group="3"  rgba="0.79216 0.81961 0.93333 1" mesh="MCP_VL"/>
+        <geom type="mesh" contype="1" conaffinity="1" group="3"  rgba="0.79216 0.81961 0.93333 1" mesh="MCP_VL_004" name="right_manager_geom_004"/>
         <body gravcomp="1" name="right_index_PP" quat="0.707105 -0.707108 0 0">
           <inertial pos="0.027 0.00055 0.00068" quat="0.512565 0.504813 0.502719 0.479286" mass="0.04741" diaginertia="1.14061e-05 1.10467e-05 2.15425e-06"/>
           <joint name="right_index_MCP_AA" pos="0 0 0" axis="0 0 1" range="-0.3491 0.3491" class="MCP_joint"/>
@@ -111,7 +115,7 @@
         <inertial pos="-0.0092 0.0013 0" quat="0.519686 0.479506 -0.519686 0.479506" mass="0.00221" diaginertia="2.23e-07 1.77435e-07 1.09965e-07"/>
         <joint name="right_middle_MCP_FE" pos="0 0 0" axis="0 0 1" range="-0.17453293 1.5708" class="MCP_joint"/>
         <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.79216 0.81961 0.93333 1" mesh="right_MCP_VL_visual"/>
-        <geom type="mesh" contype="1" conaffinity="1" group="3"  rgba="0.79216 0.81961 0.93333 1" mesh="MCP_VL"/>
+        <geom type="mesh" contype="1" conaffinity="1" group="3"  rgba="0.79216 0.81961 0.93333 1" mesh="MCP_VL_006" name="right_manager_geom_006"/>
         <body gravcomp="1" name="right_middle_PP" quat="0.707105 -0.707108 0 0">
           <inertial pos="0.027 0.00055 0.00068" quat="0.512565 0.504813 0.502719 0.479286" mass="0.04741" diaginertia="1.14061e-05 1.10467e-05 2.15425e-06"/>
           <joint name="right_middle_MCP_AA" pos="0 0 0" axis="0 0 1" range="-0.3491 0.3491" class="MCP_joint"/>
@@ -137,7 +141,7 @@
         <inertial pos="-0.0092 0.0013 0" quat="0.519686 0.479506 -0.519686 0.479506" mass="0.00221" diaginertia="2.23e-07 1.77435e-07 1.09965e-07"/>
         <joint name="right_ring_MCP_FE" pos="0 0 0" axis="0 0 1" range="-0.17453293 1.5708" class="MCP_joint"/>
         <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.79216 0.81961 0.93333 1" mesh="right_MCP_VL_visual"/>
-        <geom type="mesh" contype="1" conaffinity="1" group="3"  rgba="0.79216 0.81961 0.93333 1" mesh="MCP_VL"/>
+        <geom type="mesh" contype="1" conaffinity="1" group="3"  rgba="0.79216 0.81961 0.93333 1" mesh="MCP_VL_008" name="right_manager_geom_008"/>
         <body gravcomp="1" name="right_ring_PP" quat="0.707105 -0.707108 0 0">
           <inertial pos="0.027 0.00055 0.00068" quat="0.512565 0.504813 0.502719 0.479286" mass="0.04741" diaginertia="1.14061e-05 1.10467e-05 2.15425e-06"/>
           <joint name="right_ring_MCP_AA" pos="0 0 0" axis="0 0 1" range="-0.3491 0.3491" class="MCP_joint"/>
@@ -168,7 +172,7 @@
           <inertial pos="-0.0092 0.0013 0" quat="0.519686 0.479506 -0.519686 0.479506" mass="0.00221" diaginertia="2.23e-07 1.77435e-07 1.09965e-07"/>
           <joint name="right_pinky_MCP_FE" pos="0 0 0" axis="0 0 1" range="-0.17453293 1.5708" class="MCP_joint"/>
           <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.79216 0.81961 0.93333 1" mesh="right_MCP_VL_visual"/>
-          <geom type="mesh" contype="1" conaffinity="1" group="3"  rgba="0.79216 0.81961 0.93333 1" mesh="MCP_VL"/>
+          <geom type="mesh" contype="1" conaffinity="1" group="3"  rgba="0.79216 0.81961 0.93333 1" mesh="MCP_VL_010" name="right_manager_geom_010"/>
           <body gravcomp="1" name="right_pinky_PP" quat="0.707105 -0.707108 0 0">
             <inertial pos="0.027 0.00055 0.00068" quat="0.512565 0.504813 0.502719 0.479286" mass="0.04741" diaginertia="1.14061e-05 1.10467e-05 2.15425e-06"/>
             <joint name="right_pinky_MCP_AA" pos="0 0 0" axis="0 0 1" range="-0.3491 0.3491" class="MCP_joint"/>

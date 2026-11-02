@@ -6,6 +6,7 @@ __pycache__/
 .mypy_cache/
 dist/
 logs/
+third_party/
 *.log
 MUJOCO_LOG.TXT
 .coverage
