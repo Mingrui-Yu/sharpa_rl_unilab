@@ -33,7 +33,7 @@ class SharpaSuperMimicLearner:
             55,
             tuple(int(value) for value in cfg.algo.wm_hidden),
             bool(cfg.algo.use_amp),
-            structured=bool(cfg.algo.get("wm_structured", False)),
+            structured=bool(cfg.algo.get("wm_structured", True)),
             dt=self.mdp.dt,
             drift_w=float(cfg.algo.get("wm_drift_w", DRIFT_W)),
         ).to(self.device)
