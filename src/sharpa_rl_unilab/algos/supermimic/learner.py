@@ -12,7 +12,7 @@ from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import ACTOR_HISTORY
 
 from .networks import WorldModel
 from .replay import ReplayBuffer
-from .state import state_difference, unflatten_state
+from .state import DRIFT_W, state_difference, unflatten_state
 
 
 def _requires_grad(module: nn.Module, enabled: bool) -> None:
@@ -33,6 +33,9 @@ class SharpaSuperMimicLearner:
             55,
             tuple(int(value) for value in cfg.algo.wm_hidden),
             bool(cfg.algo.use_amp),
+            structured=bool(cfg.algo.get("wm_structured", False)),
+            dt=self.mdp.dt,
+            drift_w=float(cfg.algo.get("wm_drift_w", DRIFT_W)),
         ).to(self.device)
         fused = self.device.type == "cuda"
         self.opt_wm = torch.optim.Adam(
@@ -114,6 +117,7 @@ class SharpaSuperMimicLearner:
             next_state = unflatten_state(following["s"])
             self.wm.in_norm.update(self.wm.inputs(initial, action, current["xi"]))
             self.wm.out_norm.update(self.wm.targets(initial, next_state))
+            self.wm.inc_norm.update(self.wm.increments(initial, next_state))
             analytic_reward = self.mdp.reward(next_state, current["xi"])
             reward_gaps.append((analytic_reward - transition["r"]).abs().mean())
             tensor_obs = {
@@ -192,7 +196,7 @@ class SharpaSuperMimicLearner:
                 self.mdp.action_scale,
             )
             expected = unflatten_state(window["s1"][:, index])
-            std = torch.maximum(self.wm.out_norm.std(), self.wm.error_floor)
+            std = torch.maximum(self.wm.inc_norm.std(), self.wm.error_floor)
             losses.append((state_difference(state, expected) / std).square().mean(-1))
         error = torch.stack(losses, 1)
         mask = window["mask"]

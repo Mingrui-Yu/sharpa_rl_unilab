@@ -17,6 +17,8 @@ algo:
   wm_batches: 10
   wm_batch: 2048
   wm_hidden: [2048, 2048, 2048]
+  wm_structured: false
+  wm_drift_w: 0.625
   pi_batch: 1024
   horizon: 32
   critic_epochs: 5
