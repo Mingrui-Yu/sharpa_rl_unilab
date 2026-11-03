@@ -86,10 +86,12 @@ uv run sharpa-eval --checkpoint /path/to/teacher_final.pt
 结果记录回报、存活时间、掉落率、有符号旋转角，以及按固定窗口和实际存活时间计算的转速。
 结果保存为 checkpoint 旁的 `<模型名>.evaluation.json`，场景清单为 `scenes.json`。
 
-评估在每个尺度的单个批量 TorchEnv 内并发 episode；`evaluation.batch_size=N`
-设置最大批量（默认 32），设为 1 可串行调度。reset seed、扰动流、终止状态和指标均按槽位隔离。
-包括 MuJoCo/MJWarp 持续外力和观测噪声在内的 Manager 随机数统一使用 UniLab 的 Torch `ManagerRng` owner，
-不再安装 NumPy 仿真 RNG。同一 manifest 和批量配置可确定性复现。不同批量可能放大
+评估用跨尺度批量 TorchEnv 并发执行 manifest；`evaluation.batch_size=N`
+设置最大批量（默认 256），设为 1 可串行调度。固定模型变体按槽位显式分配。
+reset seed、扰动流、终止状态和指标均按槽位隔离。已结束槽位会转为被忽略的
+观察槽，而不是在较长 episode 继续运行时反复重放 reset。包括持续外力和观测噪声
+在内的 Manager 随机数统一使用 UniLab 的 Torch `ManagerRng` owner，不再安装
+NumPy 仿真 RNG。同一 manifest 和批量配置可确定性复现。不同批量可能放大
 MJWarp 接触仿真的微小浮点差异，因此不保证跨批量轨迹逐值一致。
 
 统一训练四种算法：

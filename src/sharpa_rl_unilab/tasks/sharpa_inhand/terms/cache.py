@@ -64,11 +64,15 @@ def sample_scale_grasp_caches(
         ids = np.flatnonzero(variant_ids == variant_id)
         if ids.size == 0:
             continue
-        choices = (
-            rng.integers(0, cache.shape[0], size=ids.size)
-            if rng is not None
-            else np.random.randint(0, cache.shape[0], size=ids.size)
-        )
+        if rng is None:
+            choices = np.random.randint(0, cache.shape[0], size=ids.size)
+        elif hasattr(rng, "integers_for_slots"):
+            # A mixed-variant reset asks once per variant group. Route those
+            # draws by global environment row so each slot keeps its own RNG
+            # stream and remains independent of variant grouping.
+            choices = rng.integers_for_slots(0, cache.shape[0], slots=ids)
+        else:
+            choices = rng.integers(0, cache.shape[0], size=ids.size)
         if isinstance(choices, torch.Tensor):
             choices = choices.detach().cpu().numpy()
         choices = np.asarray(choices, dtype=np.int64)

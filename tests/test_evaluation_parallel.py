@@ -23,8 +23,14 @@ class FakeEnv:
         self.step_dt = 0.05
         self.done_after = done_after
         self.scale = scale
+        self.reset_ids = []
         owner = ManagerRng(device="cpu")
-        self.env = SimpleNamespace(rng=owner, _rng_owner=owner, seed=self.seed)
+        self.env = SimpleNamespace(
+            rng=owner,
+            _rng_owner=owner,
+            seed=self.seed,
+            _manual_reset_pending=torch.zeros(num_envs, dtype=torch.bool),
+        )
         self.obs = torch.zeros(num_envs, 1)
         self.steps = torch.zeros(num_envs, dtype=torch.int64)
         self.reset_term = SimpleNamespace(cache_row_indices=np.zeros(num_envs, dtype=np.int64))
@@ -55,6 +61,7 @@ class FakeEnv:
 
     def reset(self, env_indices=None, *, seed=None):
         ids = list(range(self.num_envs)) if env_indices is None else list(env_indices)
+        self.reset_ids.append(tuple(ids))
         if seed is not None:
             self.seed(seed)
         count = len(ids)
@@ -176,6 +183,32 @@ def test_batched_rng_maps_sparse_persistent_force_draws_to_slots():
     torch.testing.assert_close(actual, torch.cat(expected), rtol=0, atol=0)
 
 
+def test_batched_rng_suppresses_persistent_force_for_finished_slots():
+    rng = BatchedEvaluationRng(2, device="cpu")
+    rng.bind_persistent_force(0.5)
+    rng.seed_slots([17, 29])
+    rng.bind_active(torch.tensor([False, True]))
+    trigger = rng.random(2)
+    assert float(trigger[0]) == 1.0
+
+    expected_stream = ManagerRng.seeded(29, device="cpu")
+    expected = expected_stream.random(1)
+    torch.testing.assert_close(trigger[1:], expected, rtol=0, atol=0)
+
+
+def test_sparse_integer_draws_use_explicit_slot_streams():
+    rng = BatchedEvaluationRng(3, device="cpu")
+    rng.seed_slots([17, 29, 43])
+    actual = rng.integers_for_slots(0, 5, slots=[2, 0])
+    expected = torch.cat(
+        [
+            ManagerRng.seeded(43, device="cpu").integers(0, 5, (1,)),
+            ManagerRng.seeded(17, device="cpu").integers(0, 5, (1,)),
+        ]
+    )
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
 def test_parallel_rollout_matches_serial_with_done_and_manifest_boundaries(tmp_path, monkeypatch):
     cache = tmp_path / "grasps_1.npy"
     cache.write_bytes(b"fixed cache")
@@ -188,6 +221,7 @@ def test_parallel_rollout_matches_serial_with_done_and_manifest_boundaries(tmp_p
     owner = _install_evaluation_rng(batched)
     assert batched.env.rng is owner and batched.env._rng_owner is owner
     episodes = fake_episodes(batched, cfg, seeds)
+    batched.reset_ids.clear()
     parallel = _rollout_episode_batch(batched, cfg, None, episodes, device="cpu")
 
     serial = []
@@ -198,6 +232,9 @@ def test_parallel_rollout_matches_serial_with_done_and_manifest_boundaries(tmp_p
     assert parallel == serial
     assert [row["survival_seconds"] for row in parallel] == [0.1, 0.2, 0.15000000000000002]
     assert [row["dropped"] for row in parallel] == [1.0, 1.0, 1.0]
+    # Two full-width resets initialize and replay the manifest. Finished slots
+    # remain spectators and are never replayed while longer episodes continue.
+    assert batched.reset_ids == [(0, 1, 2), (0, 1, 2)]
 
     invalid = [dict(episode) for episode in episodes]
     invalid[1]["cache_row"] += 1
@@ -207,16 +244,18 @@ def test_parallel_rollout_matches_serial_with_done_and_manifest_boundaries(tmp_p
         _rollout_episode_batch(env, cfg, None, invalid, device="cpu")
 
 
-def test_batch_rejects_mixed_scales_and_foreign_persistent_force_rng(tmp_path, monkeypatch):
+def test_batch_accepts_mixed_scales_and_rejects_foreign_persistent_force_rng(tmp_path, monkeypatch):
     cache = tmp_path / "grasps_1.npy"
     cache.write_bytes(b"fixed cache")
     monkeypatch.setattr(evaluation, "resolve_grasp_cache_file", lambda prefix, scale: cache)
-    env = FakeEnv(2, done_after=[2, 2])
+    monkeypatch.setattr(evaluation, "inference_distribution", zero_policy)
+    env = FakeEnv(3, done_after=[2, 2, 2])
     _install_evaluation_rng(env)
-    episodes = fake_episodes(env, fake_cfg(), [1, 2])
+    env.dr.scale[1] = 2.0
+    episodes = fake_episodes(env, fake_cfg(), [1, 2, 3])
     episodes[1]["scale"] = 2.0
-    with pytest.raises(ValueError, match="cannot mix scales"):
-        _rollout_episode_batch(env, fake_cfg(), None, episodes, device="cpu")
+    mixed = _rollout_episode_batch(env, fake_cfg(), None, episodes, device="cpu")
+    assert [row["scale"] for row in mixed] == [1.0, 2.0, 1.0]
 
     force = SimpleNamespace(rng=object())
     env.event_manager.active_terms = {"step": ["persistent_force"]}
@@ -226,5 +265,5 @@ def test_batch_rejects_mixed_scales_and_foreign_persistent_force_rng(tmp_path, m
         else (_ for _ in ()).throw(AssertionError(name))
     )
     with pytest.raises(ValueError, match="must share"):
-        set_step_rng(env, [1, 2], 0)
+        set_step_rng(env, [1, 2, 3], 0)
     assert env.env.rng is env.env._rng_owner
