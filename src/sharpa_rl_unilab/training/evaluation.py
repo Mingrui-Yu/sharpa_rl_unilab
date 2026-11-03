@@ -46,6 +46,7 @@ class BatchedEvaluationRng(ManagerRng):
         self._reset_full_width = False
         self._force_probability: float | None = None
         self._last_random: torch.Tensor | None = None
+        self._active: torch.Tensor | None = None
 
     @contextmanager
     def reset_slot(self, slot: int, *, full_width: bool = False) -> Iterator[None]:
@@ -76,6 +77,12 @@ class BatchedEvaluationRng(ManagerRng):
 
     def bind_persistent_force(self, probability: float) -> None:
         self._force_probability = float(probability)
+
+    def bind_active(self, active: torch.Tensor) -> None:
+        """Bind the mutable rollout mask used to suppress spectator forces."""
+        if active.shape != (self.num_envs,) or active.dtype != torch.bool:
+            raise ValueError("The active mask must be a boolean tensor with one entry per slot")
+        self._active = active
 
     @staticmethod
     def _shape(size: int | tuple[int, ...]) -> tuple[int, ...]:
@@ -125,6 +132,14 @@ class BatchedEvaluationRng(ManagerRng):
 
     def random(self, size, *, dtype=torch.float32):
         result = self._draw("random", size, dtype=dtype)
+        if (
+            self._reset_slot is None
+            and self._active is not None
+            and self._shape(size) == (self.num_envs,)
+        ):
+            # Keep drawing from every stream so active rows retain their exact
+            # sequence, but disable persistent forces on finished spectator rows.
+            result = torch.where(self._active, result, torch.ones_like(result))
         if self._reset_slot is None and self._shape(size) == (self.num_envs,):
             self._last_random = result
         return result
@@ -140,6 +155,20 @@ class BatchedEvaluationRng(ManagerRng):
 
     def integers(self, low, high, size, *, dtype=torch.int64):
         return self._draw("integers", size, low, high, size_first=False, dtype=dtype)
+
+    def integers_for_slots(
+        self,
+        low: int,
+        high: int,
+        *,
+        slots: Sequence[int | np.integer],
+        dtype: torch.dtype = torch.int64,
+    ) -> torch.Tensor:
+        """Draw one integer from explicit slots without disturbing other streams."""
+        draws = [self._streams[int(slot)].integers(low, high, (1,), dtype=dtype) for slot in slots]
+        if not draws:
+            return torch.empty((0,), dtype=dtype, device=self.device)
+        return torch.cat(draws)
 
     def choice(self, a, size, *, p, replacement=True):
         shape = self._shape(size)
@@ -183,7 +212,7 @@ def validate_evaluation(cfg):
         )
     if int(cfg.evaluation.episodes_per_scale) < 1 or not cfg.evaluation.seeds:
         raise ValueError("Evaluation episode quotas and seed list must be positive")
-    if int(OmegaConf.select(cfg.evaluation, "batch_size", default=32)) < 1:
+    if int(OmegaConf.select(cfg.evaluation, "batch_size", default=256)) < 1:
         raise ValueError("Evaluation batch size must be positive")
     if float(cfg.evaluation.window_seconds) != 20.0:
         raise ValueError("Protocol v2 uses a fixed 20-second evaluation window")
@@ -197,6 +226,23 @@ def _install_evaluation_rng(env) -> BatchedEvaluationRng:
     env.env.rng = rng
     env.env._rng_owner = rng
     return rng
+
+
+def _discard_spectator_finite_verdicts(env) -> None:
+    """Discard deferred verdicts owned only by finished spectator rows."""
+    for name in (
+        "action_manager",
+        "reward_manager",
+        "observation_manager",
+        "command_manager",
+        "metrics_manager",
+    ):
+        reset = getattr(getattr(env.env, name, None), "reset_finite_verdict", None)
+        if callable(reset):
+            reset()
+    env.env._finite_verdict.fill_(True)
+    env.env._defer_finite_validation = False
+    env.env.cfg.defer_finite_validation = False
 
 
 def _reset_slot(env, slot: int, seed: int):
@@ -313,13 +359,6 @@ def set_step_rng(env, episode_seed: int | Sequence[int], step: int):
             raise ValueError("persistent_force must share the environment ManagerRng")
 
 
-def _copy_slot_obs(obs, selected, slot: int) -> None:
-    for key in obs:
-        if selected[key].shape[0] != 1:
-            raise ValueError("Selected-row reset must return exactly one observation")
-        obs[key][slot : slot + 1].copy_(selected[key])
-
-
 def _inference_batch(actor, obs, device, hist_norm):
     distribution = inference_distribution(actor, obs, device, hist_norm)
     return distribution.deterministic(), distribution.std
@@ -337,8 +376,6 @@ def _rollout_episode_batch(
 ):
     if len(episodes) != env.num_envs or not episodes:
         raise ValueError("Evaluation batch must contain one episode per environment slot")
-    if len({episode["scale"] for episode in episodes}) != 1:
-        raise ValueError("One fixed-variant evaluation batch cannot mix scales")
     if env.max_episode_length != 400 or not np.isclose(env.step_dt, 0.05):
         raise ValueError("Evaluation requires the fixed 400-step, 20-second task")
 
@@ -350,6 +387,10 @@ def _rollout_episode_batch(
             )
 
     active = torch.ones(env.num_envs, dtype=torch.bool, device=device)
+    if isinstance(env.env.rng, BatchedEvaluationRng):
+        env.env.rng.bind_active(active)
+    else:
+        raise TypeError("Batched evaluation requires the per-slot ManagerRng owner")
     angle = torch.zeros(env.num_envs, device=device)
     reward = torch.zeros(env.num_envs, device=device)
     dropped = torch.zeros(env.num_envs, dtype=torch.bool, device=device)
@@ -366,10 +407,10 @@ def _rollout_episode_batch(
     for step in range(400):
         if not bool(active.any()):
             break
-        inactive = (~active).nonzero(as_tuple=False).flatten().detach().cpu().tolist()
-        for slot in inactive:
-            selected = _reset_slot(env, slot, episodes[slot]["reset_seed"])
-            _copy_slot_obs(obs, selected, slot)
+        # Finished rows are ignored spectators. Clearing UniLab's manual-reset
+        # ledger lets independent active worlds continue without replaying an
+        # expensive selected-row reset for every dead slot on every later step.
+        env.env._manual_reset_pending.fill_(False)
 
         set_step_rng(env, perturbation_seeds, step)
         actions, std = _inference_batch(actor, obs, device, hist_norm)
@@ -399,11 +440,15 @@ def _rollout_episode_batch(
             device=device,
             dtype=angle.dtype,
         ).sum(dim=-1)
-        angle += angle_delta * env.step_dt * active
-        reward += state.reward * active
+        invalid_active = active & (~torch.isfinite(state.reward) | ~torch.isfinite(angle_delta))
+        if bool(invalid_active.any()):
+            raise ValueError("An active evaluation episode produced NaN or Inf")
+        angle = torch.where(active, angle + angle_delta * env.step_dt, angle)
+        reward = torch.where(active, reward + state.reward, reward)
         survival_steps += active
+        done = state.terminated | state.truncated
         dropped |= state.terminated & active
-        active &= ~(state.terminated | state.truncated)
+        active &= ~done
 
     results = []
     for slot, episode in enumerate(episodes):
@@ -456,7 +501,7 @@ def evaluate_checkpoint(checkpoint, *, output=None, device: str | None = "cpu", 
     results = []
     diagnostics_enabled = bool(OmegaConf.select(cfg, "evaluation.diagnostics", default=False))
     total = len(manifest["episodes"])
-    batch_size = int(OmegaConf.select(cfg.evaluation, "batch_size", default=32))
+    batch_size = int(OmegaConf.select(cfg.evaluation, "batch_size", default=256))
     print(
         f"[eval] Starting {total} episodes across {len(cfg.evaluation.scales)} scales"
         f" | batch_size={batch_size}",
@@ -464,35 +509,42 @@ def evaluate_checkpoint(checkpoint, *, output=None, device: str | None = "cpu", 
         flush=True,
     )
     started = time.monotonic()
-    for scale in cfg.evaluation.scales:
-        scale_episodes = [episode for episode in manifest["episodes"] if episode["scale"] == scale]
-        num_envs = min(batch_size, len(scale_episodes))
-        env = SharpaTeacherEnv(cfg, num_envs, scale=float(scale), auto_reset=False)
+    episodes = list(manifest["episodes"])
+    for start in range(0, len(episodes), batch_size):
+        num_envs = min(batch_size, len(episodes) - start)
+        batch = episodes[start : start + num_envs]
+        env = SharpaTeacherEnv(
+            cfg,
+            num_envs,
+            variant_scales=[episode["scale"] for episode in batch],
+            auto_reset=False,
+            defer_finite_validation=True,
+        )
         try:
             _install_evaluation_rng(env)
-            for start in range(0, len(scale_episodes), num_envs):
-                batch = scale_episodes[start : start + num_envs]
-                slots = batch + [scale_episodes[0]] * (num_envs - len(batch))
-                batch_results = _rollout_episode_batch(
-                    env,
-                    cfg,
-                    actor,
-                    slots,
-                    device=device,
-                    hist_norm=hist_norm,
-                    diagnostics_enabled=diagnostics_enabled,
-                )
-                results.extend(batch_results[: len(batch)])
-                done = len(results)
-                elapsed = time.monotonic() - started
-                eta = elapsed / done * (total - done)
-                print(
-                    f"[eval] {done}/{total} ({done / total:.1%}) | scale={scale:g}"
-                    f" | elapsed={elapsed:.0f}s | ETA~{eta:.0f}s",
-                    file=sys.stderr,
-                    flush=True,
-                )
+            slots = batch + [batch[0]] * (num_envs - len(batch))
+            batch_results = _rollout_episode_batch(
+                env,
+                cfg,
+                actor,
+                slots,
+                device=device,
+                hist_norm=hist_norm,
+                diagnostics_enabled=diagnostics_enabled,
+            )
+            results.extend(batch_results[: len(batch)])
+            done = len(results)
+            elapsed = time.monotonic() - started
+            eta = elapsed / done * (total - done)
+            scale_range = f"{slots[0]['scale']:g}..{slots[-1]['scale']:g}"
+            print(
+                f"[eval] {done}/{total} ({done / total:.1%}) | scale={scale_range}"
+                f" | elapsed={elapsed:.0f}s | ETA~{eta:.0f}s",
+                file=sys.stderr,
+                flush=True,
+            )
         finally:
+            _discard_spectator_finite_verdicts(env)
             env.close()
     per_scale = {
         str(scale): {

@@ -74,6 +74,12 @@ def migrate_checkpoint_config(config) -> DictConfig:
         elif cfg.algo.algo != "flashsac":
             cfg.training.torch_threads = {"enabled": False}
         # With a null scalar, FlashSAC already used the structured thread config.
+    # Protocol v2 originally used per-scale batches of 32. Evaluation now forms
+    # cross-scale batches so a GPU backend has enough worlds per kernel launch.
+    # The old default is indistinguishable in snapshots, but an explicit runtime
+    # override still wins because evaluation overrides merge after migration.
+    if int(cfg.evaluation.get("batch_size", 256)) == 32:
+        cfg.evaluation.batch_size = 256
     # Model defaults are versioned by their saved parameterization, never by
     # the defaults of a newly installed package. Preserve experimental tanh.
     if "model" in cfg and "std_parameterization" not in cfg.model:

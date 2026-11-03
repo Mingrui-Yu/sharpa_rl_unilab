@@ -6,6 +6,7 @@ import time
 from collections.abc import Sequence
 from typing import Any, cast
 
+import numpy as np
 import torch
 from omegaconf import DictConfig
 from unilab.base.config_adapter import EnvConfigAdapter, create_env
@@ -34,8 +35,10 @@ class SharpaTeacherEnv:
         num_envs: int,
         *,
         scale: float | None = None,
+        variant_scales: Sequence[float] | None = None,
         auto_reset: bool = True,
         tensor_device: str | None = None,
+        defer_finite_validation: bool = False,
     ):
         validate_observation_config(cfg)
         overrides = EnvConfigAdapter(
@@ -45,20 +48,50 @@ class SharpaTeacherEnv:
         # four HORA groups at the terminal boundary, so it owns a tensor-only
         # selected-row autoreset while keeping NumPy out of the hot path.
         overrides["auto_reset"] = False
+        if defer_finite_validation:
+            overrides["defer_finite_validation"] = True
+            # Ignored spectator rows may eventually diverge after their episode
+            # finishes. The evaluator clears those verdicts before close.
+            overrides["finite_validation_interval"] = 401
         carrier_device = tensor_device or self._requested_tensor_device(cfg)
         if carrier_device is not None:
             overrides["collector_tensor_device"] = carrier_device
+        if scale is not None and variant_scales is not None:
+            raise ValueError(
+                "Specify either one fixed scale or an explicit per-slot scale assignment"
+            )
         if scale is not None:
-            name = f"scene_scale_{scale:g}"
-            overrides["fixed_model_variants"] = FixedModelVariantCatalogCfg(
-                variants=(
+            variant_scales = (float(scale),) * num_envs
+        if variant_scales is not None:
+            variant_scales = tuple(float(value) for value in variant_scales)
+            if len(variant_scales) != num_envs:
+                raise ValueError(
+                    "Fixed variant scales must contain exactly one scale per environment"
+                )
+            if not variant_scales or any(
+                not np.isfinite(value) or value <= 0.0 for value in variant_scales
+            ):
+                raise ValueError("Fixed variant scales must be finite and positive")
+            variants = []
+            seen: set[float] = set()
+            for value in variant_scales:
+                if value in seen:
+                    continue
+                seen.add(value)
+                name = f"scene_scale_{value:g}"
+                variants.append(
                     FixedModelVariantCfg(
                         name=name,
                         source_model_file=str(
                             ASSETS_ROOT_PATH / "robots" / "sharpa_wave" / f"{name}.xml"
                         ),
-                    ),
+                    )
                 )
+            # Explicit names make the row-to-scale assignment deterministic even
+            # when a cross-scale evaluation batch is not aligned by scale.
+            overrides["fixed_model_variants"] = FixedModelVariantCatalogCfg(
+                variants=tuple(variants),
+                explicit_variant_names=tuple(f"scene_scale_{value:g}" for value in variant_scales),
             )
         self.env = cast(
             ManagerBasedRlEnv, create_env(cfg, num_envs=num_envs, env_cfg_override=overrides)
