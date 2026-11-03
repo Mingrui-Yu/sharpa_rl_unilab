@@ -26,6 +26,8 @@ algo:
   gamma: 0.99
   lam: 0.95
   learning_rate: 0.0004
+  pi_opt: muon  # muon / adam; hidden actor matrices use Muon, other tensors Adam
+  wm_opt: muon  # muon / adam; hidden world-model matrices use Muon, other tensors Adam
   action_noise: 0.1
   pi_ema: 0.995
   use_amp: true

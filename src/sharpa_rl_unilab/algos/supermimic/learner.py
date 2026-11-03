@@ -11,6 +11,7 @@ from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
 from sharpa_rl_unilab.tasks.sharpa_inhand.protocol import ACTOR_HISTORY
 
 from .networks import WorldModel
+from .optim import MuonAdam
 from .replay import ReplayBuffer
 from .state import DRIFT_W, state_difference, unflatten_state
 
@@ -29,6 +30,9 @@ class SharpaSuperMimicLearner:
         self.mdp = mdp
         self.capture = capture
         self.device = torch.device(cfg.training.device)
+        for name in ("pi_opt", "wm_opt"):
+            if cfg.algo[name] not in ("adam", "muon"):
+                raise ValueError(f"algo.{name} must be 'adam' or 'muon', got {cfg.algo[name]!r}")
         self.wm = WorldModel(
             55,
             tuple(int(value) for value in cfg.algo.wm_hidden),
@@ -38,15 +42,43 @@ class SharpaSuperMimicLearner:
             drift_w=float(cfg.algo.get("wm_drift_w", DRIFT_W)),
         ).to(self.device)
         fused = self.device.type == "cuda"
-        self.opt_wm = torch.optim.Adam(
-            self.wm.parameters(), lr=float(cfg.algo.learning_rate), fused=fused
-        )
-        self.opt_pi = torch.optim.Adam(
-            self.actor.parameters(),
-            lr=float(cfg.algo.learning_rate),
-            betas=(0.9, 0.95),
-            fused=fused,
-        )
+        if cfg.algo.wm_opt == "muon":
+            self.opt_wm = MuonAdam(
+                self.wm,
+                [self.wm.net],
+                lr=float(cfg.algo.learning_rate),
+                betas=(0.9, 0.999),
+                fused=fused,
+            )
+        else:
+            self.opt_wm = torch.optim.Adam(
+                self.wm.parameters(), lr=float(cfg.algo.learning_rate), fused=fused
+            )
+        if cfg.algo.pi_opt == "muon":
+            if hasattr(self.actor, "trunk"):
+                interior_mlps = []
+                trunk_mlps = [self.actor.trunk]
+            else:
+                # The default teacher path uses the shared HORA actor. Its
+                # privileged encoder ends at a bottleneck, while the trunk feeds
+                # separate policy heads and therefore remains hidden at its end.
+                interior_mlps = [self.actor.shared.priv_encoder]
+                trunk_mlps = [self.actor.shared.trunk]
+            self.opt_pi = MuonAdam(
+                self.actor,
+                interior_mlps,
+                output_mlps=trunk_mlps,
+                lr=float(cfg.algo.learning_rate),
+                betas=(0.9, 0.95),
+                fused=fused,
+            )
+        else:
+            self.opt_pi = torch.optim.Adam(
+                self.actor.parameters(),
+                lr=float(cfg.algo.learning_rate),
+                betas=(0.9, 0.95),
+                fused=fused,
+            )
         self.opt_v = torch.optim.Adam(
             self.critic.parameters(), lr=float(cfg.algo.learning_rate), fused=fused
         )

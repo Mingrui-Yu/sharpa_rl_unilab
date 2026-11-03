@@ -47,6 +47,12 @@ owner therefore disables the persistent-force event until unisim#517 is
 released; reset-time gain, mass, CoM, friction and gravity randomization remain
 active.
 
+SuperMimic's actor and world-model optimizers use Muon for eligible hidden
+Linear weight matrices and Adam for input/output projections, vectors,
+normalizers, and all critic parameters. Muon uses `match_rms_adamw` scaling so
+the existing learning rate is reused. Set `algo.pi_opt=adam` and/or
+`algo.wm_opt=adam` to restore Adam for either network.
+
 ```bash
 uv run sharpa-train --algo supermimic
 uv run sharpa-train --algo appo
@@ -158,6 +164,7 @@ uv run sharpa-train --algo appo training.num_envs=1024
 | Training iterations | `algo.max_iterations`: 3000 for SuperMimic, 2000 for FlashSAC, 501 for PPO/APPO |
 | Save interval | `algo.save_interval`: 50 for PPO/APPO, 1000 for SuperMimic, 500 for FlashSAC; 0 disables intermediate saves, but the final checkpoint is still saved on normal completion |
 | SuperMimic updates and compilation | `algo.utd=1.6` controls updates per real collection step; CUDA defaults to `algo.compile=true` for multi-step world-model and imagination graphs |
+| SuperMimic optimizers | `algo.pi_opt=muon` and `algo.wm_opt=muon`; either accepts `adam` to restore the previous optimizer |
 | FlashSAC precision | `algo.use_amp=true`; set to `false` to disable mixed precision |
 | Student budget | `distillation.transitions=100000000`, `distillation.num_envs=4096` |
 | Student learning rate | `distillation.learning_rate=0.0003` |

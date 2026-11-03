@@ -46,6 +46,9 @@ def train_supermimic(cfg, started):
             raise ValueError(f"algo.{name} must be positive")
     if float(cfg.algo.utd) <= 0:
         raise ValueError("algo.utd must be positive")
+    for name in ("pi_opt", "wm_opt"):
+        if cfg.algo[name] not in ("adam", "muon"):
+            raise ValueError(f"algo.{name} must be 'adam' or 'muon', got {cfg.algo[name]!r}")
     if int(cfg.algo.buffer_steps) < int(cfg.algo.wm_window):
         raise ValueError("algo.buffer_steps must be at least algo.wm_window")
     checkpoint_prefix = "policy" if cfg.protocol.stage == "direct" else "teacher"
