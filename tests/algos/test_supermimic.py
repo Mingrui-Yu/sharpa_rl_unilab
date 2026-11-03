@@ -8,7 +8,10 @@ from sharpa_rl_unilab.algos.supermimic.state import (
     DELTA_DIM,
     STATE_DIM,
     flatten_state,
+    integrate_state,
     state_difference,
+    structured_integrate_state,
+    structured_state_difference,
     unflatten_state,
 )
 from sharpa_rl_unilab.cli import compose_config
@@ -38,6 +41,33 @@ def test_world_model_zero_initialization_preserves_physical_state():
     expected_target = (state[-1] + 0.05 * action).clamp(-0.75, 0.75)
     torch.testing.assert_close(following[-1], expected_target)
     torch.testing.assert_close(state_difference(state, following), torch.zeros(2, DELTA_DIM))
+
+
+def test_structured_state_difference_round_trips():
+    state = _state()
+    action = torch.randn(2, 22).clamp(-1, 1)
+    next_state = integrate_state(state, torch.randn(2, DELTA_DIM), action, -0.75, 0.75, 0.05)
+
+    targets = structured_state_difference(state, next_state, 0.05)
+    assert targets.shape == (2, DELTA_DIM)
+
+    recovered = structured_integrate_state(state, targets, action, -0.75, 0.75, 0.05, 0.05)
+    torch.testing.assert_close(flatten_state(recovered), flatten_state(next_state))
+
+
+def test_structured_world_model_zero_init_drifts_with_velocity():
+    model = WorldModel(55, (16,), amp=False, structured=True, dt=0.05)
+    state = _state()
+    following = model(state, torch.zeros(2, 22), torch.randn(2, 55), -0.75, 0.75, 0.05)
+
+    position, _, lin_vel, ang_vel, joint_pos, joint_vel, tactile, _ = state
+    f_position, _, f_lin_vel, f_ang_vel, f_joint_pos, f_joint_vel, f_tactile, _ = following
+    torch.testing.assert_close(f_lin_vel, lin_vel)
+    torch.testing.assert_close(f_ang_vel, ang_vel)
+    torch.testing.assert_close(f_joint_vel, joint_vel)
+    torch.testing.assert_close(f_position, position + 0.05 * lin_vel)
+    torch.testing.assert_close(f_joint_pos, joint_pos + 0.05 * joint_vel)
+    torch.testing.assert_close(f_tactile, tactile)
 
 
 def test_replay_masks_done_and_pads_history_at_episode_start(monkeypatch):
