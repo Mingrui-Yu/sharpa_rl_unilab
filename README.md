@@ -114,6 +114,11 @@ Ubuntu/Debian, install `libegl1` with a working NVIDIA graphics driver, or `libo
 for software rendering. `uv sync` does not install these system dependencies; set
 `training.no_play=true` if recording is not needed.
 
+SuperMimic uses mixed Muon/Adam optimizers by default: Muon updates hidden actor
+and world-model weight matrices, while input/output layers, vectors, normalizers,
+and the critic remain on Adam. Set `algo.pi_opt=adam` and/or `algo.wm_opt=adam`
+to restore Adam for either network.
+
 For evaluation and HORA distillation, specify the checkpoint file directly:
 
 ```bash

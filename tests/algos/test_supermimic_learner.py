@@ -6,6 +6,7 @@ import torch
 from unilab.base.torch_env import TorchEnvState
 
 from sharpa_rl_unilab.algos.supermimic.learner import SharpaSuperMimicLearner
+from sharpa_rl_unilab.algos.supermimic.optim import MuonAdam
 from sharpa_rl_unilab.algos.supermimic.state import STATE_DIM, integrate_state, unflatten_state
 from sharpa_rl_unilab.cli import compose_config
 from sharpa_rl_unilab.training.policy import make_models
@@ -108,7 +109,7 @@ def test_complete_learner_updates_on_cpu(single_stage):
             "training.device=cpu",
             f"algo.single_stage={str(single_stage).lower()}",
             "training.num_envs=2",
-            "algo.wm_hidden=[8]",
+            "algo.wm_hidden=[8,8]",
             "algo.wm_batch=4",
             "algo.wm_window=2",
             "algo.wm_batches=1",
@@ -134,3 +135,47 @@ def test_complete_learner_updates_on_cpu(single_stage):
     assert torch.isfinite(wm_loss) and torch.isfinite(wm_error)
     for value in policy.values():
         assert value.ndim == 0 and torch.isfinite(value)
+
+
+def test_supermimic_defaults_use_mixed_muon_adam_and_adam_remains_available():
+    overrides = [
+        "training.device=cpu",
+        "training.num_envs=2",
+        "algo.wm_hidden=[8,8]",
+    ]
+    cfg = compose_config("supermimic", "mujoco", overrides)
+    env = FakeEnv(cfg)
+    actor, critic, _ = make_models(cfg, "cpu")
+    learner = SharpaSuperMimicLearner(env, cfg, actor, critic, env.mdp("cpu"), env.capture)
+
+    assert isinstance(learner.opt_pi, MuonAdam)
+    assert isinstance(learner.opt_wm, MuonAdam)
+    assert not isinstance(learner.opt_v, MuonAdam)
+    policy_muon = {
+        id(parameter) for group in learner.opt_pi.muon.param_groups for parameter in group["params"]
+    }
+    world_model_muon = {
+        id(parameter) for parameter in learner.opt_wm.muon.param_groups[0]["params"]
+    }
+    trunk = learner.actor.shared.trunk
+    priv_encoder = learner.actor.shared.priv_encoder
+    assert id(trunk.net[2].weight) in policy_muon
+    assert id(trunk.net[4].weight) in policy_muon
+    assert id(trunk.net[0].weight) not in policy_muon
+    assert id(priv_encoder.net[2].weight) in policy_muon
+    assert id(priv_encoder.net[4].weight) not in policy_muon
+    assert id(priv_encoder.net[0].weight) not in policy_muon
+    assert id(learner.actor.shared.mu_head.weight) not in policy_muon
+    assert id(learner.wm.net[3].weight) in world_model_muon
+    assert id(learner.wm.net[0].weight) not in world_model_muon
+    assert id(learner.wm.net[-1].weight) not in world_model_muon
+
+    cfg = compose_config(
+        "supermimic", "mujoco", [*overrides, "algo.pi_opt=adam", "algo.wm_opt=adam"]
+    )
+    env = FakeEnv(cfg)
+    actor, critic, _ = make_models(cfg, "cpu")
+    learner = SharpaSuperMimicLearner(env, cfg, actor, critic, env.mdp("cpu"), env.capture)
+
+    assert isinstance(learner.opt_pi, torch.optim.Adam)
+    assert isinstance(learner.opt_wm, torch.optim.Adam)

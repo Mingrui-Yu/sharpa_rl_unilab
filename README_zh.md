@@ -112,6 +112,10 @@ EGL 或 OSMesa 离屏渲染；Ubuntu/Debian 需要安装 `libegl1` 并使用可�
 图形驱动，或安装 `libosmesa6` 使用软件渲染。`uv sync` 不会安装这些系统依赖；
 无需录制时可设置 `training.no_play=true`。
 
+SuperMimic 默认使用 Muon/Adam 混合优化器：隐藏层 actor 与世界模型权重矩阵使用
+Muon，输入/输出层、向量、归一化参数和 critic 仍使用 Adam。可用
+`algo.pi_opt=adam` 和/或 `algo.wm_opt=adam` 将对应网络恢复为 Adam。
+
 评估与 HORA 蒸馏直接指定 checkpoint 文件：
 
 ```bash
