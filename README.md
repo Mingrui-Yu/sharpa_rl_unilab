@@ -34,22 +34,6 @@ window:
 The direct actor reaches 43.59 return, rotates the cylinder by 13.42 rad, and
 stays alive for 19.41 seconds while eliminating the separate distillation stage.
 
-### SuperMimic Muon optimizer ablation
-
-A two-seed MuJoCo direct run with the structured world model and mixed
-Muon/Adam optimizers was compared with the logged three-seed unstructured-WM
-Adam baseline. Both used the same 240-scene evaluation manifest.
-
-| Method | Seeds | Return | Fixed-window speed (rad/s) | Survival (s) | Drop rate |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Structured WM + Muon/Adam | 2 | 30.105 ± 6.765 | 0.708 ± 0.117 | 17.969 ± 1.930 | 17.71% ± 17.97% |
-| Unstructured WM + Adam baseline | 3 | 32.531 ± 2.926 | 0.731 ± 0.012 | 19.108 ± 0.618 | 6.53% ± 3.87% |
-
-This exploratory reuse of the Adam learning rate did not improve the logged
-baseline and was seed-split. See the full protocol, per-seed results, training
-cost, and confounds in
-[the experiment report](docs/experiments/2026-11-03-supermimic-muon-optimizer.md).
-
 ## Demonstrations
 
 | Real robot | APPO | FlashSAC | SuperMimic direct |

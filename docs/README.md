@@ -5,7 +5,3 @@
 | Task overview | [In-hand rotation](en/task.md) | [手内旋转任务](zh_CN/task.md) |
 | Training | [Training guide](en/training.md) | [训练指南](zh_CN/training.md) |
 | Architecture | [Architecture](en/architecture.md) | [架构说明](zh_CN/architecture.md) |
-
-Experiment reports are retained under [experiments](experiments/); see the
-[SuperMimic Muon optimizer ablation](experiments/2026-11-03-supermimic-muon-optimizer.md)
-for the two-seed structured-WM result.

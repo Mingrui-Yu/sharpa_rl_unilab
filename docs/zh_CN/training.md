@@ -44,8 +44,7 @@ Motrix owner 会禁用 persistent-force 事件；reset-time 的增益、质量�
 SuperMimic 的 actor 与世界模型优化器对符合条件的隐藏层 Linear 权重矩阵使用
 Muon；输入/输出投影、向量、normalizer 以及全部 critic 参数继续使用 Adam。
 Muon 使用 `match_rms_adamw` 缩放，因此复用既有学习率。可用
-`algo.pi_opt=adam` 和/或 `algo.wm_opt=adam` 将对应网络恢复为 Adam。当前
-两组 seed 的质量对比见[优化器实验报告](../experiments/2026-11-03-supermimic-muon-optimizer.md)。
+`algo.pi_opt=adam` 和/或 `algo.wm_opt=adam` 将对应网络恢复为 Adam。
 
 ```bash
 uv run sharpa-train --algo supermimic

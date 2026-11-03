@@ -51,9 +51,7 @@ SuperMimic's actor and world-model optimizers use Muon for eligible hidden
 Linear weight matrices and Adam for input/output projections, vectors,
 normalizers, and all critic parameters. Muon uses `match_rms_adamw` scaling so
 the existing learning rate is reused. Set `algo.pi_opt=adam` and/or
-`algo.wm_opt=adam` to restore Adam for either network. See the
-[optimizer experiment report](../experiments/2026-11-03-supermimic-muon-optimizer.md)
-for the current two-seed quality comparison.
+`algo.wm_opt=adam` to restore Adam for either network.
 
 ```bash
 uv run sharpa-train --algo supermimic

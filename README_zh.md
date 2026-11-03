@@ -25,21 +25,6 @@ teacher/student 蒸馏；actor 使用 147 维观测历史，训练 critic 保留
 direct actor 取得 43.59 return，完成 13.42 rad 旋转，存活 19.41 秒，同时省去了
 独立蒸馏阶段。
 
-### SuperMimic Muon 优化器消融
-
-在结构化世界模型上使用 Muon/Adam 混合优化器完成 2 个 MuJoCo direct seed，
-并与日志中的 3-seed 无结构化世界模型 Adam baseline 对比；两者使用相同的
-240 场景评估清单。
-
-| 方法 | Seeds | Return | 固定窗口转速 (rad/s) | 存活时间 (s) | 掉落率 |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 结构化 WM + Muon/Adam | 2 | 30.105 ± 6.765 | 0.708 ± 0.117 | 17.969 ± 1.930 | 17.71% ± 17.97% |
-| 无结构化 WM + Adam baseline | 3 | 32.531 ± 2.926 | 0.731 ± 0.012 | 19.108 ± 0.618 | 6.53% ± 3.87% |
-
-这次复用 Adam 学习率的探索性实验没有超过 baseline，且两个 seed 的结果差异较大。
-完整协议、逐 seed 结果、训练成本和混杂因素见
-[实验报告](docs/experiments/2026-11-03-supermimic-muon-optimizer.md)（英文）。
-
 ## 演示
 
 | 真实机器人 | APPO | FlashSAC | SuperMimic direct |
