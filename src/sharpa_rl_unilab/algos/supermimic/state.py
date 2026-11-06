@@ -83,12 +83,28 @@ def state_difference(state: State, next_state: State) -> torch.Tensor:
 
 
 def integrate_state(state: State, delta: torch.Tensor, action: torch.Tensor, lower, upper, scale):
+    return integrate_state_with_anchor(
+        state, delta, action, lower, upper, scale, target_anchor=None
+    )
+
+
+def integrate_state_with_anchor(
+    state: State,
+    delta: torch.Tensor,
+    action: torch.Tensor,
+    lower,
+    upper,
+    scale,
+    *,
+    target_anchor=None,
+):
     position, rotation, lin_vel, ang_vel, joint_pos, joint_vel, tactile, target = state
     splits = (3, 3, 3, 3, ACTION_DIM, ACTION_DIM, TACTILE_DIM)
     d_position, d_rotation, d_lin_vel, d_ang_vel, d_joint_pos, d_joint_vel, d_tactile = delta.split(
         splits, -1
     )
-    next_target = (target + scale * action.clamp(-1, 1)).clamp(lower, upper)
+    anchor = target if target_anchor is None else target_anchor
+    next_target = (anchor + scale * action.clamp(-1, 1)).clamp(lower, upper)
     return (
         position + d_position,
         matmul(rotation, so3_exp(d_rotation)),
@@ -167,6 +183,31 @@ def structured_integrate_state(
     dt: float,
     drift_w: float = DRIFT_W,
 ) -> State:
+    return structured_integrate_state_with_anchor(
+        state,
+        delta,
+        action,
+        lower,
+        upper,
+        scale,
+        dt,
+        drift_w,
+        target_anchor=None,
+    )
+
+
+def structured_integrate_state_with_anchor(
+    state: State,
+    delta: torch.Tensor,
+    action: torch.Tensor,
+    lower,
+    upper,
+    scale,
+    dt: float,
+    drift_w: float = DRIFT_W,
+    *,
+    target_anchor=None,
+) -> State:
     """Semi-implicit next state from the denormalized structured output ``delta``.
 
     Velocities integrate explicitly; positions follow the velocity-implied drift plus the
@@ -180,7 +221,8 @@ def structured_integrate_state(
     ang_vel1 = ang_vel + d_ang_vel
     joint_vel1 = joint_vel + d_joint_vel
     gp, gth, gq = semi_implicit_drift(state, lin_vel1, ang_vel1, joint_vel1, dt, drift_w)
-    next_target = (target + scale * action.clamp(-1, 1)).clamp(lower, upper)
+    anchor = target if target_anchor is None else target_anchor
+    next_target = (anchor + scale * action.clamp(-1, 1)).clamp(lower, upper)
     return (
         position + d_position + gp,
         matmul(rotation, so3_exp(d_rotation + gth)),
@@ -202,10 +244,12 @@ __all__ = [
     "TACTILE_DIM",
     "flatten_state",
     "integrate_state",
+    "integrate_state_with_anchor",
     "semi_implicit_drift",
     "state_difference",
     "state_features",
     "structured_integrate_state",
+    "structured_integrate_state_with_anchor",
     "structured_state_difference",
     "unflatten_state",
 ]

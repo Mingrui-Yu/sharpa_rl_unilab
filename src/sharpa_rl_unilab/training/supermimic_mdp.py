@@ -86,6 +86,8 @@ class SharpaSuperMimicMDP:
         self.lower = tensor(action._target_lower)
         self.upper = tensor(action._target_upper)
         self.action_scale = float(action._action_scale)
+        self.direct_control = getattr(action, "control_mode", "integrated") == "direct"
+        self.target_anchor = self.default if self.direct_control else None
         self.dt = float(env.step_dt)
         self.rotation_axis = tensor(env.event_manager.get_term_cfg("reset").func._rotation_axis)
         reward_cfg = getattr(env.cfg, "rewards", None)

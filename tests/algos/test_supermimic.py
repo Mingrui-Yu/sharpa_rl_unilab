@@ -9,12 +9,15 @@ from sharpa_rl_unilab.algos.supermimic.state import (
     STATE_DIM,
     flatten_state,
     integrate_state,
+    integrate_state_with_anchor,
     state_difference,
     structured_integrate_state,
+    structured_integrate_state_with_anchor,
     structured_state_difference,
     unflatten_state,
 )
 from sharpa_rl_unilab.cli import compose_config
+from sharpa_rl_unilab.tasks.sharpa_inhand.terms.action import normalize_control_mode
 from sharpa_rl_unilab.training.checkpoints import load_policy, save_supermimic
 from sharpa_rl_unilab.training.policy import inference_distribution, make_models
 
@@ -70,6 +73,44 @@ def test_structured_world_model_zero_init_drifts_with_velocity():
     torch.testing.assert_close(f_tactile, tactile)
 
 
+def test_default_pose_action_target_is_absolute():
+    state = _state()
+    action = torch.full((2, 22), 0.5)
+    default_pose = torch.full((2, 22), 0.2)
+    lower, upper, scale = -0.4, 0.4, 0.1
+
+    following = integrate_state_with_anchor(
+        state,
+        torch.zeros(2, DELTA_DIM),
+        action,
+        lower,
+        upper,
+        scale,
+        target_anchor=default_pose,
+    )
+    structured_following = structured_integrate_state_with_anchor(
+        state,
+        torch.zeros(2, DELTA_DIM),
+        action,
+        lower,
+        upper,
+        scale,
+        0.05,
+        target_anchor=default_pose,
+    )
+    expected = default_pose + scale * action
+
+    torch.testing.assert_close(following[-1], expected)
+    torch.testing.assert_close(structured_following[-1], expected)
+
+
+def test_control_mode_names_are_semantic_and_legacy_aliases_normalize():
+    assert normalize_control_mode("test", "integrated") == "integrated"
+    assert normalize_control_mode("test", "direct") == "direct"
+    assert normalize_control_mode("test", "incremental") == "integrated"
+    assert normalize_control_mode("test", "default_pose") == "direct"
+
+
 def test_replay_masks_done_and_pads_history_at_episode_start(monkeypatch):
     monkeypatch.setattr(
         torch,
@@ -100,14 +141,15 @@ def test_replay_masks_done_and_pads_history_at_episode_start(monkeypatch):
     assert history["s"].shape == (8, 3, STATE_DIM)
 
 
-def test_supermimic_default_remains_hora_teacher():
+def test_supermimic_default_uses_single_stage_direct_actor():
     cfg = compose_config("supermimic", "mujoco", ["training.device=cpu"])
     actor, _, _ = make_models(cfg, "cpu")
 
-    assert not cfg.algo.single_stage
-    assert cfg.protocol.stage == "teacher"
-    assert actor.shared.priv_encoder is not None
-    assert actor.shared.trunk.net[0].in_features == 156
+    assert cfg.algo.single_stage
+    assert cfg.env.actions.hand.control_mode == "direct"
+    assert cfg.env.actions.hand.action_scale == 0.25
+    assert cfg.protocol.stage == "direct"
+    assert actor.trunk.net[0].in_features == 147
 
 
 def test_supermimic_checkpoint_restores_direct_policy(tmp_path):
