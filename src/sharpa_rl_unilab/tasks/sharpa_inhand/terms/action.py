@@ -1,9 +1,9 @@
-"""Incremental hand position action term."""
+"""Integrated or direct hand position action term."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
 import torch
@@ -30,6 +30,23 @@ if TYPE_CHECKING:
     from unilab.managers.types import ManagerBasedRlEnv
 
 
+CONTROL_MODE_INTEGRATED: Literal["integrated", "direct"] = "integrated"
+CONTROL_MODE_DIRECT: Literal["integrated", "direct"] = "direct"
+_LEGACY_CONTROL_MODES = {
+    "incremental": CONTROL_MODE_INTEGRATED,
+    "default_pose": CONTROL_MODE_DIRECT,
+}
+
+
+def normalize_control_mode(term: str, value: object) -> Literal["integrated", "direct"]:
+    """Normalize canonical target modes and deprecated pre-release aliases."""
+    if value == CONTROL_MODE_INTEGRATED or value == CONTROL_MODE_DIRECT:
+        return cast(Literal["integrated", "direct"], value)
+    if isinstance(value, str) and value in _LEGACY_CONTROL_MODES:
+        return cast(Literal["integrated", "direct"], _LEGACY_CONTROL_MODES[value])
+    raise ValueError(f"{term} control_mode must be 'integrated' or 'direct'; got {value!r}")
+
+
 @dataclass(kw_only=True)
 class SharpaIncrementalPositionActionCfg(ActionTermCfg):
     actuator_names: tuple[str, ...] | list[str]
@@ -37,13 +54,14 @@ class SharpaIncrementalPositionActionCfg(ActionTermCfg):
     raw_action_clip: tuple[float, float] | list[float]
     dof_limits_scale: float = 0.9
     zero_action: bool = False
+    control_mode: Literal["integrated", "direct"] = CONTROL_MODE_INTEGRATED
 
     def build(self, env: ManagerBasedRlEnv) -> SharpaIncrementalPositionAction:
         return SharpaIncrementalPositionAction(self, env)
 
 
 class SharpaIncrementalPositionAction(ActionTerm):
-    """Integrate bounded policy deltas into hand position targets."""
+    """Produce integrated or direct default-pose hand position targets."""
 
     cfg: SharpaIncrementalPositionActionCfg
     _entity: Entity
@@ -83,6 +101,8 @@ class SharpaIncrementalPositionAction(ActionTerm):
         self._zero_action = require_bool(term, "zero_action", cfg.zero_action)
         if self._dof_limits_scale == 0.0:
             raise ValueError(f"{term} dof_limits_scale must be positive")
+        self._control_mode = normalize_control_mode(term, cfg.control_mode)
+        cfg.control_mode = self._control_mode
 
         dtype = numpy_dtype(get_global_dtype())
         self._raw_action = torch.zeros(
@@ -101,6 +121,12 @@ class SharpaIncrementalPositionAction(ActionTerm):
         self._target_upper = torch.from_numpy(self._ctrl_upper * self._dof_limits_scale).to(
             device=env.device, dtype=torch.float32
         )
+        self._default_pose = torch.from_numpy(
+            np.broadcast_to(
+                SOURCE_DEFAULT_HAND_JOINT_POS.astype(dtype),
+                (env.num_envs, NUM_HAND_JOINTS),
+            ).copy()
+        ).to(device=env.device, dtype=torch.float32)
 
     @property
     def action_dim(self) -> int:
@@ -113,6 +139,14 @@ class SharpaIncrementalPositionAction(ActionTerm):
     @property
     def target(self) -> torch.Tensor:
         return self._target
+
+    @property
+    def control_mode(self) -> str:
+        return self._control_mode
+
+    @property
+    def default_pose(self) -> torch.Tensor:
+        return self._default_pose
 
     @property
     def ctrl_lower(self) -> np.ndarray:
@@ -142,7 +176,15 @@ class SharpaIncrementalPositionAction(ActionTerm):
         if self._zero_action:
             actions = torch.zeros_like(actions)
         torch.clamp(actions, self._raw_clip[0], self._raw_clip[1], out=self._clipped_action)
-        self._target.add_(self._clipped_action, alpha=self._action_scale)
+        if self._control_mode == CONTROL_MODE_INTEGRATED:
+            self._target.add_(self._clipped_action, alpha=self._action_scale)
+        else:
+            torch.add(
+                self._default_pose,
+                self._clipped_action,
+                alpha=self._action_scale,
+                out=self._target,
+            )
         torch.clamp(self._target, min=self._target_lower, max=self._target_upper, out=self._target)
 
     def apply_actions(self) -> None:
@@ -152,16 +194,23 @@ class SharpaIncrementalPositionAction(ActionTerm):
         ids = resolve_env_ids(self._env, env_ids)
         self._raw_action[ids] = 0.0
         self._clipped_action[ids] = 0.0
-        self._target[ids] = torch.as_tensor(
-            entity_host_data(self._entity, "joint_pos")[ids][:, self._joint_ids],
-            dtype=torch.float32,
-            device=self._target.device,
-        )
+        if self._control_mode == CONTROL_MODE_INTEGRATED:
+            self._target[ids] = torch.as_tensor(
+                entity_host_data(self._entity, "joint_pos")[ids][:, self._joint_ids],
+                dtype=torch.float32,
+                device=self._target.device,
+            )
+        else:
+            self._target[ids] = self._default_pose[ids]
 
     def reset_to_positions(
         self, positions: torch.Tensor, env_ids: torch.Tensor | None = None
     ) -> None:
-        """Synchronize the integrated target after a reset term stages joints."""
+        """Synchronize the action target after a reset term stages joints.
+
+        Integrated mode resumes from the newly staged joint positions. Direct mode always
+        re-anchors its next target to the default pose.
+        """
         ids = (
             torch.arange(self.num_envs, dtype=torch.int64, device=self._target.device)
             if env_ids is None
@@ -169,4 +218,7 @@ class SharpaIncrementalPositionAction(ActionTerm):
         )
         self._raw_action[ids] = 0.0
         self._clipped_action[ids] = 0.0
-        self._target[ids] = positions.to(device=self._target.device, dtype=torch.float32)
+        if self._control_mode == CONTROL_MODE_INTEGRATED:
+            self._target[ids] = positions.to(device=self._target.device, dtype=torch.float32)
+        else:
+            self._target[ids] = self._default_pose[ids]

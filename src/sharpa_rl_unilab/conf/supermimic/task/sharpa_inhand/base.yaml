@@ -8,7 +8,7 @@ algo:
   max_iterations: 3000
   save_interval: 1000
   checkpoint: null
-  single_stage: false
+  single_stage: true
   buffer_steps: 1000
   warmup_steps: 64
   utd: 1.6
@@ -37,3 +37,11 @@ model:
   action_mapping: tanh
   std_mode: state_independent
   std_parameterization: log
+
+# Sweep-selected default for single-stage SuperMimic. Mean fixed-evaluation
+# return was 57.87 over seeds 1/2/3 (scale 0.25 versus 56.66 for 1/6).
+env:
+  actions:
+    hand:
+      action_scale: 0.25
+      control_mode: direct

@@ -95,6 +95,7 @@ env:
       - -1.0
       - 1.0
       dof_limits_scale: 0.9
+      control_mode: integrated  # integrated: target += scale * action; direct: target = default_pose + scale * action
   events:
     reset_scene_to_default:
       func: unilab.envs.mdp.reset_scene_to_default

@@ -17,10 +17,10 @@ from .state import (
     DELTA_DIM,
     DRIFT_W,
     State,
-    integrate_state,
+    integrate_state_with_anchor,
     state_difference,
     state_features,
-    structured_integrate_state,
+    structured_integrate_state_with_anchor,
     structured_state_difference,
 )
 
@@ -139,17 +139,34 @@ class WorldModel(nn.Module):
         return torch.cat((state_features(state), action, context), -1)
 
     def forward(
-        self, state: State, action: torch.Tensor, context: torch.Tensor, lower, upper, scale
+        self,
+        state: State,
+        action: torch.Tensor,
+        context: torch.Tensor,
+        lower,
+        upper,
+        scale,
+        target_anchor=None,
     ):
         features = self.in_norm(self.inputs(state, action, context))
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=self.amp and features.is_cuda):
             prediction = self.net(features).float()
         delta = prediction * self.out_norm.std() + self.out_norm.mean
         if self.structured:
-            return structured_integrate_state(
-                state, delta, action, lower, upper, scale, self.dt, self.drift_w
+            return structured_integrate_state_with_anchor(
+                state,
+                delta,
+                action,
+                lower,
+                upper,
+                scale,
+                self.dt,
+                self.drift_w,
+                target_anchor=target_anchor,
             )
-        return integrate_state(state, delta, action, lower, upper, scale)
+        return integrate_state_with_anchor(
+            state, delta, action, lower, upper, scale, target_anchor=target_anchor
+        )
 
     def targets(self, state: State, next_state: State) -> torch.Tensor:
         if self.structured:

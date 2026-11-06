@@ -226,6 +226,7 @@ class SharpaSuperMimicLearner:
                 self.mdp.lower,
                 self.mdp.upper,
                 self.mdp.action_scale,
+                self.mdp.target_anchor,
             )
             expected = unflatten_state(window["s1"][:, index])
             std = torch.maximum(self.wm.inc_norm.std(), self.wm.error_floor)
@@ -258,6 +259,7 @@ class SharpaSuperMimicLearner:
             self.mdp.lower,
             self.mdp.upper,
             self.mdp.action_scale,
+            self.mdp.target_anchor,
         )
         reward = self.mdp.reward(state, context)
         done = self.mdp.soft_termination(state, context)

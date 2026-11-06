@@ -141,6 +141,7 @@ def test_supermimic_defaults_use_mixed_muon_adam_and_adam_remains_available():
     overrides = [
         "training.device=cpu",
         "training.num_envs=2",
+        "algo.single_stage=false",
         "algo.wm_hidden=[8,8]",
     ]
     cfg = compose_config("supermimic", "mujoco", overrides)
